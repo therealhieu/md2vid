@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #FAF9F5; }
+      .scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="100.728"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="el-01-cover"
+        class="scene"
+        data-composition-id="01-cover"
+        data-composition-src="compositions/frames/01-cover.html"
+        data-start="0.000"
+        data-duration="13.757"
+        data-track-index="0"
+      ></div>
+      <audio
+        id="el-01-cover-voice"
+        src="assets/voice/01.wav"
+        data-start="0.000"
+        data-duration="12.757"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-02-core-idea"
+        class="scene"
+        data-composition-id="02-core-idea"
+        data-composition-src="compositions/frames/02-core-idea.html"
+        data-start="13.257"
+        data-duration="16.104"
+        data-track-index="1"
+      ></div>
+      <audio
+        id="el-02-core-idea-voice"
+        src="assets/voice/02.wav"
+        data-start="13.257"
+        data-duration="15.104"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-03-lookup-flow"
+        class="scene"
+        data-composition-id="03-lookup-flow"
+        data-composition-src="compositions/frames/03-lookup-flow.html"
+        data-start="28.861"
+        data-duration="13.181"
+        data-track-index="0"
+      ></div>
+      <audio
+        id="el-03-lookup-flow-voice"
+        src="assets/voice/03.wav"
+        data-start="28.861"
+        data-duration="12.181"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-04-collisions"
+        class="scene"
+        data-composition-id="04-collisions"
+        data-composition-src="compositions/frames/04-collisions.html"
+        data-start="41.543"
+        data-duration="16.317"
+        data-track-index="1"
+      ></div>
+      <audio
+        id="el-04-collisions-voice"
+        src="assets/voice/04.wav"
+        data-start="41.543"
+        data-duration="15.317"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-05-load-factor"
+        class="scene"
+        data-composition-id="05-load-factor"
+        data-composition-src="compositions/frames/05-load-factor.html"
+        data-start="57.360"
+        data-duration="17.299"
+        data-track-index="0"
+      ></div>
+      <audio
+        id="el-05-load-factor-voice"
+        src="assets/voice/05.wav"
+        data-start="57.360"
+        data-duration="16.299"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-06-why-matters"
+        class="scene"
+        data-composition-id="06-why-matters"
+        data-composition-src="compositions/frames/06-why-matters.html"
+        data-start="74.159"
+        data-duration="11.880"
+        data-track-index="1"
+      ></div>
+      <audio
+        id="el-06-why-matters-voice"
+        src="assets/voice/06.wav"
+        data-start="74.159"
+        data-duration="10.880"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <div
+        id="el-07-recap"
+        class="scene"
+        data-composition-id="07-recap"
+        data-composition-src="compositions/frames/07-recap.html"
+        data-start="85.539"
+        data-duration="15.189"
+        data-track-index="0"
+      ></div>
+      <audio
+        id="el-07-recap-voice"
+        src="assets/voice/07.wav"
+        data-start="85.539"
+        data-duration="15.189"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>
+
+      <!-- captions -->
+      <div
+        id="el-captions"
+        class="scene"
+        data-composition-id="captions"
+        data-composition-src="compositions/captions.html"
+        data-start="0"
+        data-duration="100.728"
+        data-track-index="2"
+      ></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+      (function () { var tl = window.__timelines["main"];
+        tl.to("#el-01-cover", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 13.257);
+        tl.fromTo("#el-02-core-idea", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 13.257);
+        tl.to("#el-02-core-idea", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 28.861);
+        tl.fromTo("#el-03-lookup-flow", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 28.861);
+        tl.to("#el-03-lookup-flow", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 41.543);
+        tl.fromTo("#el-04-collisions", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 41.543);
+        tl.to("#el-04-collisions", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 57.360);
+        tl.fromTo("#el-05-load-factor", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 57.360);
+        tl.to("#el-05-load-factor", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 74.159);
+        tl.fromTo("#el-06-why-matters", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 74.159);
+        tl.to("#el-06-why-matters", { opacity: 0, duration: 0.5, ease: "power2.inOut" }, 85.539);
+        tl.fromTo("#el-07-recap", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.inOut" }, 85.539);
+        tl.to({}, { duration: 100.728 }, 0);
+      })();
+    </script>
+  </body>
+</html>

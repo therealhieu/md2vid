@@ -1,0 +1,213 @@
+// emit.mjs — the HyperFrames adapter's emitter. Consumes the neutral build plan
+// and writes the framework OUTPUT files (index.html + compositions/captions.html)
+// into the output dir. This is the ONLY place HF HTML is produced.
+//
+// Contract: emit(plan, sharedDir, outputDir, config). Idempotent.
+//
+// GROUPS SOURCE IS LOAD-BEARING: captions.html bakes its `var GROUPS` from the
+// on-disk shared/caption_groups.json (the REGROUPED source of truth), NOT from
+// plan.captionGroups (which is pre-regroup, one group per frame). The build chain
+// is: plan → write caption_groups.json → regroup (mutates that JSON only) → emit
+// (re-reads the regrouped JSON for GROUPS). Only duration/canvas/tokens come from
+// the plan. This closes the drift where regroup used to write captions.html itself.
+//
+// trackIndex (frameNum%2) and crossfade pairs are HF LAYERING artifacts derived
+// HERE from plan.frames + plan.timing — the neutral IR does not carry them.
+
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { BuildPlan, CaptionGroup, VideoConfig } from "../../engine/types.ts";
+import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
+import {
+  DEFAULT_GSAP_SRC,
+  ensureRuntime,
+  gsapScriptSrcAttribute,
+  validateGsapSrc,
+} from "./scaffold.ts";
+
+const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(FW_HYPERFRAMES, "..", "..");
+// The ONE source of truth for the caption look — HF-owned, beside the adapter.
+const CAPTION_SKIN = join(FW_HYPERFRAMES, "templates", "caption-skin.html");
+
+// Warm-editorial caption tokens (repo standard, per docs/standards/design). A project
+// may override any of these via video.config.json → captions.tokens.
+const DEFAULT_CAPTION_TOKENS = {
+  "--ink": "#141413",
+  "--cream": "#FAF9F5",
+  "--tile": "#EFE9DE",
+  "--tile-strong": "#ECE3D4",
+  "--coral": "#CC785C",
+  "--cap-ink": "#141413",
+  "--cap-canvas": "#FAF9F5",
+  "--cap-accent": "#CC785C",
+  "--cap-band-height": "200px",
+  "--font-display": '"EB Garamond"',
+};
+
+// Fill the canonical caption skin (the ONE source of truth for the caption LOOK) with
+// the regrouped GROUPS (read off disk) + duration/canvas/tokens from the plan. The look
+// is NEVER baked inline here. Returns the transportable captions.html fragment string.
+export function buildCaptionsHtml(plan: BuildPlan, groups: CaptionGroup[], config: VideoConfig): string {
+  const { width, height } = plan.canvas;
+  const total = plan.totalDuration;
+  const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
+  const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "compositions/captions.html");
+  const tokens = { ...DEFAULT_CAPTION_TOKENS, ...(config.captions?.tokens || {}) };
+
+  let skin = readFileSync(CAPTION_SKIN, "utf8");
+
+  // Drop the leading authoring comment block; the rest is the transportable fragment.
+  skin = skin.replace(/^<!--[\s\S]*?-->\s*/, "");
+
+  // Use the project's explicit GSAP source when configured; otherwise use the pinned CDN.
+  skin = skin.replaceAll(DEFAULT_GSAP_SRC, gsapAttribute);
+
+  // Hole 1: :root brand tokens.
+  const tokenLines = Object.entries(tokens)
+    .map(([k, v]) => `    ${k}: ${v};`)
+    .join("\n");
+  skin = skin.replace(
+    "<style data-brand-tokens></style>",
+    `<style data-brand-tokens>\n  :root {\n${tokenLines}\n  }\n</style>`
+  );
+
+  // Hole 2: real duration + canvas on #captions-root (placeholders are 0).
+  skin = skin
+    .replace(/(<div\s+id="captions-root"[\s\S]*?)data-duration="0"/, `$1data-duration="${total.toFixed(3)}"`)
+    .replace(/(<div\s+id="captions-root"[\s\S]*?)data-width="0"/, `$1data-width="${width}"`)
+    .replace(/(<div\s+id="captions-root"[\s\S]*?)data-height="0"/, `$1data-height="${height}"`);
+
+  // Hole 3: baked groups + duration for the karaoke timeline.
+  skin = skin
+    .replace(/var GROUPS = \[\];/, `var GROUPS = ${JSON.stringify(groups)};`)
+    .replace(/var DURATION = 0;/, `var DURATION = ${total.toFixed(3)};`);
+
+  // Wrap the filled fragment in the transportable composition template.
+  return (
+    `<template id="captions-template" data-composition-id="captions" data-width="${width}" data-height="${height}">\n` +
+    skin.trimEnd() +
+    `\n</template>\n`
+  );
+}
+
+// Build the main index.html: frame mounts + voice audio + crossfade transitions.
+export function buildIndexHtml(plan: BuildPlan, config: VideoConfig): string {
+  const { width, height } = plan.canvas;
+  const total = plan.totalDuration;
+  const xfade = plan.timing.xfade;
+  const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
+  const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "index.html");
+  const frames = plan.frames;
+
+  const mounts = frames
+    .map((f) => {
+      const trackIdx = f.frameNum % 2 === 1 ? 0 : 1; // alternate tracks 0/1 like the golden ref
+      return `      <div
+        id="el-${f.slug}"
+        class="scene"
+        data-composition-id="${f.slug}"
+        data-composition-src="compositions/frames/${f.slug}.html"
+        data-start="${f.start.toFixed(3)}"
+        data-duration="${f.frameDur.toFixed(3)}"
+        data-track-index="${trackIdx}"
+      ></div>
+      <audio
+        id="el-${f.slug}-voice"
+        src="${f.voicePath}"
+        data-start="${f.start.toFixed(3)}"
+        data-duration="${f.voiceDur.toFixed(3)}"
+        data-track-index="10"
+        data-volume="1"
+      ></audio>`;
+    })
+    .join("\n\n");
+
+  // crossfade transitions: fade out prev + fade in next at each boundary
+  const transitions = frames
+    .slice(1)
+    .map((f, i) => {
+      const prev = frames[i];
+      const at = f.start.toFixed(3);
+      return `        tl.to("#el-${prev.slug}", { opacity: 0, duration: ${xfade}, ease: "power2.inOut" }, ${at});
+        tl.fromTo("#el-${f.slug}", { opacity: 0 }, { opacity: 1, duration: ${xfade}, ease: "power2.inOut" }, ${at});`;
+    })
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=${width}, height=${height}" />
+    <script src="${gsapAttribute}"><\/script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: ${width}px; height: ${height}px; overflow: hidden; background: #000; }
+      #root { position: relative; width: ${width}px; height: ${height}px; overflow: hidden; background: #FAF9F5; }
+      .scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="${total.toFixed(3)}"
+      data-width="${width}"
+      data-height="${height}"
+    >
+${mounts}
+
+      <!-- captions -->
+      <div
+        id="el-captions"
+        class="scene"
+        data-composition-id="captions"
+        data-composition-src="compositions/captions.html"
+        data-start="0"
+        data-duration="${total.toFixed(3)}"
+        data-track-index="2"
+      ></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = gsap.timeline({ paused: true });
+      (function () { var tl = window.__timelines["main"];
+${transitions}
+        tl.to({}, { duration: ${total.toFixed(3)} }, 0);
+      })();
+    <\/script>
+  </body>
+</html>
+`;
+}
+
+// The adapter contract: plan in, framework files out. Idempotent.
+// Reads the REGROUPED shared/caption_groups.json off disk for the baked GROUPS (see
+// header). `captionsOnly` skips index.html — used by the mid-chain captions refill.
+export function emit(plan: BuildPlan, sharedDir: string, outputDir: string, config: VideoConfig, { captionsOnly = false }: { captionsOnly?: boolean } = {}): void {
+  const emittedConfig = { ...config, gsapSrc: validateGsapSrc(outputDir, config.gsapSrc) };
+  const groupsPath = join(sharedDir, "caption_groups.json");
+  const groups = JSON.parse(readFileSync(groupsPath, "utf8")).groups;
+
+  if (!captionsOnly) {
+    ensureRuntime(outputDir, "hyperframes");
+    stageVoiceAssets({
+      framework: "hyperframes",
+      voicePaths: collectVoicePaths(plan.frames),
+      sourceRoot: sharedDir,
+      destinationRoot: outputDir,
+    });
+  }
+
+  writeFileSync(
+    join(outputDir, "compositions", "captions.html"),
+    buildCaptionsHtml(plan, groups, emittedConfig),
+  );
+
+  if (!captionsOnly) {
+    writeFileSync(join(outputDir, "index.html"), buildIndexHtml(plan, emittedConfig));
+  }
+}

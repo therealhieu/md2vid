@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || 'ci-main' }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-latest-node:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      version: ${{ steps.node.outputs.version }}
+    steps:
+      - name: Set up latest Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: node
+      - name: Resolve exact Node version
+        id: node
+        run: echo "version=$(node -p 'process.versions.node')" >> "$GITHUB_OUTPUT"
+
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Validate pull request title
+        shell: bash
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          test "${#PR_TITLE}" -le 72
+          [[ "$PR_TITLE" =~ ^(feat|fix|docs|test|refactor|chore|ci|build)(\([a-z0-9._-]+\))?:[[:space:]][^[:space:]].*$ ]]
+          [[ ! "$PR_TITLE" =~ [[:punct:]]$ ]]
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  public-snapshot:
+    uses: ./.github/workflows/validate.yml
+    with:
+      runner: ubuntu-latest
+      node-version: 22.18.0
+      mode: public-snapshot
+      audit: false
+    permissions:
+      contents: read
+
+  pr-minimum:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/validate.yml
+    with:
+      runner: ubuntu-latest
+      node-version: 22.18.0
+      mode: fast
+      audit: false
+    permissions:
+      contents: read
+
+  pr-latest:
+    if: github.event_name == 'pull_request'
+    needs: resolve-latest-node
+    uses: ./.github/workflows/validate.yml
+    with:
+      runner: ubuntu-latest
+      node-version: ${{ needs.resolve-latest-node.outputs.version }}
+      mode: fast
+      audit: false
+    permissions:
+      contents: read
+
+  main-full:
+    if: github.event_name == 'push'
+    needs: resolve-latest-node
+    uses: ./.github/workflows/validate.yml
+    with:
+      runner: ubuntu-latest
+      node-version: ${{ needs.resolve-latest-node.outputs.version }}
+      mode: full
+      audit: false
+    permissions:
+      contents: read

@@ -1,0 +1,16 @@
+{
+  "voices": [
+    {
+      "id": "01",
+      "path": "assets/voice/01.wav",
+      "duration_s": 3.0,
+      "words": [
+        { "id": "w0", "text": "A", "start": 0.0, "end": 0.2 },
+        { "id": "w1", "text": "tiny", "start": 0.2, "end": 0.7 },
+        { "id": "w2", "text": "smoke", "start": 0.7, "end": 1.2 },
+        { "id": "w3", "text": "test", "start": 1.2, "end": 1.7 },
+        { "id": "w4", "text": "frame", "start": 1.7, "end": 2.3 }
+      ]
+    }
+  ]
+}

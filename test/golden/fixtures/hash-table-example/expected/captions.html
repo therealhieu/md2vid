@@ -1,0 +1,194 @@
+<template id="captions-template" data-composition-id="captions" data-width="1920" data-height="1080">
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+
+<!-- caption builder injects the project's :root tokens here -->
+<style data-brand-tokens>
+  :root {
+    --ink: #141413;
+    --cream: #FAF9F5;
+    --tile: #EFE9DE;
+    --tile-strong: #ECE3D4;
+    --coral: #CC785C;
+    --cap-ink: #141413;
+    --cap-canvas: #FAF9F5;
+    --cap-accent: #CC785C;
+    --cap-band-height: 200px;
+    --font-display: "EB Garamond";
+  }
+</style>
+
+<style>
+  #captions-root {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .caption-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+  }
+  /* bottom band — frame content stays above it */
+  .caption-stage {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    height: var(--cap-band-height, 200px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .caption-group {
+    /* every group is absolutely stacked over the SAME band — exactly one shown at a
+       time via opacity. Must be absolute: in-flow groups would lay out side-by-side. */
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+  }
+
+  /* no card — transparent, no border, no shadow, no radius */
+  .caption-pill {
+    max-width: 82%;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .caption-line {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.12em 0.3em;
+    font-family: var(--font-display, "EB Garamond"), Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(28px, 3vw, 40px);
+    line-height: 1.24;
+    letter-spacing: -0.02em;
+    /* faint cream halo so plain text stays legible over frame content */
+    text-shadow: 0 1px 2px color-mix(in srgb, var(--cap-canvas, #faf9f5) 70%, transparent);
+  }
+
+  /* upcoming — faint warm ink, no underline */
+  .caption-word {
+    display: inline-block;
+    padding: 0 0.02em 0.06em;
+    color: color-mix(in srgb, var(--cap-ink, #141413) 40%, var(--cap-canvas, #faf9f5));
+    border-bottom: 2px solid transparent;
+  }
+  /* current word — full ink under the coral voltage underline (the brand's signature
+     inline-link gesture; border-bottom = underline without layout shift) */
+  .caption-word.is-active {
+    color: var(--cap-ink, #141413);
+    border-bottom: 2px solid var(--cap-accent, #cc785c);
+  }
+  /* already spoken — solid warm ink, underline cleared */
+  .caption-word.is-spoken {
+    color: var(--cap-ink, #141413);
+    border-bottom: 2px solid transparent;
+  }
+
+  @media (max-aspect-ratio: 9/16) {
+    .caption-pill {
+      max-width: 94%;
+    }
+    .caption-line {
+      font-size: clamp(24px, 4vw, 34px);
+    }
+  }
+</style>
+
+<div
+  id="captions-root"
+  data-composition-id="captions"
+  data-timeline-locked
+  data-start="0"
+  data-duration="100.728"
+  data-fps="30"
+  data-width="1920"
+  data-height="1080"
+>
+  <div class="caption-layer" aria-hidden="true" data-layout-allow-occlusion data-layout-allow-overlap>
+    <div id="caption-stage" class="caption-stage" data-layout-allow-occlusion data-layout-allow-overlap></div>
+  </div>
+</div>
+
+<script>
+  // caption builder injects the engine's scene-aware groups + real duration here.
+  var GROUPS = [{"id":"caption-group-0","frame":1,"start":0.03,"end":3.52,"text":"A hash table maps keys to values for fast lookup.","words":[{"id":"caption-word-0-0","text":"A","start":0.03,"end":0.07},{"id":"caption-word-0-1","text":"hash","start":0.07,"end":0.38},{"id":"caption-word-0-2","text":"table","start":0.38,"end":0.77},{"id":"caption-word-0-3","text":"maps","start":0.77,"end":1.03},{"id":"caption-word-0-4","text":"keys","start":1.1,"end":1.39},{"id":"caption-word-0-5","text":"to","start":1.39,"end":1.54},{"id":"caption-word-0-6","text":"values","start":1.54,"end":2.01},{"id":"caption-word-0-7","text":"for","start":2.01,"end":2.24},{"id":"caption-word-0-8","text":"fast","start":2.36,"end":2.77},{"id":"caption-word-0-9","text":"lookup.","start":2.77,"end":3.52}]},{"id":"caption-group-1","frame":1,"start":3.55,"end":4.96,"text":"It's one of the most widely used","words":[{"id":"caption-word-1-0","text":"It's","start":3.55,"end":3.74},{"id":"caption-word-1-1","text":"one","start":3.74,"end":3.9},{"id":"caption-word-1-2","text":"of","start":3.9,"end":4},{"id":"caption-word-1-3","text":"the","start":4.02,"end":4.16},{"id":"caption-word-1-4","text":"most","start":4.17,"end":4.39},{"id":"caption-word-1-5","text":"widely","start":4.39,"end":4.67},{"id":"caption-word-1-6","text":"used","start":4.75,"end":4.96}]},{"id":"caption-group-2","frame":1,"start":4.96,"end":6.62,"text":"structures in computing.","words":[{"id":"caption-word-2-0","text":"structures","start":4.96,"end":5.52},{"id":"caption-word-2-1","text":"in","start":5.52,"end":5.64},{"id":"caption-word-2-2","text":"computing.","start":5.7,"end":6.62}]},{"id":"caption-group-3","frame":1,"start":6.81,"end":9.75,"text":"In the next minute, we'll cover four things, the core","words":[{"id":"caption-word-3-0","text":"In","start":6.81,"end":6.86},{"id":"caption-word-3-1","text":"the","start":6.86,"end":6.99},{"id":"caption-word-3-2","text":"next","start":6.99,"end":7.16},{"id":"caption-word-3-3","text":"minute,","start":7.16,"end":7.54},{"id":"caption-word-3-4","text":"we'll","start":7.54,"end":7.81},{"id":"caption-word-3-5","text":"cover","start":7.89,"end":8.25},{"id":"caption-word-3-6","text":"four","start":8.31,"end":8.55},{"id":"caption-word-3-7","text":"things,","start":8.55,"end":9.16},{"id":"caption-word-3-8","text":"the","start":9.19,"end":9.41},{"id":"caption-word-3-9","text":"core","start":9.41,"end":9.75}]},{"id":"caption-group-4","frame":1,"start":9.75,"end":12.757,"text":"idea, how a lookup works, collisions, and load factor.","words":[{"id":"caption-word-4-0","text":"idea,","start":9.75,"end":10.19},{"id":"caption-word-4-1","text":"how","start":10.27,"end":10.44},{"id":"caption-word-4-2","text":"a","start":10.44,"end":10.49},{"id":"caption-word-4-3","text":"lookup","start":10.49,"end":10.81},{"id":"caption-word-4-4","text":"works,","start":10.82,"end":11.22},{"id":"caption-word-4-5","text":"collisions,","start":11.25,"end":11.92},{"id":"caption-word-4-6","text":"and","start":11.92,"end":12.09},{"id":"caption-word-4-7","text":"load","start":12.09,"end":12.25},{"id":"caption-word-4-8","text":"factor.","start":12.32,"end":12.757}]},{"id":"caption-group-5","frame":2,"start":13.277,"end":16.017,"text":"Instead of scanning a list item by item, a hash","words":[{"id":"caption-word-5-0","text":"Instead","start":13.277,"end":13.757},{"id":"caption-word-5-1","text":"of","start":13.757,"end":13.897},{"id":"caption-word-5-2","text":"scanning","start":13.897,"end":14.467},{"id":"caption-word-5-3","text":"a","start":14.467,"end":14.537},{"id":"caption-word-5-4","text":"list","start":14.537,"end":14.827},{"id":"caption-word-5-5","text":"item","start":14.827,"end":15.117},{"id":"caption-word-5-6","text":"by","start":15.117,"end":15.257},{"id":"caption-word-5-7","text":"item,","start":15.257,"end":15.707},{"id":"caption-word-5-8","text":"a","start":15.707,"end":15.777},{"id":"caption-word-5-9","text":"hash","start":15.777,"end":16.017}]},{"id":"caption-group-6","frame":2,"start":16.087,"end":19.027,"text":"table computes a hash of the key, a number derived","words":[{"id":"caption-word-6-0","text":"table","start":16.087,"end":16.387},{"id":"caption-word-6-1","text":"computes","start":16.457,"end":16.857},{"id":"caption-word-6-2","text":"a","start":16.857,"end":16.917},{"id":"caption-word-6-3","text":"hash","start":16.927,"end":17.217},{"id":"caption-word-6-4","text":"of","start":17.217,"end":17.337},{"id":"caption-word-6-5","text":"the","start":17.337,"end":17.397},{"id":"caption-word-6-6","text":"key,","start":17.467,"end":18.277},{"id":"caption-word-6-7","text":"a","start":18.277,"end":18.297},{"id":"caption-word-6-8","text":"number","start":18.297,"end":18.597},{"id":"caption-word-6-9","text":"derived","start":18.617,"end":19.027}]},{"id":"caption-group-7","frame":2,"start":19.027,"end":21.437,"text":"from its contents, and uses that number to jump","words":[{"id":"caption-word-7-0","text":"from","start":19.027,"end":19.267},{"id":"caption-word-7-1","text":"its","start":19.267,"end":19.447},{"id":"caption-word-7-2","text":"contents,","start":19.447,"end":20.057},{"id":"caption-word-7-3","text":"and","start":20.057,"end":20.237},{"id":"caption-word-7-4","text":"uses","start":20.237,"end":20.457},{"id":"caption-word-7-5","text":"that","start":20.477,"end":20.647},{"id":"caption-word-7-6","text":"number","start":20.937,"end":21.087},{"id":"caption-word-7-7","text":"to","start":21.087,"end":21.207},{"id":"caption-word-7-8","text":"jump","start":21.207,"end":21.437}]},{"id":"caption-group-8","frame":2,"start":21.457,"end":24.417,"text":"straight to where the value is stored.","words":[{"id":"caption-word-8-0","text":"straight","start":21.457,"end":21.907},{"id":"caption-word-8-1","text":"to","start":21.967,"end":22.057},{"id":"caption-word-8-2","text":"where","start":22.057,"end":22.357},{"id":"caption-word-8-3","text":"the","start":22.357,"end":22.537},{"id":"caption-word-8-4","text":"value","start":22.537,"end":22.917},{"id":"caption-word-8-5","text":"is","start":22.917,"end":23.137},{"id":"caption-word-8-6","text":"stored.","start":23.617,"end":24.417}]},{"id":"caption-group-9","frame":2,"start":24.457,"end":26.297,"text":"Look up, insert and delete all take","words":[{"id":"caption-word-9-0","text":"Look","start":24.457,"end":24.687},{"id":"caption-word-9-1","text":"up,","start":24.687,"end":24.867},{"id":"caption-word-9-2","text":"insert","start":24.927,"end":25.307},{"id":"caption-word-9-3","text":"and","start":25.307,"end":25.477},{"id":"caption-word-9-4","text":"delete","start":25.537,"end":25.877},{"id":"caption-word-9-5","text":"all","start":25.877,"end":26.067},{"id":"caption-word-9-6","text":"take","start":26.067,"end":26.297}]},{"id":"caption-group-10","frame":2,"start":26.317,"end":28.347,"text":"roughly constant time on average.","words":[{"id":"caption-word-10-0","text":"roughly","start":26.317,"end":26.487},{"id":"caption-word-10-1","text":"constant","start":26.787,"end":27.207},{"id":"caption-word-10-2","text":"time","start":27.267,"end":27.517},{"id":"caption-word-10-3","text":"on","start":27.517,"end":27.567},{"id":"caption-word-10-4","text":"average.","start":27.637,"end":28.347}]},{"id":"caption-group-11","frame":3,"start":28.891,"end":30.191,"text":"A lookup is four steps.","words":[{"id":"caption-word-11-0","text":"A","start":28.891,"end":28.931},{"id":"caption-word-11-1","text":"lookup","start":28.931,"end":29.371},{"id":"caption-word-11-2","text":"is","start":29.371,"end":29.471},{"id":"caption-word-11-3","text":"four","start":29.571,"end":29.801},{"id":"caption-word-11-4","text":"steps.","start":29.801,"end":30.191}]},{"id":"caption-group-12","frame":3,"start":30.451,"end":32.581,"text":"Take the key, say the string apple.","words":[{"id":"caption-word-12-0","text":"Take","start":30.451,"end":30.631},{"id":"caption-word-12-1","text":"the","start":30.701,"end":30.801},{"id":"caption-word-12-2","text":"key,","start":30.891,"end":31.141},{"id":"caption-word-12-3","text":"say","start":31.141,"end":31.351},{"id":"caption-word-12-4","text":"the","start":31.351,"end":31.541},{"id":"caption-word-12-5","text":"string","start":31.551,"end":31.741},{"id":"caption-word-12-6","text":"apple.","start":32.061,"end":32.581}]},{"id":"caption-group-13","frame":3,"start":32.611,"end":35.021,"text":"Run it through a hash function to get a number.","words":[{"id":"caption-word-13-0","text":"Run","start":32.611,"end":32.751},{"id":"caption-word-13-1","text":"it","start":32.751,"end":32.791},{"id":"caption-word-13-2","text":"through","start":32.861,"end":33.181},{"id":"caption-word-13-3","text":"a","start":33.291,"end":33.311},{"id":"caption-word-13-4","text":"hash","start":33.311,"end":33.531},{"id":"caption-word-13-5","text":"function","start":33.531,"end":33.901},{"id":"caption-word-13-6","text":"to","start":33.901,"end":34.221},{"id":"caption-word-13-7","text":"get","start":34.221,"end":34.331},{"id":"caption-word-13-8","text":"a","start":34.331,"end":34.431},{"id":"caption-word-13-9","text":"number.","start":34.431,"end":35.021}]},{"id":"caption-group-14","frame":3,"start":35.051,"end":36.781,"text":"Reduce that number to a bucket index","words":[{"id":"caption-word-14-0","text":"Reduce","start":35.051,"end":35.381},{"id":"caption-word-14-1","text":"that","start":35.381,"end":35.621},{"id":"caption-word-14-2","text":"number","start":35.621,"end":35.971},{"id":"caption-word-14-3","text":"to","start":35.971,"end":36.101},{"id":"caption-word-14-4","text":"a","start":36.101,"end":36.141},{"id":"caption-word-14-5","text":"bucket","start":36.151,"end":36.341},{"id":"caption-word-14-6","text":"index","start":36.661,"end":36.781}]},{"id":"caption-group-15","frame":3,"start":36.891,"end":39.021,"text":"with Majulo the table size.","words":[{"id":"caption-word-15-0","text":"with","start":36.891,"end":37.201},{"id":"caption-word-15-1","text":"Majulo","start":37.201,"end":37.701},{"id":"caption-word-15-2","text":"the","start":37.701,"end":37.951},{"id":"caption-word-15-3","text":"table","start":37.951,"end":38.181},{"id":"caption-word-15-4","text":"size.","start":38.501,"end":39.021}]},{"id":"caption-group-16","frame":3,"start":39.051,"end":41.043,"text":"Then read the value stored in that bucket.","words":[{"id":"caption-word-16-0","text":"Then","start":39.051,"end":39.231},{"id":"caption-word-16-1","text":"read","start":39.301,"end":39.401},{"id":"caption-word-16-2","text":"the","start":39.491,"end":39.631},{"id":"caption-word-16-3","text":"value","start":39.731,"end":39.941},{"id":"caption-word-16-4","text":"stored","start":39.941,"end":40.291},{"id":"caption-word-16-5","text":"in","start":40.291,"end":40.351},{"id":"caption-word-16-6","text":"that","start":40.351,"end":40.661},{"id":"caption-word-16-7","text":"bucket.","start":40.661,"end":41.043}]},{"id":"caption-group-17","frame":4,"start":41.603,"end":44.173,"text":"Two different keys can hash to the same bucket.","words":[{"id":"caption-word-17-0","text":"Two","start":41.603,"end":41.733},{"id":"caption-word-17-1","text":"different","start":41.733,"end":42.353},{"id":"caption-word-17-2","text":"keys","start":42.353,"end":42.623},{"id":"caption-word-17-3","text":"can","start":42.623,"end":42.823},{"id":"caption-word-17-4","text":"hash","start":42.823,"end":43.093},{"id":"caption-word-17-5","text":"to","start":43.093,"end":43.223},{"id":"caption-word-17-6","text":"the","start":43.223,"end":43.423},{"id":"caption-word-17-7","text":"same","start":43.423,"end":43.643},{"id":"caption-word-17-8","text":"bucket.","start":43.643,"end":44.173}]},{"id":"caption-group-18","frame":4,"start":44.173,"end":46.093,"text":"That's a collision and every real hash","words":[{"id":"caption-word-18-0","text":"That's","start":44.173,"end":44.423},{"id":"caption-word-18-1","text":"a","start":44.503,"end":44.513},{"id":"caption-word-18-2","text":"collision","start":44.513,"end":44.993},{"id":"caption-word-18-3","text":"and","start":45.063,"end":45.223},{"id":"caption-word-18-4","text":"every","start":45.223,"end":45.583},{"id":"caption-word-18-5","text":"real","start":45.583,"end":45.873},{"id":"caption-word-18-6","text":"hash","start":45.873,"end":46.093}]},{"id":"caption-group-19","frame":4,"start":46.153,"end":48.263,"text":"table needs a strategy for it.","words":[{"id":"caption-word-19-0","text":"table","start":46.153,"end":46.263},{"id":"caption-word-19-1","text":"needs","start":46.613,"end":46.963},{"id":"caption-word-19-2","text":"a","start":46.963,"end":47.033},{"id":"caption-word-19-3","text":"strategy","start":47.033,"end":47.643},{"id":"caption-word-19-4","text":"for","start":47.643,"end":47.863},{"id":"caption-word-19-5","text":"it.","start":47.863,"end":48.263}]},{"id":"caption-group-20","frame":4,"start":48.323,"end":50.213,"text":"Chaining keeps a linked list in each bucket","words":[{"id":"caption-word-20-0","text":"Chaining","start":48.323,"end":48.673},{"id":"caption-word-20-1","text":"keeps","start":48.673,"end":48.933},{"id":"caption-word-20-2","text":"a","start":48.933,"end":48.983},{"id":"caption-word-20-3","text":"linked","start":48.983,"end":49.293},{"id":"caption-word-20-4","text":"list","start":49.293,"end":49.543},{"id":"caption-word-20-5","text":"in","start":49.543,"end":49.653},{"id":"caption-word-20-6","text":"each","start":49.653,"end":49.883},{"id":"caption-word-20-7","text":"bucket","start":49.883,"end":50.213}]},{"id":"caption-group-21","frame":4,"start":50.273,"end":52.683,"text":"simple, but with pointer overhead.","words":[{"id":"caption-word-21-0","text":"simple,","start":50.273,"end":50.763},{"id":"caption-word-21-1","text":"but","start":50.793,"end":50.993},{"id":"caption-word-21-2","text":"with","start":50.993,"end":51.213},{"id":"caption-word-21-3","text":"pointer","start":51.323,"end":51.823},{"id":"caption-word-21-4","text":"overhead.","start":51.823,"end":52.683}]},{"id":"caption-group-22","frame":4,"start":52.713,"end":55.213,"text":"Open addressing probes the next free slot,","words":[{"id":"caption-word-22-0","text":"Open","start":52.713,"end":52.963},{"id":"caption-word-22-1","text":"addressing","start":52.963,"end":53.673},{"id":"caption-word-22-2","text":"probes","start":53.673,"end":54.083},{"id":"caption-word-22-3","text":"the","start":54.093,"end":54.303},{"id":"caption-word-22-4","text":"next","start":54.303,"end":54.583},{"id":"caption-word-22-5","text":"free","start":54.583,"end":54.783},{"id":"caption-word-22-6","text":"slot,","start":54.783,"end":55.213}]},{"id":"caption-group-23","frame":4,"start":55.213,"end":56.86,"text":"cache friendly, but it clusters.","words":[{"id":"caption-word-23-0","text":"cache","start":55.213,"end":55.463},{"id":"caption-word-23-1","text":"friendly,","start":55.463,"end":56.033},{"id":"caption-word-23-2","text":"but","start":56.103,"end":56.213},{"id":"caption-word-23-3","text":"it","start":56.213,"end":56.323},{"id":"caption-word-23-4","text":"clusters.","start":56.323,"end":56.86}]},{"id":"caption-group-24","frame":5,"start":57.39,"end":59.04,"text":"The load factor is the ratio of","words":[{"id":"caption-word-24-0","text":"The","start":57.39,"end":57.56},{"id":"caption-word-24-1","text":"load","start":57.56,"end":57.83},{"id":"caption-word-24-2","text":"factor","start":57.83,"end":58.21},{"id":"caption-word-24-3","text":"is","start":58.27,"end":58.36},{"id":"caption-word-24-4","text":"the","start":58.36,"end":58.55},{"id":"caption-word-24-5","text":"ratio","start":58.56,"end":58.91},{"id":"caption-word-24-6","text":"of","start":58.91,"end":59.04}]},{"id":"caption-group-25","frame":5,"start":59.04,"end":60.98,"text":"stored entries to buckets.","words":[{"id":"caption-word-25-0","text":"stored","start":59.04,"end":59.4},{"id":"caption-word-25-1","text":"entries","start":59.4,"end":59.8},{"id":"caption-word-25-2","text":"to","start":59.86,"end":60.08},{"id":"caption-word-25-3","text":"buckets.","start":60.08,"end":60.98}]},{"id":"caption-group-26","frame":5,"start":61.01,"end":63.09,"text":"As it climbs toward one, collisions","words":[{"id":"caption-word-26-0","text":"As","start":61.01,"end":61.1},{"id":"caption-word-26-1","text":"it","start":61.1,"end":61.22},{"id":"caption-word-26-2","text":"climbs","start":61.22,"end":61.51},{"id":"caption-word-26-3","text":"toward","start":61.62,"end":61.96},{"id":"caption-word-26-4","text":"one,","start":61.96,"end":62.27},{"id":"caption-word-26-5","text":"collisions","start":62.31,"end":63.09}]},{"id":"caption-group-27","frame":5,"start":63.1,"end":65.17,"text":"rise and lookups slow down.","words":[{"id":"caption-word-27-0","text":"rise","start":63.1,"end":63.43},{"id":"caption-word-27-1","text":"and","start":63.43,"end":63.67},{"id":"caption-word-27-2","text":"lookups","start":63.67,"end":64.24},{"id":"caption-word-27-3","text":"slow","start":64.24,"end":64.49},{"id":"caption-word-27-4","text":"down.","start":64.58,"end":65.17}]},{"id":"caption-group-28","frame":5,"start":65.21,"end":67.53,"text":"When it crosses a threshold, commonly","words":[{"id":"caption-word-28-0","text":"When","start":65.21,"end":65.42},{"id":"caption-word-28-1","text":"it","start":65.42,"end":65.47},{"id":"caption-word-28-2","text":"crosses","start":65.59,"end":65.96},{"id":"caption-word-28-3","text":"a","start":65.96,"end":66.02},{"id":"caption-word-28-4","text":"threshold,","start":66.02,"end":66.7},{"id":"caption-word-28-5","text":"commonly","start":66.7,"end":67.53}]},{"id":"caption-group-29","frame":5,"start":67.53,"end":70.57,"text":"0.75, the table resizes.","words":[{"id":"caption-word-29-0","text":"0.75,","start":67.53,"end":68.95},{"id":"caption-word-29-1","text":"the","start":69.03,"end":69.27},{"id":"caption-word-29-2","text":"table","start":69.27,"end":69.72},{"id":"caption-word-29-3","text":"resizes.","start":69.72,"end":70.57}]},{"id":"caption-group-30","frame":5,"start":70.65,"end":73.659,"text":"It allocates a bigger array and rehashes every entry.","words":[{"id":"caption-word-30-0","text":"It","start":70.65,"end":70.75},{"id":"caption-word-30-1","text":"allocates","start":70.75,"end":71.34},{"id":"caption-word-30-2","text":"a","start":71.34,"end":71.4},{"id":"caption-word-30-3","text":"bigger","start":71.4,"end":71.79},{"id":"caption-word-30-4","text":"array","start":71.79,"end":72.14},{"id":"caption-word-30-5","text":"and","start":72.14,"end":72.34},{"id":"caption-word-30-6","text":"rehashes","start":72.41,"end":72.83},{"id":"caption-word-30-7","text":"every","start":72.89,"end":73.22},{"id":"caption-word-30-8","text":"entry.","start":73.24,"end":73.659}]},{"id":"caption-group-31","frame":6,"start":74.189,"end":76.989,"text":"Average case constant time access is why hash","words":[{"id":"caption-word-31-0","text":"Average","start":74.189,"end":74.669},{"id":"caption-word-31-1","text":"case","start":74.669,"end":74.919},{"id":"caption-word-31-2","text":"constant","start":74.959,"end":75.539},{"id":"caption-word-31-3","text":"time","start":75.539,"end":75.829},{"id":"caption-word-31-4","text":"access","start":75.829,"end":76.259},{"id":"caption-word-31-5","text":"is","start":76.279,"end":76.429},{"id":"caption-word-31-6","text":"why","start":76.439,"end":76.679},{"id":"caption-word-31-7","text":"hash","start":76.679,"end":76.989}]},{"id":"caption-group-32","frame":6,"start":76.989,"end":80.389,"text":"tables sit under so many everyday tools, language","words":[{"id":"caption-word-32-0","text":"tables","start":76.989,"end":77.459},{"id":"caption-word-32-1","text":"sit","start":77.459,"end":77.679},{"id":"caption-word-32-2","text":"under","start":77.679,"end":77.829},{"id":"caption-word-32-3","text":"so","start":77.889,"end":78.059},{"id":"caption-word-32-4","text":"many","start":78.059,"end":78.279},{"id":"caption-word-32-5","text":"everyday","start":78.359,"end":78.799},{"id":"caption-word-32-6","text":"tools,","start":78.799,"end":79.839},{"id":"caption-word-32-7","text":"language","start":79.869,"end":80.389}]},{"id":"caption-group-33","frame":6,"start":80.389,"end":83.309,"text":"dictionaries, database indexes, in-memory","words":[{"id":"caption-word-33-0","text":"dictionaries,","start":80.389,"end":81.359},{"id":"caption-word-33-1","text":"database","start":81.359,"end":81.969},{"id":"caption-word-33-2","text":"indexes,","start":81.969,"end":82.649},{"id":"caption-word-33-3","text":"in-memory","start":82.649,"end":83.309}]},{"id":"caption-group-34","frame":6,"start":83.319,"end":84.959,"text":"caches and a duplication.","words":[{"id":"caption-word-34-0","text":"caches","start":83.319,"end":83.769},{"id":"caption-word-34-1","text":"and","start":83.769,"end":83.959},{"id":"caption-word-34-2","text":"a","start":84.039,"end":84.069},{"id":"caption-word-34-3","text":"duplication.","start":84.069,"end":84.959}]},{"id":"caption-group-35","frame":7,"start":85.619,"end":88.154,"text":"So, the core idea is jump, don't scan.","words":[{"id":"caption-word-35-0","text":"So,","start":85.619,"end":85.859},{"id":"caption-word-35-1","text":"the","start":85.889,"end":86.139},{"id":"caption-word-35-2","text":"core","start":86.139,"end":86.489},{"id":"caption-word-35-3","text":"idea","start":86.489,"end":86.839},{"id":"caption-word-35-4","text":"is","start":86.839,"end":87.009},{"id":"caption-word-35-5","text":"jump,","start":87.009,"end":87.509},{"id":"caption-word-35-6","text":"don't","start":87.559,"end":87.889},{"id":"caption-word-35-7","text":"scan.","start":87.889,"end":88.154}]},{"id":"caption-group-36","frame":7,"start":88.154,"end":91.139,"text":"A lookup is key, hash, bucket value.","words":[{"id":"caption-word-36-0","text":"A","start":88.154,"end":88.419},{"id":"caption-word-36-1","text":"lookup","start":88.419,"end":88.909},{"id":"caption-word-36-2","text":"is","start":88.909,"end":89.069},{"id":"caption-word-36-3","text":"key,","start":89.069,"end":89.469},{"id":"caption-word-36-4","text":"hash,","start":89.469,"end":89.829},{"id":"caption-word-36-5","text":"bucket","start":89.999,"end":90.439},{"id":"caption-word-36-6","text":"value.","start":90.439,"end":91.139}]},{"id":"caption-group-37","frame":7,"start":91.209,"end":93.279,"text":"Collisions need a strategy, and the load","words":[{"id":"caption-word-37-0","text":"Collisions","start":91.209,"end":91.729},{"id":"caption-word-37-1","text":"need","start":91.729,"end":91.939},{"id":"caption-word-37-2","text":"a","start":91.999,"end":92.029},{"id":"caption-word-37-3","text":"strategy,","start":92.029,"end":92.519},{"id":"caption-word-37-4","text":"and","start":92.589,"end":92.749},{"id":"caption-word-37-5","text":"the","start":92.749,"end":92.909},{"id":"caption-word-37-6","text":"load","start":92.979,"end":93.279}]},{"id":"caption-group-38","frame":7,"start":93.279,"end":95.529,"text":"factor controls when to resize.","words":[{"id":"caption-word-38-0","text":"factor","start":93.279,"end":93.659},{"id":"caption-word-38-1","text":"controls","start":93.779,"end":94.339},{"id":"caption-word-38-2","text":"when","start":94.349,"end":94.649},{"id":"caption-word-38-3","text":"to","start":94.649,"end":94.789},{"id":"caption-word-38-4","text":"resize.","start":94.789,"end":95.529}]},{"id":"caption-group-39","frame":7,"start":95.619,"end":98.129,"text":"Understand collisions and load factor, or a hash","words":[{"id":"caption-word-39-0","text":"Understand","start":95.619,"end":96.179},{"id":"caption-word-39-1","text":"collisions","start":96.179,"end":96.819},{"id":"caption-word-39-2","text":"and","start":96.819,"end":97.009},{"id":"caption-word-39-3","text":"load","start":97.009,"end":97.259},{"id":"caption-word-39-4","text":"factor,","start":97.259,"end":97.659},{"id":"caption-word-39-5","text":"or","start":97.739,"end":97.799},{"id":"caption-word-39-6","text":"a","start":97.799,"end":97.869},{"id":"caption-word-39-7","text":"hash","start":97.869,"end":98.129}]},{"id":"caption-group-40","frame":7,"start":98.159,"end":100.728,"text":"table quietly degrades to a linear scan.","words":[{"id":"caption-word-40-0","text":"table","start":98.159,"end":98.469},{"id":"caption-word-40-1","text":"quietly","start":98.509,"end":99.029},{"id":"caption-word-40-2","text":"degrades","start":99.029,"end":99.609},{"id":"caption-word-40-3","text":"to","start":99.609,"end":99.749},{"id":"caption-word-40-4","text":"a","start":99.749,"end":99.819},{"id":"caption-word-40-5","text":"linear","start":99.819,"end":100.009},{"id":"caption-word-40-6","text":"scan.","start":100.479,"end":100.728}]}];
+  var DURATION = 100.728;
+
+  (function () {
+    var stage = document.getElementById("caption-stage");
+
+    // build DOM: one .caption-group per group, .caption-word per word
+    GROUPS.forEach(function (group, g) {
+      var groupEl = document.createElement("div");
+      groupEl.className = "caption-group";
+      groupEl.id = "caption-group-" + g;
+      var pill = document.createElement("div");
+      pill.className = "caption-pill";
+      var line = document.createElement("div");
+      line.className = "caption-line";
+      (group.words || []).forEach(function (w, i) {
+        var span = document.createElement("span");
+        span.className = "caption-word";
+        span.id = "caption-word-" + g + "-" + i;
+        span.setAttribute("data-layout-allow-occlusion", "true");
+        span.setAttribute("data-layout-allow-overlap", "true");
+        span.textContent = String(w.text);
+        line.appendChild(span);
+      });
+      pill.appendChild(line);
+      groupEl.appendChild(pill);
+      stage.appendChild(groupEl);
+    });
+
+    window.__timelines = window.__timelines || {};
+    var tl = gsap.timeline({ paused: true });
+
+    GROUPS.forEach(function (group, g) {
+      var groupEl = document.getElementById("caption-group-" + g);
+      var words = group.words || [];
+      var next = GROUPS[g + 1];
+      var isLast = g === GROUPS.length - 1;
+      var start = Math.max(0, Number(group.start));
+      var end = isLast ? DURATION : Math.min(Number(next.start), Number(group.end) + 0.3);
+      if (end <= start) end = start + 0.01;
+
+      // group on/off — exactly one group visible at a time
+      tl.set(groupEl, { opacity: 1 }, start);
+      tl.set(groupEl, { opacity: 0 }, end);
+
+      // 3-state karaoke via className SETS — seek-safe (gsap.set applies on the
+      // engine's frame-by-frame seek; .call callbacks would NOT fire).
+      words.forEach(function (w, i) {
+        var el = document.getElementById("caption-word-" + g + "-" + i);
+        var at = Math.max(start, Number(w.start));
+        tl.set(el, { className: "caption-word" }, start); // upcoming (also resets on reverse-seek)
+        tl.set(el, { className: "caption-word is-active" }, at); // current
+        tl.fromTo(el, { scale: 0.98 }, { scale: 1, duration: 0.16, ease: "power1.out" }, at);
+        if (i + 1 < words.length) {
+          var nextAt = Math.max(start, Number(words[i + 1].start));
+          tl.set(el, { className: "caption-word is-spoken" }, nextAt); // demote when next activates
+        }
+      });
+      if (words.length) {
+        var lastEl = document.getElementById("caption-word-" + g + "-" + (words.length - 1));
+        var lastSpoken = Math.min(end, Number(words[words.length - 1].end) + 0.1);
+        tl.set(lastEl, { className: "caption-word is-spoken" }, lastSpoken);
+      }
+    });
+
+    // full-span anchor so the sub-comp timeline spans the whole video
+    tl.to({}, { duration: DURATION }, 0);
+    window.__timelines["captions"] = tl;
+  })();
+</script>
+</template>

@@ -1,0 +1,25 @@
+:root,
+[data-theme="cobalt"] {
+  --cobalt-paper: #f0ebde;
+  --cobalt-paper-2: #e6e0ce;
+  --cobalt-ink: #1f2be0;
+  --cobalt-soft: #5560e5;
+  --cobalt-grid: rgba(31, 43, 224, 0.10);
+  --cobalt-faint: rgba(31, 43, 224, 0.18);
+
+  --frame-bg: var(--cobalt-paper);
+  --frame-surface: var(--cobalt-paper);
+  --frame-ink: var(--cobalt-ink);
+  --frame-muted: var(--cobalt-soft);
+  --frame-accent: var(--cobalt-ink);
+  --frame-grid: var(--cobalt-grid);
+  --frame-edge: 76px;
+  --frame-rule: 2px solid var(--cobalt-ink);
+  --frame-label-font: "DM Mono", ui-monospace, Menlo, monospace;
+  --frame-display-font: Georgia, "Times New Roman", serif;
+  --frame-radius: 0px;
+  --frame-safe-left: 124px;
+  --frame-safe-right: 124px;
+  --frame-safe-top: 104px;
+  --frame-safe-bottom: 228px;
+}

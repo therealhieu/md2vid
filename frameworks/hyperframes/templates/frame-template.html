@@ -1,0 +1,95 @@
+<!--
+  Canonical content-frame template (repo standard).
+
+  Copy this to compositions/frames/NN-slug.html and author ONE 1920×1080 content
+  frame from it. It carries the warm-editorial theme block every frame shares
+  (cream/ink/coral atoms, kicker + headline type) so you never re-derive it, plus
+  the seek-safe paused-timeline stub. Replace every `fNN` with the frame number
+  and `NN-slug` with the composition slug from video.config.json.
+
+  Contract (see docs/standards/design/frame-content.md + frame.md):
+    · Transparent-agnostic root — paint your own cream ground on track 0 (#fNN-bg),
+      NOT on #root.
+    · Content tracks 0–9. IDs prefixed with the frame number (fNN-...).
+    · Every timed element: class="clip" + data-start + data-duration + data-track-index.
+    · Root data-duration = the frame's voiceDur (from cues.json). Clips run to voiceDur
+      unless they intentionally exit.
+    · ONE paused GSAP timeline on window.__timelines["NN-slug"]; all fromTo (seek-safe);
+      no Math.random / Date.now / network / yoyo / .call().
+    · GSAP uses the pinned CDN by default. Offline projects may set project-relative
+      gsapSrc in output.config.json; this nested frame must use the corresponding
+      document-relative path (for example ../../runtime/custom-gsap.js).
+
+  Theme atoms (do not remix): ink #141413 · cream #FAF9F5 · tile #EFE9DE ·
+  tile-strong #ECE3D4 · coral #CC785C (the ONE scarce voltage per frame) ·
+  navy #181715 (ONLY for numeric/data payload: pixel grids, kernels, tensors).
+  Fixed status decoration (never brand hues): amber #E8A55A · success #5DB872 ·
+  warn #C64545 · string teal #5DB8A6.
+  Type: EB Garamond 400 → display/headline/hero/numerals; Inter 400/500 → body;
+  JetBrains Mono 500 uppercase 0.16em → kickers/labels/units/all indexical text.
+-->
+<!doctype html>
+<html>
+  <head><meta charset="UTF-8" /></head>
+  <body>
+    <template>
+      <style>
+        /* ---- ground + type system (shared by every frame) ---- */
+        #root {
+          position: absolute;
+          inset: 0;
+          overflow: hidden;
+          container-type: size;
+          font-family: "Inter", sans-serif;
+          color: #141413;
+        }
+        #fNN-bg { position: absolute; inset: 0; background: #faf9f5; }
+        /* inverted navy-ground frames for rhythm: set #fNN-bg background:#181715,
+           type to cream #FAF9F5, tile cards to #252320; coral stays #CC785C. */
+
+        /* ---- header (upper-left; center it for Cover/Statement/Closing) ---- */
+        #fNN-header { position: absolute; left: 150px; top: 84px; width: 1000px; }
+        .fNN-kicker {
+          font-family: "JetBrains Mono", monospace;
+          font-size: 26px; font-weight: 500;
+          letter-spacing: 0.16em; text-transform: uppercase;
+          color: #141413; margin-bottom: 14px;
+          display: flex; align-items: center;
+        }
+        .fNN-kicker .fNN-spike { color: #cc785c; margin-right: 12px; font-size: 28px; line-height: 1; }
+        .fNN-headline {
+          font-family: "EB Garamond", Georgia, serif; font-weight: 400;
+          line-height: 1.04; letter-spacing: -0.02em; color: #141413;
+          /* size by word count: <=3 words ~120px; 4-6 ~90px; 7+ ~74-82px */
+          font-size: 90px;
+        }
+
+        /* ---- your focal content styles (all ids prefixed fNN-) below ---- */
+      </style>
+
+      <div id="root" data-composition-id="NN-slug" data-width="1920" data-height="1080" data-duration="VOICEDUR">
+        <div id="fNN-bg" class="clip" data-start="0" data-duration="VOICEDUR" data-track-index="0"></div>
+
+        <div id="fNN-header" class="clip" data-start="0" data-duration="VOICEDUR" data-track-index="1">
+          <div class="fNN-kicker"><span class="fNN-spike">&#10033;</span>KICKER TEXT</div>
+          <h1 class="fNN-headline">Headline</h1>
+        </div>
+
+        <!-- focal content on tracks 2+; reveal each element on its VO cue (cues.json) -->
+      </div>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+      <script>
+        window.__timelines = window.__timelines || {};
+        const tl = gsap.timeline({ paused: true });
+
+        // Scene 1 (t<=0.5s): anchor headline + first focal.
+        // Scene 2: beat-by-beat reveal — one spoken phrase -> one fromTo reveal, timed to cues.json.
+        //   coral hand-off: fromTo(neutral->coral) on its cue, fromTo(coral->neutral) on the next.
+        // Scene 3: held landing (>=0.5s, no reveal in the final beat).
+
+        window.__timelines["NN-slug"] = tl;
+      </script>
+    </template>
+  </body>
+</html>

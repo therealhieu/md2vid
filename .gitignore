@@ -1,0 +1,67 @@
+# macOS / editor noise
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+*.swp
+*.swo
+*~
+
+# Local agent/tool state
+.superpowers/
+.worktrees/
+.logs/
+.tmp/
+.samples/
+.playwright-mcp/
+.screenshots/
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+
+# Compiled publish artifact (shipped via package.json files[], not committed)
+dist/
+
+# Dependencies and package-manager caches
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Python caches / virtualenvs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Legacy flat-layout output root (superseded by outputs/<project>/<framework>/)
+videos/
+
+# HyperFrames / generated video artifacts
+outputs/**/renders/
+outputs/**/out/
+outputs/**/snapshots/
+outputs/**/.thumbnails/
+outputs/**/.waveform-cache/
+outputs/**/assets/voice/
+outputs/**/audio_request.json
+outputs/**/audio_meta.json
+outputs/**/audio_engine_meta.json
+outputs/**/caption_groups.json
+outputs/**/compositions/captions.html
+outputs/**/build/
+outputs/**/*.log
+
+# Local reference media / scratch assets
+.references/
+.claude/agent-memory

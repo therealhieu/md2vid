@@ -1,0 +1,25 @@
+:root,
+[data-theme="claude"] {
+  --claude-paper: #f5f4ed;
+  --claude-ivory: #faf9f5;
+  --claude-ink: #141413;
+  --claude-muted: #5e5d59;
+  --claude-border: #e8e6dc;
+  --claude-coral: #CC785C;
+
+  --frame-bg: var(--claude-paper);
+  --frame-surface: var(--claude-ivory);
+  --frame-ink: var(--claude-ink);
+  --frame-muted: var(--claude-muted);
+  --frame-accent: var(--claude-coral);
+  --frame-grid: rgba(20, 20, 19, 0.055);
+  --frame-edge: 76px;
+  --frame-rule: 1.5px solid var(--claude-border);
+  --frame-label-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --frame-display-font: Georgia, "Times New Roman", serif;
+  --frame-radius: 24px;
+  --frame-safe-left: 124px;
+  --frame-safe-right: 124px;
+  --frame-safe-top: 104px;
+  --frame-safe-bottom: 228px;
+}

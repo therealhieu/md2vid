@@ -1,0 +1,1458 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { test } from "node:test";
+import { isScalar, parseDocument } from "yaml";
+
+const ROOT = resolve(import.meta.dirname, "..", "..");
+const WORKFLOW_DIR = join(ROOT, ".github", "workflows");
+const workflowPath = (name: string) => join(WORKFLOW_DIR, name);
+const workflow = (name: string) => readFileSync(workflowPath(name), "utf8");
+const dependabotPath = join(ROOT, ".github", "dependabot.yml");
+const actionlintConfigPath = join(ROOT, ".github", "actionlint.yaml");
+
+type WorkflowPolicyChecker = (yaml: string) => void;
+const WORKFLOW_POLICY_CHECKERS: Record<string, WorkflowPolicyChecker> = {
+  "ci.yml": assertSafeWorkflowPolicy,
+  "nightly.yml": assertNightlyPolicy,
+  "release.yml": assertReleasePolicy,
+  "validate.yml": assertSafeWorkflowPolicy,
+};
+const EXPECTED_JOB_RUNNERS: Record<string, Record<string, string | null>> = {
+  "ci.yml": {
+    "resolve-latest-node": "ubuntu-latest",
+    "pr-title": "ubuntu-latest",
+    "dependency-review": "ubuntu-latest",
+    "public-snapshot": null,
+    "pr-minimum": null,
+    "pr-latest": null,
+    "main-full": null,
+  },
+  "nightly.yml": {
+    "resolve-latest-node": "ubuntu-latest",
+    "native-matrix": null,
+  },
+  "release.yml": {
+    preflight: "ubuntu-latest",
+    "obtain-artifact": "ubuntu-latest",
+    "verify-artifact": "${{ matrix.runner }}",
+    "publish-npm": "ubuntu-latest",
+    "verify-registry": "ubuntu-latest",
+    "create-github-release": "ubuntu-latest",
+  },
+  "validate.yml": {
+    validate: "${{ inputs.runner }}",
+  },
+};
+
+type WorkflowRecord = Record<string, unknown>;
+
+function asRecord(value: unknown, label: string): WorkflowRecord {
+  assert.equal(
+    typeof value === "object" && value !== null && !Array.isArray(value),
+    true,
+    `${label} must be a mapping`,
+  );
+  return value as WorkflowRecord;
+}
+
+function parseWorkflow(yaml: string): {
+  document: ReturnType<typeof parseDocument>;
+  value: WorkflowRecord;
+} {
+  const document = parseDocument(yaml, {
+    prettyErrors: true,
+    stringKeys: true,
+    uniqueKeys: true,
+  });
+  const diagnostics = [...document.errors, ...document.warnings];
+  if (diagnostics.length > 0) {
+    throw new Error(
+      `workflow YAML parse failed:\n${diagnostics.map((diagnostic) => diagnostic.message).join("\n")}`,
+    );
+  }
+
+  return {
+    document,
+    value: asRecord(document.toJS({ maxAliasCount: 100 }), "workflow"),
+  };
+}
+
+function parsedJob(workflowValue: WorkflowRecord, name: string): WorkflowRecord {
+  const jobs = asRecord(workflowValue.jobs, "jobs");
+  assert.equal(Object.hasOwn(jobs, name), true, `missing job ${name}`);
+  return asRecord(jobs[name], `job ${name}`);
+}
+
+function parsedSteps(job: WorkflowRecord, label: string): WorkflowRecord[] {
+  assert.equal(Array.isArray(job.steps), true, `${label} steps must be an array`);
+  return (job.steps as unknown[]).map((step, index) =>
+    asRecord(step, `${label} step ${index + 1}`),
+  );
+}
+
+function jobBody(yaml: string, name: string, nextName?: string): string {
+  const start = yaml.indexOf(`\n  ${name}:\n`);
+  assert.notEqual(start, -1, `missing job ${name}`);
+  const end = nextName ? yaml.indexOf(`\n  ${nextName}:\n`, start + 1) : yaml.length;
+  return yaml.slice(start, end === -1 ? yaml.length : end);
+}
+
+function stepBody(yaml: string, stepName: string): string {
+  const marker = `      - name: ${stepName}\n`;
+  const start = yaml.indexOf(marker);
+  assert.notEqual(start, -1, `missing step ${stepName}`);
+  const end = yaml.indexOf("\n      - name:", start + marker.length);
+  return yaml.slice(start, end === -1 ? yaml.length : end);
+}
+
+function assertPinnedUses(yaml: string): void {
+  for (const line of yaml.split("\n").filter((candidate) => /\buses:/.test(candidate))) {
+    if (/uses:\s+\.\//.test(line)) continue;
+    assert.match(
+      line,
+      /uses:\s+[^\s@]+@[a-f0-9]{40}\s+#\s+v\d+(?:\.\d+)*\s*$/,
+      `third-party action must use a full SHA and version comment: ${line.trim()}`,
+    );
+  }
+}
+
+function assertCheckoutHardening(yaml: string): void {
+  const lines = yaml.split("\n");
+  for (const [index, line] of lines.entries()) {
+    if (!/uses:\s+actions\/checkout@/.test(line)) continue;
+    const nearby = lines.slice(index, index + 5).join("\n");
+    assert.match(nearby, /persist-credentials:\s*false/, `checkout is not hardened near line ${index + 1}`);
+  }
+}
+
+function isBlockScalarHeader(value: string): boolean {
+  const scalar = value.trim();
+  if (!/^[|>]/.test(scalar)) return false;
+  const valid = /^[|>](?:(?:[1-9][+-]?)|(?:[+-][1-9]?))?(?:[ \t]+#.*)?$/;
+  if (!valid.test(scalar)) throw new Error(`malformed run block scalar header: ${scalar}`);
+  return true;
+}
+
+function runBlocks(yaml: string): string[] {
+  const lines = yaml.split("\n");
+  const blocks: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)run:\s*(.*)$/);
+    if (!match) continue;
+    const baseIndent = match[1].length;
+    const scalar = match[2].trim();
+    const block = [lines[index]];
+    if (isBlockScalarHeader(scalar)) {
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const nextLine = lines[next];
+        const nextIndent = nextLine.length - nextLine.trimStart().length;
+        if (nextLine.trim() !== "" && nextIndent <= baseIndent) break;
+        block.push(nextLine);
+      }
+    }
+    blocks.push(block.join("\n"));
+  }
+  return blocks;
+}
+
+function assertNoShellExpression(yaml: string, expression: RegExp): void {
+  for (const block of runBlocks(yaml)) assert.doesNotMatch(block, expression);
+}
+
+function assertValidationNpmOrdering(yaml: string): void {
+  const setup = yaml.indexOf("- name: Set up exact Node");
+  const install = yaml.indexOf("- name: Install pinned npm");
+  const dependencies = yaml.indexOf("- name: Install dependencies");
+  const validation = yaml.indexOf("- name: Run requested validation");
+  assert.ok(setup >= 0 && setup < install && install < dependencies && dependencies < validation, "validation steps are out of order");
+
+  const beforeInstall = yaml.slice(0, install);
+  assert.doesNotMatch(beforeInstall, /npm ci|npm run\s+\w+/, "npm CI or package scripts precede exact npm setup");
+  const installBody = stepBody(yaml, "Install pinned npm");
+  const globalInstall = installBody.indexOf("npm install --global");
+  const versionCheck = installBody.indexOf("npm --version");
+  const exactCheck = installBody.indexOf('test "$expected" = "11.15.0"');
+  assert.ok(globalInstall >= 0 && globalInstall < versionCheck && versionCheck < exactCheck, "exact npm is not installed and asserted before npm ci");
+}
+
+function assertValidateUploads(yaml: string): void {
+  const uploadSteps = yaml
+    .split(/(?=^      - name: )/m)
+    .filter((step) => /uses:\s+actions\/upload-artifact@/.test(step));
+  assert.equal(uploadSteps.length, 1, "validate must have exactly one external upload-artifact step");
+  for (const step of uploadSteps) {
+    assert.match(step, /if:\s*failure\(\) && inputs\.mode == 'full'/);
+    const paths = [...step.matchAll(/^\s+path:\s*(.+)$/gm)].map((match) => match[1].trim());
+    assert.deepEqual(paths, ["release-diagnostics"], "upload path must be exactly release-diagnostics");
+    assert.doesNotMatch(step, /HOME|npmrc|workspace|\$GITHUB_WORKSPACE|path:\s*[.~/$]/i);
+  }
+}
+
+function assertReadOnlyPermissions(yaml: string): void {
+  const lines = yaml.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(/^(\s*)permissions:\s*(.*)$/);
+    if (!match) continue;
+    const indent = match[1].length;
+    const inline = match[2].trim();
+    if (inline) {
+      assert.equal(inline, "{}", "inline permissions must be {} for read-only jobs");
+      continue;
+    }
+    const entries: string[] = [];
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const trimmed = lines[next].trim();
+      const nextIndent = lines[next].length - lines[next].trimStart().length;
+      if (trimmed && nextIndent <= indent) break;
+      if (trimmed) entries.push(trimmed);
+    }
+    assert.deepEqual(entries, ["contents: read"], "permissions must be exactly contents: read");
+  }
+}
+
+function assertSafeWorkflowPolicy(yaml: string): void {
+  assertPinnedUses(yaml);
+  assertCheckoutHardening(yaml);
+  assertReadOnlyPermissions(yaml);
+  assert.doesNotMatch(
+    yaml,
+    /NPM_TOKEN|pull_request_target|\benvironment\s*:|Release Please|Changesets|Semantic Release|audit-ci/i,
+  );
+}
+
+function assertActiveJobsPolicy(name: string, yaml: string): void {
+  assert.ok(
+    Object.hasOwn(EXPECTED_JOB_RUNNERS, name),
+    `missing active job policy for ${name}`,
+  );
+  const { document, value } = parseWorkflow(yaml);
+  const jobs = asRecord(value.jobs, `${name} jobs`);
+  const expected = EXPECTED_JOB_RUNNERS[name];
+  const actual: Record<string, string | null> = {};
+
+  for (const [jobName, rawJob] of Object.entries(jobs)) {
+    const job = asRecord(rawJob, `${name} job ${jobName}`);
+    if (Object.hasOwn(job, "runs-on")) {
+      assert.equal(
+        typeof job["runs-on"],
+        "string",
+        `${name} job ${jobName} runs-on must be a scalar string`,
+      );
+      const node = document.getIn(["jobs", jobName, "runs-on"], true);
+      if (isScalar(node)) {
+        assert.doesNotMatch(
+          String(node.type),
+          /^BLOCK_/,
+          `${name} job ${jobName} runs-on must not use a block scalar`,
+        );
+      }
+      assert.equal(
+        Object.hasOwn(job, "uses"),
+        false,
+        `${name} job ${jobName} cannot combine runs-on and uses`,
+      );
+      actual[jobName] = job["runs-on"] as string;
+    } else {
+      assert.equal(
+        typeof job.uses,
+        "string",
+        `${name} reusable job ${jobName} must have uses and no runs-on`,
+      );
+      actual[jobName] = null;
+    }
+  }
+
+  assert.deepEqual(
+    actual,
+    expected,
+    `${name} jobs and effective runs-on values must match the exact contract`,
+  );
+}
+
+function assertPublicSnapshotPolicy(yaml: string): void {
+  const { value } = parseWorkflow(yaml);
+  const job = parsedJob(value, "public-snapshot");
+  assert.equal(
+    job.uses,
+    "./.github/workflows/validate.yml",
+    "public snapshot must call reusable validation",
+  );
+  assert.equal(
+    Object.hasOwn(job, "strategy"),
+    false,
+    "public snapshot must not define a strategy",
+  );
+  assert.deepEqual(
+    job.with,
+    {
+      runner: "ubuntu-latest",
+      "node-version": "22.18.0",
+      mode: "public-snapshot",
+      audit: false,
+    },
+    "public snapshot inputs must be the exact Ubuntu-only validation contract",
+  );
+  assert.match(jobBody(yaml, "public-snapshot", "pr-minimum"), /permissions:\s*\n\s+contents:\s*read/);
+}
+
+function assertNightlyPolicy(yaml: string): void {
+  assert.match(yaml, /^name: Nightly validation$/m);
+  assert.match(yaml, /on:\s*\n\s+schedule:\s*\n\s+- cron: "17 4 \* \* \*"\s*\n\s+workflow_dispatch:/);
+  assert.match(yaml, /^permissions:\s*\n\s+contents: read$/m);
+  assert.match(yaml, /concurrency:\s*\n\s+group: nightly\s*\n\s+cancel-in-progress: false/);
+
+  const resolver = jobBody(yaml, "resolve-latest-node", "native-matrix");
+  assert.match(resolver, /runs-on: ubuntu-latest/);
+  assert.match(resolver, /permissions: \{\}/);
+  assert.match(resolver, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4/);
+  assert.match(resolver, /node-version: node/);
+  assert.match(resolver, /version=\$\(node -p 'process\.versions\.node'\)/);
+  assert.match(resolver, /version: \$\{\{ steps\.node\.outputs\.version \}\}/);
+  assert.equal((yaml.match(/node-version:\s*node\s*$/gm) ?? []).length, 1);
+
+  const { value } = parseWorkflow(yaml);
+  const matrixJob = parsedJob(value, "native-matrix");
+  const matrix = jobBody(yaml, "native-matrix");
+  assert.match(matrix, /needs: resolve-latest-node/);
+  assert.deepEqual(
+    matrixJob.strategy,
+    {
+      "fail-fast": false,
+      matrix: { runner: ["ubuntu-latest", "macos-latest"] },
+    },
+    "nightly strategy must contain only the exact supported runner matrix",
+  );
+  assert.equal(
+    matrixJob.uses,
+    "./.github/workflows/validate.yml",
+    "nightly matrix must call reusable validation",
+  );
+  assert.deepEqual(
+    matrixJob.with,
+    {
+      runner: "${{ matrix.runner }}",
+      "node-version": "${{ needs.resolve-latest-node.outputs.version }}",
+      mode: "full",
+      audit: "${{ matrix.runner == 'ubuntu-latest' }}",
+    },
+    "nightly validation inputs must match the exact matrix contract",
+  );
+  assert.equal((yaml.match(/^\s+audit:/gm) ?? []).length, 1, "nightly must request exactly one matrix audit");
+  assert.match(matrix, /permissions:\s*\n\s+contents: read/);
+
+  assert.doesNotMatch(yaml, /actions\/checkout@/, "nightly caller must not check out source");
+  assert.doesNotMatch(yaml, /actions\/upload-artifact@/, "nightly caller must not add broad diagnostics uploads");
+  assertSafeWorkflowPolicy(yaml);
+}
+
+test("validation, CI, and nightly workflows exist", () => {
+  for (const name of ["validate.yml", "ci.yml", "nightly.yml"]) {
+    assert.equal(existsSync(workflowPath(name)), true, `missing ${name}`);
+  }
+  assert.equal(existsSync(dependabotPath), true, "missing dependabot.yml");
+});
+
+test("workflow policy inventory covers and checks every active workflow file", () => {
+  const active = readdirSync(WORKFLOW_DIR)
+    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
+    .sort();
+  assert.deepEqual(
+    active,
+    Object.keys(WORKFLOW_POLICY_CHECKERS).sort(),
+    "every active workflow must have an explicit policy checker",
+  );
+  for (const [name, checker] of Object.entries(WORKFLOW_POLICY_CHECKERS)) {
+    checker(workflow(name));
+  }
+});
+
+test("active workflows schedule only their exact allowed runners", () => {
+  const active = readdirSync(WORKFLOW_DIR).filter(
+    (name) => name.endsWith(".yml") || name.endsWith(".yaml"),
+  );
+  for (const name of active) assertActiveJobsPolicy(name, workflow(name));
+
+  const ci = workflow("ci.yml");
+  const mutations = [
+    ci.replace("    runs-on: ubuntu-latest", "    runs-on:"),
+    ci.replace("    runs-on: ubuntu-latest", "    runs-on:\n      runner: ubuntu-latest"),
+    ci.replace("    runs-on: ubuntu-latest", "    runs-on: [ubuntu-latest]"),
+    ci.replace("    runs-on: ubuntu-latest", "    runs-on: >-\n      ubuntu-latest"),
+    ci.replace("    runs-on: ubuntu-latest", "    runs-on: ubuntu-latest\n    runs-on: ubuntu-latest"),
+    ci
+      .replace("jobs:\n", "runner-values:\n  windows: &windows-runner windows-latest\n\njobs:\n")
+      .replace("    runs-on: ubuntu-latest", "    runs-on: *windows-runner"),
+    ci.replace(
+      "    runs-on: ubuntu-latest",
+      "    runs-on: ${{ format('{0}-{1}', 'windows', 'latest') }}",
+    ),
+    `${ci}\n  quoted-runner:\n    "runs-on": \${{ format('{0}-{1}', 'windows', 'latest') }}\n    steps:\n      - run: echo safe\n`,
+  ];
+  for (const mutated of mutations) {
+    assert.notEqual(mutated, ci, "active runs-on mutation must modify the workflow");
+    assert.throws(
+      () => assertActiveJobsPolicy("ci.yml", mutated),
+      /runs-on|runner|duplicate|empty|block|deep-equal|strictly equal/i,
+    );
+  }
+
+  assert.doesNotThrow(() =>
+    assertActiveJobsPolicy("ci.yml", `${ci}\n# "runs-on": windows-latest\n`),
+  );
+});
+
+for (const [name, mutate] of [
+  [
+    "inline Windows job",
+    (yaml: string) => `${yaml}\n  inline-windows: { runs-on: windows-latest, steps: [] }\n`,
+  ],
+  [
+    "anchored runs-on key",
+    (yaml: string) =>
+      `${yaml}\n  decorated-windows:\n    &runner-key runs-on: windows-latest\n    steps: []\n`,
+  ],
+  [
+    "tagged runs-on key",
+    (yaml: string) =>
+      `${yaml}\n  tagged-windows:\n    !!str runs-on: windows-latest\n    steps: []\n`,
+  ],
+] as const) {
+  test(`active runner policy rejects ${name}`, () => {
+    const yaml = workflow("ci.yml");
+    const mutated = mutate(yaml);
+    assert.notEqual(mutated, yaml, `${name} mutation must modify the workflow`);
+    assert.throws(
+      () => assertActiveJobsPolicy("ci.yml", mutated),
+      /job|runs-on|runner|windows|deep-equal|strictly equal/i,
+    );
+  });
+}
+
+test("all workflow actions are pinned and workflows avoid forbidden authority and tools", () => {
+  for (const name of ["validate.yml", "ci.yml", "nightly.yml"]) {
+    assertSafeWorkflowPolicy(workflow(name));
+  }
+});
+
+test("nightly runs one exact latest Node across the native matrix", () => {
+  assertNightlyPolicy(workflow("nightly.yml"));
+});
+
+test("Dependabot maintains only npm and GitHub Actions weekly", () => {
+  const body = readFileSync(dependabotPath, "utf8");
+  assert.match(body, /^version: 2$/m);
+  assert.equal((body.match(/package-ecosystem:/g) ?? []).length, 2);
+  assert.match(body, /package-ecosystem: "npm"/);
+  assert.match(body, /package-ecosystem: "github-actions"/);
+  assert.equal((body.match(/interval: "weekly"/g) ?? []).length, 2);
+  assert.equal((body.match(/directory: "\/"/g) ?? []).length, 2);
+  assert.equal((body.match(/day: "monday"/g) ?? []).length, 2);
+  assert.match(body, /time: "04:17"/);
+  assert.match(body, /time: "04:23"/);
+  assert.equal((body.match(/open-pull-requests-limit: 5/g) ?? []).length, 2);
+  assert.doesNotMatch(body, /Release Please|Changesets|Semantic Release|release-version|version-update/i);
+});
+
+test("nightly policy rejects missing or unsupported runners, extra audits, write authority, and cancellation", () => {
+  const yaml = workflow("nightly.yml");
+  const mutations = [
+    yaml.replace(", macos-latest", ""),
+    yaml.replace(
+      "runner: [ubuntu-latest, macos-latest]",
+      "runner: [ubuntu-latest, macos-latest, windows-latest]",
+    ),
+    yaml.replace(
+      "        runner: [ubuntu-latest, macos-latest]",
+      "        runner: [ubuntu-latest, macos-latest]\n        include:\n          - runner: windows-2025",
+    ),
+    yaml.replace(
+      "        runner: [ubuntu-latest, macos-latest]",
+      "        runner: [ubuntu-latest, macos-latest]\n      # matrix comment\n        include:\n          - runner: windows-2025",
+    ),
+    yaml.replace(
+      "        runner: [ubuntu-latest, macos-latest]",
+      "        runner: [ubuntu-latest, macos-latest]\n      # matrix comment\n        exclude:\n          - runner: macos-latest",
+    ),
+    yaml.replace(
+      "        runner: [ubuntu-latest, macos-latest]",
+      "        runner: [ubuntu-latest, macos-latest]\n      # matrix comment\n        architecture: [x64]",
+    ),
+    yaml.replace(
+      "      runner: ${{ matrix.runner }}",
+      "      # runner: ${{ matrix.runner }}\n      runner: macos-14",
+    ),
+    yaml.replace(
+      "      runner: ${{ matrix.runner }}",
+      "      &runner-input runner: windows-latest",
+    ),
+    yaml.replace(
+      "      runner: ${{ matrix.runner }}",
+      '      "runner": windows-latest',
+    ),
+    yaml.replace("      mode: full", "      mode: full\n      audit: false"),
+    yaml.replace("permissions: {}", "permissions: { actions: write }"),
+    yaml.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+  ];
+
+  for (const mutated of mutations) {
+    assert.throws(
+      () => assertNightlyPolicy(mutated),
+      /match|permission|audit|cancel|runner|windows|macos|false|contents/i,
+    );
+  }
+});
+
+test("reusable validation declares the exact read-only workflow_call contract", () => {
+  const yaml = workflow("validate.yml");
+  assert.match(yaml, /^name: Reusable validation$/m);
+  assert.match(yaml, /on:\s*\n\s+workflow_call:/);
+  for (const input of ["runner", "node-version", "mode"]) {
+    assert.match(yaml, new RegExp(`${input}:\\n\\s+required: true\\n\\s+type: string`));
+  }
+  assert.match(yaml, /audit:\s*\n\s+required: false\s*\n\s+default: false\s*\n\s+type: boolean/);
+  assert.match(yaml, /^permissions:\s*\n\s+contents: read$/m);
+  assert.match(jobBody(yaml, "validate"), /runs-on:\s*\$\{\{ inputs\.runner \}\}/);
+});
+
+test("reusable validation installs and verifies the packageManager npm pin in order", () => {
+  const yaml = workflow("validate.yml");
+  assertValidationNpmOrdering(yaml);
+  const setup = stepBody(yaml, "Set up exact Node");
+  const install = stepBody(yaml, "Install pinned npm");
+  assert.match(setup, /actions\/setup-node@[a-f0-9]{40}\s+# v4/);
+  assert.match(setup, /node-version:\s*\$\{\{ inputs\.node-version \}\}/);
+  assert.match(setup, /cache:\s*npm/);
+  assert.match(install, /package_manager=\$\(node -p "require\('\.\/package\.json'\)\.packageManager"\)/);
+  assert.match(install, /expected=\$\{package_manager#npm@\}/);
+  assert.match(install, /npm install --global "\$package_manager"/);
+  assert.match(install, /test "\$\(npm --version\)" = "\$expected"/);
+  assert.match(install, /test "\$expected" = "11\.15\.0"/);
+  assert.match(stepBody(yaml, "Install dependencies"), /run:\s*npm ci/);
+});
+
+test("reusable validation supports fast and full modes with narrow diagnostics", () => {
+  const yaml = workflow("validate.yml");
+  const validation = stepBody(yaml, "Run requested validation");
+  const diagnostics = stepBody(yaml, "Upload sanitized release diagnostics");
+  assertNoShellExpression(yaml, /\$\{\{\s*inputs\.mode\s*\}\}/);
+  assert.match(validation, /env:\s*\n\s+MODE:\s*\$\{\{ inputs\.mode \}\}/);
+  assert.match(validation, /case "\$MODE"/);
+  assert.match(stepBody(yaml, "Record toolchain"), /MODE:\s*\$\{\{ inputs\.mode \}\}/);
+  assert.match(stepBody(yaml, "Record toolchain"), /Mode: \$MODE/);
+  assertValidateUploads(yaml);
+  assert.match(validation, /MD2VID_DIAGNOSTICS_DIR:\s*release-diagnostics/);
+  assert.match(validation, /fast\) npm run check ;;/);
+  assert.match(validation, /full\) npm run release:check ;;/);
+  assert.match(validation, /public-snapshot\) corepack npm run public:snapshot:check ;;/);
+  assert.match(validation, /\*\) echo "unsupported validation mode" >&2; exit 2 ;;/);
+  assert.match(diagnostics, /if:\s*failure\(\) && inputs\.mode == 'full'/);
+  assert.match(diagnostics, /actions\/upload-artifact@[a-f0-9]{40}\s+# v4/);
+  assert.match(diagnostics, /name:\s*release-diagnostics-\$\{\{ inputs\.runner \}\}-\$\{\{ github\.run_id \}\}/);
+  assert.match(diagnostics, /path:\s*release-diagnostics/);
+  assert.doesNotMatch(diagnostics, /path:\s*[.~/$]|HOME|npmrc|workspace/i);
+  assert.match(diagnostics, /if-no-files-found:\s*ignore/);
+  assert.match(diagnostics, /retention-days:\s*14/);
+  assert.match(stepBody(yaml, "Enforce production audit policy"), /if:\s*inputs\.audit[\s\S]*run:\s*npm run security:audit/);
+  assert.match(stepBody(yaml, "Record toolchain"), /if:\s*always\(\)[\s\S]*Node:[\s\S]*npm:[\s\S]*Mode:/);
+});
+
+test("portable npm steps use runner defaults while bash-only steps opt into bash", () => {
+  const yaml = workflow("validate.yml");
+  assert.match(stepBody(yaml, "Install pinned npm"), /shell:\s*bash/);
+  assert.match(stepBody(yaml, "Run requested validation"), /shell:\s*bash/);
+  assert.match(stepBody(yaml, "Record toolchain"), /shell:\s*bash/);
+  assert.doesNotMatch(stepBody(yaml, "Install dependencies"), /shell:/);
+  assert.doesNotMatch(stepBody(yaml, "Enforce production audit policy"), /shell:/);
+});
+
+test("CI triggers only for pull requests and pushes to main with stable concurrency", () => {
+  const yaml = workflow("ci.yml");
+  assert.match(yaml, /^name: CI$/m);
+  assert.match(yaml, /on:\s*\n\s+pull_request:\s*\n\s+push:\s*\n\s+branches:\s*\[main\]/);
+  assert.match(yaml, /^permissions:\s*\n\s+contents: read$/m);
+  assert.match(yaml, /group:\s*\$\{\{ github\.event_name == 'pull_request' && format\('ci-pr-\{0\}', github\.event\.pull_request\.number\) \|\| 'ci-main' \}\}/);
+  assert.match(yaml, /cancel-in-progress:\s*true/);
+});
+
+test("CI enforces the fresh public snapshot gate on Ubuntu only", () => {
+  const yaml = workflow("ci.yml");
+  assertPublicSnapshotPolicy(yaml);
+  assert.equal((yaml.match(/mode:\s*public-snapshot/g) ?? []).length, 1);
+
+  const windowsRunner = yaml.replace("runner: ubuntu-latest", "runner: windows-latest");
+  assert.notEqual(windowsRunner, yaml, "public snapshot runner mutation must modify the workflow");
+  assert.throws(
+    () => assertPublicSnapshotPolicy(windowsRunner),
+    /ubuntu|windows|match/i,
+  );
+
+  const commentDecoy = yaml.replace(
+    "      runner: ubuntu-latest",
+    "      # runner: ubuntu-latest\n      runner: macos-latest",
+  );
+  assert.notEqual(commentDecoy, yaml, "public snapshot comment-decoy mutation must modify the workflow");
+  assert.throws(
+    () => assertPublicSnapshotPolicy(commentDecoy),
+    /ubuntu|macos|match|deep-equal/i,
+  );
+
+  for (const decoratedRunner of [
+    yaml.replace("      runner: ubuntu-latest", "      &runner-input runner: windows-latest"),
+    yaml.replace("      runner: ubuntu-latest", '      "runner": windows-latest'),
+  ]) {
+    assert.notEqual(decoratedRunner, yaml, "public snapshot decorated runner mutation must modify the workflow");
+    assert.throws(
+      () => assertPublicSnapshotPolicy(decoratedRunner),
+      /ubuntu|windows|deep-equal|strictly equal/i,
+    );
+  }
+});
+
+test("CI resolves latest Node exactly once and exports the exact version", () => {
+  const yaml = workflow("ci.yml");
+  assert.equal((yaml.match(/^  resolve-latest-node:$/gm) ?? []).length, 1);
+  const resolver = jobBody(yaml, "resolve-latest-node", "pr-title");
+  assert.match(resolver, /runs-on:\s*ubuntu-latest/);
+  assert.match(resolver, /permissions:\s*\{\}/);
+  assert.match(resolver, /node-version:\s*node/);
+  assert.match(resolver, /version=\$\(node -p 'process\.versions\.node'\)/);
+  assert.match(resolver, /version:\s*\$\{\{ steps\.node\.outputs\.version \}\}/);
+  assert.equal((yaml.match(/node-version:\s*node\s*$/gm) ?? []).length, 1);
+});
+
+test("CI validates PR titles without shell interpolation", () => {
+  const yaml = workflow("ci.yml");
+  const title = jobBody(yaml, "pr-title", "dependency-review");
+  assert.match(title, /if:\s*github\.event_name == 'pull_request'/);
+  assert.match(title, /permissions:\s*\{\}/);
+  assert.match(title, /env:\s*\n\s+PR_TITLE:\s*\$\{\{ github\.event\.pull_request\.title \}\}/);
+  assertNoShellExpression(title, /\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/);
+  assert.match(title, /test "\$\{#PR_TITLE\}" -le 72/);
+  assert.ok(
+    title.includes(
+      '[[ "$PR_TITLE" =~ ^(feat|fix|docs|test|refactor|chore|ci|build)(\\([a-z0-9._-]+\\))?:[[:space:]][^[:space:]].*$ ]]',
+    ),
+  );
+  assert.match(title, /\[\[ ! "\$PR_TITLE" =~ \[\[:punct:\]\]\$ \]\]/);
+  assert.doesNotMatch(title, /\(feat\|fix\|docs\|test\|refactor\|chore\|ci\|build\)\??!:/);
+});
+
+test("CI performs high-severity dependency review only on pull requests", () => {
+  const yaml = workflow("ci.yml");
+  const review = jobBody(yaml, "dependency-review", "pr-minimum");
+  assert.match(review, /if:\s*github\.event_name == 'pull_request'/);
+  assert.match(review, /permissions:\s*\n\s+contents: read/);
+  assert.match(review, /actions\/dependency-review-action@[a-f0-9]{40}\s+# v5\.0\.0/);
+  assert.match(review, /fail-on-severity:\s*high/);
+});
+
+test("CI runs minimum and resolved-latest PR checks plus full main validation", () => {
+  const yaml = workflow("ci.yml");
+  const minimum = jobBody(yaml, "pr-minimum", "pr-latest");
+  const latest = jobBody(yaml, "pr-latest", "main-full");
+  const main = jobBody(yaml, "main-full");
+
+  for (const body of [minimum, latest, main]) {
+    assert.match(body, /uses:\s*\.\/\.github\/workflows\/validate\.yml/);
+    assert.match(body, /permissions:\s*\n\s+contents: read/);
+    assert.match(body, /runner:\s*ubuntu-latest/);
+    assert.match(body, /audit:\s*false/);
+  }
+
+  assert.match(minimum, /if:\s*github\.event_name == 'pull_request'/);
+  assert.match(minimum, /node-version:\s*22\.18\.0/);
+  assert.match(minimum, /mode:\s*fast/);
+
+  assert.match(latest, /if:\s*github\.event_name == 'pull_request'/);
+  assert.match(latest, /needs:\s*resolve-latest-node/);
+  assert.match(latest, /node-version:\s*\$\{\{ needs\.resolve-latest-node\.outputs\.version \}\}/);
+  assert.match(latest, /mode:\s*fast/);
+
+  assert.match(main, /if:\s*github\.event_name == 'push'/);
+  assert.match(main, /needs:\s*resolve-latest-node/);
+  assert.match(main, /node-version:\s*\$\{\{ needs\.resolve-latest-node\.outputs\.version \}\}/);
+  assert.match(main, /mode:\s*full/);
+});
+
+test("policy helpers reject unsafe workflow mutations", () => {
+  const validate = workflow("validate.yml");
+  const ci = workflow("ci.yml");
+
+  const reorderedNpm = validate
+    .replace("      - name: Install pinned npm", "      - name: Temporary npm step")
+    .replace("      - name: Install dependencies", "      - name: Install pinned npm")
+    .replace("      - name: Temporary npm step", "      - name: Install dependencies");
+  assert.throws(() => assertValidationNpmOrdering(reorderedNpm), /npm|order|pinned/i);
+
+  const interpolatedTitle = ci.replace(
+    '          test "${#PR_TITLE}" -le 72',
+    '          echo "${{ github.event.pull_request.title }}"\n          test "${#PR_TITLE}" -le 72',
+  );
+  assert.throws(
+    () => assertNoShellExpression(jobBody(interpolatedTitle, "pr-title", "dependency-review"), /\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/),
+    /match|expression/i,
+  );
+
+  const broadUploader = validate.replace(
+    "      - name: Record toolchain",
+    "      - name: Upload workspace\n        if: always()\n        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\n        with:\n          path: .\n      - name: Record toolchain",
+  );
+  assert.throws(() => assertValidateUploads(broadUploader), /upload|exactly|path|failure/i);
+
+  const arbitraryWrite = ci.replace("permissions: {}", "permissions: { actions: write }");
+  assert.throws(() => assertReadOnlyPermissions(arbitraryWrite), /permission|write|contents/i);
+
+  const staleComment = validate.replace("# v4", "# current");
+  assert.throws(() => assertPinnedUses(staleComment), /version comment|full SHA/i);
+});
+
+test("shell-source policy rejects inline and folded expression mutations", () => {
+  const titleExpression = /\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/;
+  const modeExpression = /\$\{\{\s*inputs\.mode\s*\}\}/;
+  const inlineTitle = `${jobBody(workflow("ci.yml"), "pr-title", "dependency-review")}\n      - name: Unsafe inline title\n        run: echo "${"${{ github.event.pull_request.title }}"}"`;
+  const foldedTitle = `${jobBody(workflow("ci.yml"), "pr-title", "dependency-review")}\n      - name: Unsafe folded title\n        run: >-\n          echo "${"${{ github.event.pull_request.title }}"}"`;
+  const inlineMode = `${workflow("validate.yml")}\n      - name: Unsafe inline mode\n        run: echo "${"${{ inputs.mode }}"}"`;
+  const foldedMode = `${workflow("validate.yml")}\n      - name: Unsafe folded mode\n        run: >+\n          echo "${"${{ inputs.mode }}"}"`;
+
+  assert.throws(() => assertNoShellExpression(inlineTitle, titleExpression), /match|expression/i);
+  assert.throws(() => assertNoShellExpression(foldedTitle, titleExpression), /match|expression/i);
+  assert.throws(() => assertNoShellExpression(inlineMode, modeExpression), /match|expression/i);
+  assert.throws(() => assertNoShellExpression(foldedMode, modeExpression), /match|expression/i);
+
+  for (const indicator of ["|", "|-", "|+", ">", ">-", ">+"]) {
+    const mutated = `steps:\n  - name: Unsafe scalar ${indicator}\n    run: ${indicator}\n      echo "${"${{ inputs.mode }}"}"`;
+    assert.throws(() => assertNoShellExpression(mutated, modeExpression), /match|expression/i, `scanner missed run: ${indicator}`);
+  }
+});
+
+test("shell-source policy accepts block indicators in either order with comments", () => {
+  const titleExpression = /\$\{\{\s*github\.event\.pull_request\.title\s*\}\}/;
+  const modeExpression = /\$\{\{\s*inputs\.mode\s*\}\}/;
+  const mutations = [
+    { header: "|2-", expression: titleExpression },
+    { header: "|-2", expression: modeExpression },
+    { header: ">+2", expression: titleExpression },
+    { header: ">2+", expression: modeExpression },
+    { header: "| # comment", expression: titleExpression },
+  ];
+
+  for (const { header, expression } of mutations) {
+    const mutated = `steps:\n  - name: Unsafe scalar ${header}\n    run: ${header}\n      echo "${"${{ github.event.pull_request.title }}"}"\n      echo "${"${{ inputs.mode }}"}"`;
+    assert.throws(() => assertNoShellExpression(mutated, expression), /match|expression/i, `scanner missed run: ${header}`);
+  }
+
+  for (const header of ["|22", "|+-", "|0", ">2-+", "| comment"]) {
+    const malformed = `steps:\n  - name: Malformed scalar ${header}\n    run: ${header}\n      echo safe`;
+    assert.throws(() => runBlocks(malformed), /malformed|header/i, `malformed header was accepted: ${header}`);
+  }
+});
+
+function releaseJob(yaml: string, name: string): string {
+  const order = ["preflight", "obtain-artifact", "verify-artifact", "publish-npm", "verify-registry", "create-github-release"];
+  const index = order.indexOf(name);
+  assert.notEqual(index, -1, `unknown release job ${name}`);
+  return jobBody(yaml, name, order[index + 1]);
+}
+
+function assertExactPermissions(body: string, entries: string[]): void {
+  const match = body.match(/\n    permissions:\s*\n((?:      [^\n]+\n)+)/);
+  assert.ok(match, "missing job permissions");
+  const actual = match[1].trim().split("\n").map((line) => line.trim());
+  assert.deepEqual(actual, entries);
+}
+
+function assertReleaseAuthorities(yaml: string): void {
+  assert.doesNotMatch(yaml, /pull_request_target|NPM_TOKEN|\benvironment\s*:|Release Please|Changesets|Semantic Release|audit-ci/i);
+  assertPinnedUses(yaml);
+  assertCheckoutHardening(yaml);
+
+  const preflight = releaseJob(yaml, "preflight");
+  const obtain = releaseJob(yaml, "obtain-artifact");
+  const verify = releaseJob(yaml, "verify-artifact");
+  const publish = releaseJob(yaml, "publish-npm");
+  const registry = releaseJob(yaml, "verify-registry");
+  const githubRelease = releaseJob(yaml, "create-github-release");
+
+  assertExactPermissions(preflight, ["contents: read", "actions: read"]);
+  assertExactPermissions(obtain, ["contents: read", "actions: read"]);
+  assertExactPermissions(verify, ["contents: read"]);
+  assertExactPermissions(publish, ["contents: read", "id-token: write"]);
+  assertExactPermissions(registry, ["contents: read"]);
+  assertExactPermissions(githubRelease, ["contents: write"]);
+
+  for (const body of [preflight, obtain, verify, publish, registry, githubRelease]) {
+    assert.equal(/id-token:\s*write/.test(body) && /contents:\s*write/.test(body), false, "one job combines npm and GitHub write authority");
+    assert.doesNotMatch(body, /actions:\s*write|checks:\s*write|deployments:\s*write|issues:\s*write|packages:\s*write|pull-requests:\s*write|security-events:\s*write/);
+  }
+}
+
+function assertReleaseDependencies(yaml: string): void {
+  assert.match(releaseJob(yaml, "obtain-artifact"), /needs:\s*preflight/);
+  assert.match(releaseJob(yaml, "verify-artifact"), /needs:\s*\[preflight, obtain-artifact\]/);
+  assert.match(releaseJob(yaml, "publish-npm"), /needs:\s*\[preflight, obtain-artifact, verify-artifact\]/);
+  assert.match(releaseJob(yaml, "verify-registry"), /needs:\s*\[preflight, obtain-artifact, publish-npm\]/);
+  assert.match(releaseJob(yaml, "create-github-release"), /needs:\s*\[preflight, verify-registry\]/);
+}
+
+function assertReleasePolicy(yaml: string): void {
+  assert.match(yaml, /^name: Release$/m);
+  const trigger = yaml.match(/^on:\n([\s\S]*?)(?=^permissions:)/m)?.[0] ?? "";
+  assert.equal(
+    trigger,
+    `on:\n  push:\n    tags: ["v*"]\n  workflow_dispatch:\n    inputs:\n      tag:\n        description: Existing protected release tag to recover\n        required: true\n        type: string\n\n`,
+    "release must expose only protected tag push and required-tag recovery triggers",
+  );
+  assert.match(yaml, /concurrency:\s*\n\s+group:\s*md2vid-release\s*\n\s+queue:\s*max\s*\n\s+cancel-in-progress:\s*false/);
+  assert.doesNotMatch(yaml, /queues one pending run|one-pending/i, "release must not use the old one-pending workaround");
+  assertReleaseAuthorities(yaml);
+  assertReleaseDependencies(yaml);
+}
+
+function assertReleaseVerificationMatrix(yaml: string): void {
+  const { value } = parseWorkflow(yaml);
+  const job = parsedJob(value, "verify-artifact");
+  assert.deepEqual(
+    job.strategy,
+    {
+      "fail-fast": false,
+      matrix: { runner: ["ubuntu-latest", "macos-latest"] },
+    },
+    "release verification strategy must contain only the exact supported runner matrix",
+  );
+}
+
+const EXACT_RELEASE_VERIFIER = [
+  "npm run release:verify-artifact -- \\",
+  "  --tarball \"release-artifact/$TARBALL\" \\",
+  "  --metadata release-artifact/artifact.json \\",
+  "  --expected-version \"$VERSION\" \\",
+  "  --expected-tag \"$TAG\" \\",
+  "  --expected-commit \"$COMMIT\" \\",
+  "  --diagnostics release-diagnostics",
+].join("\n");
+
+function normalizeYamlFinalNewline(value: string): string {
+  return value.endsWith("\n") ? value.slice(0, -1) : value;
+}
+
+function assertReleaseArtifactVerificationRequired(yaml: string): void {
+  const { value } = parseWorkflow(yaml);
+  const job = parsedJob(value, "verify-artifact");
+  for (const control of ["if", "continue-on-error"]) {
+    assert.equal(
+      Object.hasOwn(job, control),
+      false,
+      `verify-artifact job must not define ${control}`,
+    );
+  }
+
+  const matches = parsedSteps(job, "verify-artifact").filter(
+    (step) => step.name === "Verify exact release artifact",
+  );
+  assert.equal(
+    matches.length,
+    1,
+    "verify-artifact must have exactly one Verify exact release artifact step",
+  );
+  const [step] = matches;
+  for (const control of ["if", "continue-on-error"]) {
+    assert.equal(
+      Object.hasOwn(step, control),
+      false,
+      `exact release artifact verification step must not define ${control}`,
+    );
+  }
+  assert.equal(step.shell, "bash", "verification shell must be exactly bash");
+  assert.equal(typeof step.run, "string", "verification run must be a scalar string");
+  assert.equal(
+    normalizeYamlFinalNewline(step.run as string),
+    EXACT_RELEASE_VERIFIER,
+    "verification run must be exactly the blocking artifact verifier command",
+  );
+}
+
+function assertReleaseEventMapping(body: string): void {
+  assert.match(body, /EVENT_NAME:\s*\$\{\{ github\.event_name \}\}/);
+  assert.match(body, /case "\$EVENT_NAME" in\s*\n\s+push\) event_kind=push ;;\s*\n\s+workflow_dispatch\) event_kind=recovery ;;\s*\n\s+\*\) echo "unsupported release event: \$EVENT_NAME" >&2; exit 2 ;;/);
+  assert.match(body, /--event "\$event_kind"/);
+  assert.doesNotMatch(body, /github\.event_name ==|EVENT_KIND:/);
+}
+
+function assertActionlintQueueSuppression(body?: string): void {
+  assert.equal(existsSync(actionlintConfigPath), true, "missing path-scoped actionlint queue suppression");
+  assert.equal(
+    body ?? readFileSync(actionlintConfigPath, "utf8"),
+    `paths:\n  .github/workflows/release.yml:\n    ignore:\n      - '^unexpected key "queue" for "concurrency" section\\.'\n`,
+    "actionlint suppression must target only release.yml and the exact stale queue diagnostic",
+  );
+}
+
+function assertReleaseToolchain(body: string, ref: RegExp): void {
+  const checkout = body.match(/- name: Check out verified commit[\s\S]*?(?=\n      - name:|$)/)?.[0] ?? "";
+  assert.match(checkout, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4/);
+  assert.match(checkout, ref);
+  assert.match(checkout, /persist-credentials:\s*false/);
+  assert.match(body, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4/);
+  assert.match(body, /node-version:\s*\$\{\{ needs\.preflight\.outputs\.node_version \}\}/);
+  assert.match(body, /npm install --global "\$package_manager"/);
+  assert.match(body, /test "\$\(npm --version\)" = "\$expected"/);
+  assert.match(body, /test "\$expected" = "11\.15\.0"/);
+}
+
+function assertGhTokenOnEveryGhStep(yaml: string): void {
+  const steps = yaml
+    .split(/(?=^      - name: )/m)
+    .filter((step) => /release_preflight\.ts (?:preflight|release-check)|\bgh\s+/.test(step));
+  assert.equal(steps.length, 4, "expected current-artifact, preflight, release-check, and release-create API callers");
+  for (const step of steps) assert.match(step, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/);
+}
+
+function assertReleaseDiagnostics(yaml: string): void {
+  const uploadUses = yaml.match(/^\s+(?:-\s+)?uses:\s+actions\/upload-artifact@/gm) ?? [];
+  assert.equal(uploadUses.length, 3, "release must have exactly three upload-artifact uses");
+  const uploadSteps = yaml.split(/(?=^      - name: )/m).filter((step) => /uses:\s+actions\/upload-artifact@/.test(step));
+  assert.equal(uploadSteps.length, 3, "release must have exactly three named upload-artifact steps");
+  assert.deepEqual(
+    uploadSteps.map((step) => step.match(/^      - name: (.+)$/m)?.[1]),
+    ["Upload current release artifact", "Upload sanitized release diagnostics", "Upload sanitized registry diagnostics"],
+    "release upload-artifact steps must be the enumerated immutable artifact and sanitized diagnostics",
+  );
+
+  const releaseArtifact = stepBody(yaml, "Upload current release artifact");
+  assert.match(releaseArtifact, /if:\s*steps\.current-artifact\.outputs\.reuse != 'true'/);
+  assert.match(releaseArtifact, /name:\s*\$\{\{ needs\.preflight\.outputs\.artifact_name \}\}/);
+  assert.deepEqual([...releaseArtifact.matchAll(/^\s+path:\s*(.+)$/gm)].map((match) => match[1].trim()), ["release-artifact"]);
+  assert.match(releaseArtifact, /if-no-files-found:\s*error/);
+  assert.match(releaseArtifact, /retention-days:\s*90/);
+  assert.match(releaseArtifact, /overwrite:\s*false/);
+
+  const diagnostics = [
+    {
+      name: "Upload sanitized release diagnostics",
+      artifactName: /name:\s*release-diagnostics-\$\{\{ matrix\.runner \}\}-\$\{\{ needs\.obtain-artifact\.outputs\.tag \}\}/,
+    },
+    {
+      name: "Upload sanitized registry diagnostics",
+      artifactName: /name:\s*release-diagnostics-registry-\$\{\{ needs\.obtain-artifact\.outputs\.tag \}\}/,
+    },
+  ];
+  for (const expected of diagnostics) {
+    const step = stepBody(yaml, expected.name);
+    assert.match(step, /if:\s*failure\(\)/);
+    assert.match(step, expected.artifactName);
+    assert.deepEqual([...step.matchAll(/^\s+path:\s*(.+)$/gm)].map((match) => match[1].trim()), ["release-diagnostics"]);
+    assert.match(step, /if-no-files-found:\s*ignore/);
+    assert.match(step, /retention-days:\s*14/);
+    assert.doesNotMatch(step, /HOME|npmrc|workspace|\$GITHUB_WORKSPACE|path:\s*[.~/$]/i);
+  }
+}
+
+function assertRerunSafeArtifactConditions(body: string): void {
+  const reusableDownload = stepBody(body, "Download reusable current-run artifact");
+  assert.match(reusableDownload, /if:\s*steps\.current-artifact\.outputs\.reuse == 'true'/);
+  assert.match(reusableDownload, /artifact-ids:\s*\$\{\{ steps\.current-artifact\.outputs\.artifact_id \}\}/);
+  assert.match(reusableDownload, /run-id:\s*\$\{\{ github\.run_id \}\}/);
+  assert.doesNotMatch(reusableDownload, /^\s+name:/m, "current-run reuse must download the selected artifact ID, not its name");
+
+  const retainedDownload = stepBody(body, "Download retained release artifact");
+  assert.match(retainedDownload, /artifact-ids:\s*\$\{\{ needs\.preflight\.outputs\.artifact_id \}\}/);
+  assert.match(retainedDownload, /run-id:\s*\$\{\{ needs\.preflight\.outputs\.artifact_run_id \}\}/);
+  assert.doesNotMatch(retainedDownload, /^\s+name:/m, "retained recovery must download the validated artifact ID, not its name");
+
+  const absentCondition = "if: needs.preflight.outputs.registry_state == 'absent' && steps.current-artifact.outputs.reuse != 'true'";
+  for (const name of [
+    "Install dependencies for new artifact",
+    "Validate source for new artifact",
+    "Audit dependency signatures",
+    "Enforce production audit policy",
+    "Pack new release artifact",
+  ]) {
+    assert.equal(stepBody(body, name).includes(absentCondition), true, `${name} must skip when the current run artifact is reused`);
+  }
+  assert.match(
+    stepBody(body, "Download retained release artifact"),
+    /if:\s*needs\.preflight\.outputs\.registry_state == 'existing' && steps\.current-artifact\.outputs\.reuse != 'true'/,
+  );
+  const upload = stepBody(body, "Upload current release artifact");
+  assert.match(upload, /if:\s*steps\.current-artifact\.outputs\.reuse != 'true'/);
+  assert.match(upload, /overwrite:\s*false/);
+}
+
+function assertReleaseSummaries(yaml: string): void {
+  const evidence: Record<string, RegExp[]> = {
+    preflight: [/Artifact name:/, /Artifact ID:/, /Registry state:/, /GitHub Release state:/],
+    "obtain-artifact": [/Artifact name:/, /Artifact ID:/, /SRI:/, /SHA-256:/],
+    "verify-artifact": [/Artifact name:/, /Artifact ID:/, /SRI:/, /SHA-256:/, /Runner:/, /Matrix result:/],
+    "publish-npm": [/Artifact name:/, /Artifact ID:/, /SRI:/, /SHA-256:/, /Registry state:/, /Publish state:/],
+    "verify-registry": [/Artifact name:/, /Artifact ID:/, /SRI:/, /SHA-256:/, /Registry state:/, /Public install result:/],
+    "create-github-release": [/GitHub Release state:/],
+  };
+
+  for (const [job, required] of Object.entries(evidence)) {
+    const body = releaseJob(yaml, job);
+    const summaries = body.split(/(?=^      - name: )/m).filter((step) => /GITHUB_STEP_SUMMARY/.test(step));
+    assert.equal(summaries.length, 1, `${job} must have exactly one summary step`);
+    const summary = summaries[0];
+    assert.match(summary, /^\s+if:\s*always\(\)\s*$/m);
+    assert.equal((summary.match(/^\s+STATUS:/gm) ?? []).length, 1, `${job} must bind STATUS exactly once`);
+    assert.match(summary, /^\s+STATUS:\s*\$\{\{ job\.status \}\}\s*$/m);
+    for (const field of ["TAG", "VERSION", "COMMIT", "NODE_VERSION"]) {
+      assert.match(summary, new RegExp(`^\\s+${field}:\\s*\\$\\{\\{`, "m"), `${job} summary is missing ${field}`);
+    }
+    for (const label of [/Tag: \$TAG/, /Version: \$VERSION/, /Commit: \$COMMIT/, /Node: \$NODE_VERSION/, /npm: 11\.15\.0/, /Status: \$STATUS/]) {
+      assert.match(summary, label);
+    }
+    for (const field of required) assert.match(summary, field, `${job} summary is missing ${field}`);
+    assert.doesNotMatch(summary, /TOKEN|npmrc|HOME|ACTIONS_ID_TOKEN|oidc|github\.token/i);
+  }
+}
+
+test("release workflow has protected tag and serialized recovery entry points", () => {
+  assert.equal(existsSync(workflowPath("release.yml")), true, "missing release.yml");
+  assertReleasePolicy(workflow("release.yml"));
+  assertActionlintQueueSuppression();
+});
+
+test("release trigger and event mapping fail closed under mutation", () => {
+  const yaml = workflow("release.yml");
+  const triggerMutations = [
+    yaml.replace("\npermissions:\n", "  workflow_call:\n\npermissions:\n"),
+    yaml.replace("\npermissions:\n", '  schedule:\n    - cron: "0 0 * * *"\n\npermissions:\n'),
+    yaml.replace('tags: ["v*"]', 'tags: ["*"]'),
+  ];
+  for (const mutated of triggerMutations) assert.throws(() => assertReleasePolicy(mutated), /trigger|strictly equal|v\*/i);
+
+  const preflight = releaseJob(yaml, "preflight");
+  const eventMutations = [
+    preflight.replace('*) echo "unsupported release event: $EVENT_NAME" >&2; exit 2 ;;', "*) event_kind=push ;;"),
+    preflight.replace("workflow_dispatch) event_kind=recovery ;;", "workflow_dispatch) event_kind=push ;;"),
+  ];
+  for (const mutated of eventMutations) {
+    assert.throws(() => assertReleaseEventMapping(mutated), /match|event|recovery|unsupported/i);
+  }
+});
+
+test("actionlint queue suppression rejects broad or unrelated ignores", () => {
+  const config = existsSync(actionlintConfigPath) ? readFileSync(actionlintConfigPath, "utf8") : "";
+  for (const mutated of [
+    config.replace(".github/workflows/release.yml", ".github/workflows/*.yml"),
+    config.replace('^unexpected key "queue" for "concurrency" section\\.', "unexpected key"),
+    `${config}      - 'another diagnostic'\n`,
+  ]) {
+    assert.throws(() => assertActionlintQueueSuppression(mutated), /exact stale queue diagnostic|strictly equal/i);
+  }
+});
+
+test("release preflight exposes validated identity and recovery state", () => {
+  const yaml = workflow("release.yml");
+  const body = releaseJob(yaml, "preflight");
+  assert.match(body, /fetch-depth:\s*0/);
+  assert.match(body, /persist-credentials:\s*false/);
+  assert.match(body, /node-version:\s*node/);
+  assert.match(body, /tag="\$\{INPUT_TAG:-\$GITHUB_REF_NAME\}"/);
+  assert.match(body, /node scripts\/release_preflight\.ts preflight/);
+  assert.match(body, /--tag "\$tag"/);
+  assert.match(body, /--repository "\$GITHUB_REPOSITORY"/);
+  assertReleaseEventMapping(body);
+  assert.match(body, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/);
+  for (const output of ["tag", "version", "commit", "node_version", "registry_state", "registry_integrity", "github_release_state", "artifact_name", "artifact_id", "artifact_run_id"]) {
+    assert.match(body, new RegExp(`${output}:\\s*\\$\\{\\{ steps\\.preflight\\.outputs\\.${output} \\}\\}`));
+  }
+});
+
+test("release obtains a new or retained immutable artifact before upload", () => {
+  const yaml = workflow("release.yml");
+  const body = releaseJob(yaml, "obtain-artifact");
+  assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  const lookup = stepBody(body, "Find reusable current-run artifact");
+  assert.match(lookup, /id:\s*current-artifact/);
+  assert.match(lookup, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/);
+  assert.match(lookup, /ARTIFACT_NAME:\s*\$\{\{ needs\.preflight\.outputs\.artifact_name \}\}/);
+  assert.match(lookup, /RUN_ID:\s*\$\{\{ github\.run_id \}\}/);
+  assert.match(lookup, /gh api --method GET "\/repos\/\$GITHUB_REPOSITORY\/actions\/runs\/\$RUN_ID\/artifacts"/);
+  assert.match(lookup, /-f "name=\$ARTIFACT_NAME"/);
+  assert.match(lookup, /total_count/);
+  assert.match(lookup, /artifacts\.length/);
+  assert.match(lookup, /artifact\.name !== name/);
+  assert.match(lookup, /artifact\.expired !== false/);
+  assert.match(lookup, /reuse=true/);
+  assert.match(lookup, /artifact_id=/);
+
+  const reuse = stepBody(body, "Download reusable current-run artifact");
+  assert.match(reuse, /if:\s*steps\.current-artifact\.outputs\.reuse == 'true'/);
+  assert.match(reuse, /run-id:\s*\$\{\{ github\.run_id \}\}/);
+  assert.match(reuse, /artifact-ids:\s*\$\{\{ steps\.current-artifact\.outputs\.artifact_id \}\}/);
+  assert.doesNotMatch(reuse, /^\s+name:/m);
+
+  assertRerunSafeArtifactConditions(body);
+  assert.match(body, /npm audit signatures/);
+  assert.match(body, /npm run security:audit/);
+  assert.match(body, /MD2VID_RELEASE_TAG:\s*\$\{\{ needs\.preflight\.outputs\.tag \}\}/);
+  assert.match(body, /MD2VID_RELEASE_COMMIT:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.match(body, /npm run release:pack -- --output release-artifact/);
+  const download = stepBody(body, "Download retained release artifact");
+  assert.match(download, /if:\s*needs\.preflight\.outputs\.registry_state == 'existing' && steps\.current-artifact\.outputs\.reuse != 'true'/);
+  assert.match(download, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(download, /artifact-ids:\s*\$\{\{ needs\.preflight\.outputs\.artifact_id \}\}/);
+  assert.match(download, /run-id:\s*\$\{\{ needs\.preflight\.outputs\.artifact_run_id \}\}/);
+  assert.doesNotMatch(download, /^\s+name:/m);
+  assert.match(download, /github-token:\s*\$\{\{ github\.token \}\}/);
+  assert.match(download, /repository:\s*\$\{\{ github\.repository \}\}/);
+  assert.match(download, /path:\s*release-artifact/);
+  const metadata = stepBody(body, "Validate artifact metadata and checksums");
+  assert.match(metadata, /--metadata release-artifact\/artifact\.json/);
+  assert.match(metadata, /--expected-version "\$VERSION"/);
+  assert.match(metadata, /--expected-tag "\$TAG"/);
+  assert.match(metadata, /--expected-commit "\$COMMIT"/);
+  assert.match(metadata, /--metadata-only/);
+  assert.ok(metadata.indexOf("artifact.json") < metadata.indexOf("release:verify-artifact"), "metadata identity must be checked before archive verification");
+  assert.match(stepBody(body, "Export validated artifact outputs"), /for \(const key of \["tarball", "integrity", "sha256", "version", "tag", "commit"\]\) console\.log\(`\$\{key\}=\$\{value\[key\]\}`\)/);
+  for (const output of ["tarball", "integrity", "sha256", "version", "tag", "commit"]) {
+    assert.match(body, new RegExp(`${output}:\\s*\\$\\{\\{ steps\\.artifact\\.outputs\\.${output} \\}\\}`));
+  }
+  const upload = stepBody(body, "Upload current release artifact");
+  assert.match(upload, /id:\s*upload-artifact/);
+  assert.match(upload, /if:\s*steps\.current-artifact\.outputs\.reuse != 'true'/);
+  assert.match(upload, /overwrite:\s*false/);
+  assertReleaseDiagnostics(yaml);
+});
+
+test("release diagnostics policy rejects unrelated workspace uploads", () => {
+  const yaml = workflow("release.yml");
+  const unrelatedUpload = `      - name: Upload unrelated workspace
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unrelated-workspace
+          path: $GITHUB_WORKSPACE
+          retention-days: 14
+`;
+  const unnamedUpload = `      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: { name: leaked-workspace, path: . }
+`;
+  for (const upload of [unrelatedUpload, unnamedUpload]) {
+    const mutated = yaml.replace("      - name: Summarize artifact acquisition\n", `${upload}      - name: Summarize artifact acquisition\n`);
+    assert.throws(() => assertReleaseDiagnostics(mutated), /exactly three|workspace|upload/i);
+  }
+});
+
+test("release artifact policy rejects rerun collisions and overwrite", () => {
+  const body = releaseJob(workflow("release.yml"), "obtain-artifact");
+  const mutations = [
+    body.replace("steps.current-artifact.outputs.reuse != 'true'", "success()"),
+    body.replace("steps.current-artifact.outputs.reuse == 'true'", "success()"),
+    body.replace("overwrite: false", "overwrite: true"),
+    body.replace(
+      "artifact-ids: ${{ steps.current-artifact.outputs.artifact_id }}",
+      "name: ${{ needs.preflight.outputs.artifact_name }}",
+    ),
+    body.replace(
+      "artifact-ids: ${{ needs.preflight.outputs.artifact_id }}",
+      "name: ${{ needs.preflight.outputs.artifact_name }}",
+    ),
+  ];
+  assert.throws(() => assertRerunSafeArtifactConditions(mutations[0]), /skip|strictly equal|reuse/i);
+  assert.throws(() => assertRerunSafeArtifactConditions(mutations[1]), /reuse|match/i);
+  assert.throws(() => assertRerunSafeArtifactConditions(mutations[2]), /overwrite|match/i);
+  assert.throws(() => assertRerunSafeArtifactConditions(mutations[3]), /artifact-ids|selected artifact ID|match/i);
+  assert.throws(() => assertRerunSafeArtifactConditions(mutations[4]), /artifact-ids|validated artifact ID|match/i);
+});
+
+test("release verifies one exact current-run tarball on every supported OS", () => {
+  const yaml = workflow("release.yml");
+  const body = releaseJob(yaml, "verify-artifact");
+  assertReleaseVerificationMatrix(yaml);
+  assertReleaseArtifactVerificationRequired(yaml);
+  assert.match(body, /^    runs-on:\s*\$\{\{ matrix\.runner \}\}\s*$/m);
+  assert.match(body, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(body, /name:\s*\$\{\{ needs\.preflight\.outputs\.artifact_name \}\}/);
+  assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.ok(body.indexOf("Check out verified commit") < body.indexOf("Download current release artifact"), "checkout cleanup must run before artifact download");
+  assert.match(stepBody(body, "Install verification dependencies"), /^\s+run:\s*npm ci --ignore-scripts\s*$/m);
+  assert.match(body, /MD2VID_DIAGNOSTICS_DIR:\s*release-diagnostics/);
+  assert.match(stepBody(body, "Verify exact release artifact"), /^\s+--tarball "release-artifact\/\$TARBALL" \\$/m);
+  assert.match(body, /--metadata release-artifact\/artifact\.json/);
+  assert.match(body, /--expected-version "\$VERSION"[\s\S]*--expected-tag "\$TAG"[\s\S]*--expected-commit "\$COMMIT"/);
+  assert.match(body, /--diagnostics release-diagnostics/);
+  assert.doesNotMatch(body, /npm pack|release:pack/);
+});
+
+test("release publication uses OIDC only and publishes the verified tarball", () => {
+  const yaml = workflow("release.yml");
+  const body = releaseJob(yaml, "publish-npm");
+  assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.match(body, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(body, /--metadata-only/);
+  assert.match(body, /node scripts\/release_preflight\.ts publish-check/);
+  assert.match(body, /--tag "\$TAG"[\s\S]*--version "\$VERSION"[\s\S]*--commit "\$COMMIT"[\s\S]*--repository "\$GITHUB_REPOSITORY"[\s\S]*--artifact release-artifact\/artifact\.json/);
+  assert.match(body, /if:\s*steps\.publish-check\.outputs\.publish == 'true'[\s\S]*npm publish "release-artifact\/\$TARBALL" --access public --tag latest/);
+  assert.match(body, /if:\s*steps\.publish-check\.outputs\.publish == 'false'[\s\S]*equal-integrity recovery/);
+  assert.doesNotMatch(body, /npm publish\s+(?:--access|\.|release-artifact\s)|npm pack|release:pack/);
+});
+
+test("release verifies the registry before creating a GitHub Release", () => {
+  const yaml = workflow("release.yml");
+  const registry = releaseJob(yaml, "verify-registry");
+  const githubRelease = releaseJob(yaml, "create-github-release");
+  assertReleaseToolchain(registry, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.match(registry, /npm ci --ignore-scripts/);
+  assert.match(registry, /npm run release:verify-registry --/);
+  assert.match(registry, /--version "\$VERSION"/);
+  assert.match(registry, /--integrity "\$INTEGRITY"/);
+  assert.match(registry, /--diagnostics release-diagnostics/);
+  assertReleaseToolchain(githubRelease, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.match(githubRelease, /node scripts\/release_preflight\.ts release-check/);
+  assert.match(githubRelease, /--tag "\$TAG"[\s\S]*--repository "\$GITHUB_REPOSITORY"[\s\S]*--commit "\$COMMIT"/);
+  assert.match(githubRelease, /gh release create "\$TAG"/);
+  assert.match(githubRelease, /--verify-tag[\s\S]*--target "\$COMMIT"[\s\S]*--title "md2vid \$TAG"[\s\S]*--generate-notes/);
+  assert.match(githubRelease, /matching\)[\s\S]*echo "matching GitHub Release already exists"/);
+  assert.match(githubRelease, /\*\) echo "unexpected release state" >&2; exit 1/);
+  assertGhTokenOnEveryGhStep(yaml);
+});
+
+test("release creation reports the final created or matching state", () => {
+  const body = releaseJob(workflow("release.yml"), "create-github-release");
+  const create = stepBody(body, "Create or accept GitHub Release");
+  assert.match(create, /id:\s*release/);
+  const absentBranch = create.match(/absent\)\s*\n([\s\S]*?)\n\s+;;/)?.[1] ?? "";
+  assert.match(absentBranch, /gh release create "\$TAG"/);
+  assert.match(absentBranch, /echo "release_state=created" >> "\$GITHUB_OUTPUT"/);
+  assert.doesNotMatch(absentBranch, /release_state=matching/);
+  const matchingBranch = create.match(/matching\)\s*\n([\s\S]*?)\n\s+;;/)?.[1] ?? "";
+  assert.match(matchingBranch, /echo "matching GitHub Release already exists"/);
+  assert.match(matchingBranch, /echo "release_state=matching" >> "\$GITHUB_OUTPUT"/);
+  assert.doesNotMatch(matchingBranch, /release_state=created|gh release create/);
+
+  const summary = stepBody(body, "Summarize GitHub Release");
+  assert.match(
+    summary,
+    /RELEASE_STATE:\s*\$\{\{ steps\.release\.outputs\.release_state \|\| steps\.release-check\.outputs\.github_release_state \|\| needs\.preflight\.outputs\.github_release_state \}\}/,
+  );
+});
+
+test("release output handoff is direct and summaries stay non-sensitive", () => {
+  const yaml = workflow("release.yml");
+  for (const job of ["verify-artifact", "publish-npm", "verify-registry"]) {
+    const body = releaseJob(yaml, job);
+    for (const output of ["tarball", "integrity", "version", "tag", "commit"]) {
+      assert.match(body, new RegExp(`needs\\.obtain-artifact\\.outputs\\.${output}`), `${job} does not consume ${output} directly`);
+    }
+  }
+  assert.match(releaseJob(yaml, "create-github-release"), /needs\.preflight\.outputs\.tag/);
+  assert.match(releaseJob(yaml, "create-github-release"), /needs\.preflight\.outputs\.commit/);
+  assertReleaseSummaries(yaml);
+  assert.doesNotMatch(yaml, /npm publish\s+"?release-artifact"?(?:\s|$)|npm publish\s+\./m);
+});
+
+test("release summary policy rejects missing always, status binding, and evidence", () => {
+  const yaml = workflow("release.yml");
+  const mutations = [
+    yaml.replace("        if: always()", "        if: success()"),
+    yaml.replace("          STATUS: ${{ job.status }}", "          STATUS: success"),
+    yaml.replace('            echo "- npm: 11.15.0"', '            echo "- npm: unknown"'),
+    yaml.replace('            echo "- Artifact ID: $ARTIFACT_ID"', '            echo "- Artifact reference: $ARTIFACT_ID"'),
+    yaml.replace('            echo "- Public install result: $PUBLIC_INSTALL_RESULT"', '            echo "- Verification: $PUBLIC_INSTALL_RESULT"'),
+  ];
+  for (const mutated of mutations) {
+    assert.throws(() => assertReleaseSummaries(mutated), /summary|match|always|STATUS|npm|Artifact ID|Public install result/i);
+  }
+});
+
+test("release exact artifact verification cannot be skipped or made non-blocking", () => {
+  const yaml = workflow("release.yml");
+  const exactRun = [
+    "        run: |",
+    "          npm run release:verify-artifact -- \\",
+    "            --tarball \"release-artifact/$TARBALL\" \\",
+    "            --metadata release-artifact/artifact.json \\",
+    "            --expected-version \"$VERSION\" \\",
+    "            --expected-tag \"$TAG\" \\",
+    "            --expected-commit \"$COMMIT\" \\",
+    "            --diagnostics release-diagnostics",
+  ].join("\n");
+  assert.equal(yaml.includes(exactRun), true, "release verifier run block fixture must match the workflow");
+
+  const mutations = [
+    yaml.replace(
+      "      - name: Verify exact release artifact\n",
+      "      - name: Verify exact release artifact\n        if: matrix.runner == 'ubuntu-latest'\n",
+    ),
+    yaml.replace(
+      "      - name: Verify exact release artifact\n",
+      "      - name: Verify exact release artifact\n        continue-on-error: true\n",
+    ),
+    yaml.replace(
+      "      - name: Verify exact release artifact\n",
+      "      - name: Verify exact release artifact\n        \"if\": matrix.runner == 'ubuntu-latest'\n",
+    ),
+    yaml.replace(
+      "      - name: Verify exact release artifact\n",
+      "      - name: Verify exact release artifact\n        \"continue-on-error\": true\n",
+    ),
+    yaml.replace(
+      "  verify-artifact:\n",
+      "  verify-artifact:\n    if: matrix.runner == 'ubuntu-latest'\n",
+    ),
+    yaml.replace(
+      "  verify-artifact:\n",
+      "  verify-artifact:\n    continue-on-error: ${{ matrix.runner == 'macos-latest' }}\n",
+    ),
+    yaml.replace(exactRun, exactRun.replace("npm run release:verify-artifact", "true")),
+    yaml.replace(exactRun, exactRun.replace("          npm run", "          # command decoy\n          npm run")),
+    yaml.replace(exactRun, exactRun.replace("          npm run", "          echo unrelated\n          npm run")),
+    yaml.replace(
+      exactRun,
+      [
+        "        run: |",
+        "          cat <<'VERIFY'",
+        ...exactRun.split("\n").slice(1),
+        "          VERIFY",
+        "          true",
+      ].join("\n"),
+    ),
+    yaml.replace(exactRun, `${exactRun} || true`),
+  ];
+
+  for (const [index, mutated] of mutations.entries()) {
+    assert.notEqual(mutated, yaml, `release verification mutation ${index} must modify the workflow`);
+    assert.throws(
+      () => assertReleaseArtifactVerificationRequired(mutated),
+      /if|continue-on-error|skip|blocking|quoted|verifier|command|deep-equal|strictly equal|match/i,
+      `release verification mutation ${index} was accepted`,
+    );
+  }
+});
+
+for (const [name, mutate] of [
+  [
+    "anchored job if",
+    (yaml: string) =>
+      yaml.replace(
+        "  verify-artifact:\n",
+        "  verify-artifact:\n    &job-if-key if: matrix.runner == 'ubuntu-latest'\n",
+      ),
+  ],
+  [
+    "anchored job continue-on-error",
+    (yaml: string) =>
+      yaml.replace(
+        "  verify-artifact:\n",
+        "  verify-artifact:\n    &job-continue-key continue-on-error: true\n",
+      ),
+  ],
+  [
+    "anchored step if",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n",
+        "      - name: Verify exact release artifact\n        &step-if-key if: matrix.runner == 'ubuntu-latest'\n",
+      ),
+  ],
+  [
+    "tagged step if",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n",
+        "      - name: Verify exact release artifact\n        !!str if: matrix.runner == 'ubuntu-latest'\n",
+      ),
+  ],
+  [
+    "custom verification shell",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n        shell: bash\n",
+        "      - name: Verify exact release artifact\n        shell: bash -c 'exit 0' -- {0}\n",
+      ),
+  ],
+  [
+    "duplicate verification shell",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n        shell: bash\n",
+        "      - name: Verify exact release artifact\n        shell: bash\n        shell: bash -c 'exit 0' -- {0}\n",
+      ),
+  ],
+  [
+    "quoted verification shell",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n        shell: bash\n",
+        "      - name: Verify exact release artifact\n        \"shell\": bash -c 'exit 0' -- {0}\n",
+      ),
+  ],
+  [
+    "anchored verification shell key",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n        shell: bash\n",
+        "      - name: Verify exact release artifact\n        &shell-key shell: bash -c 'exit 0' -- {0}\n",
+      ),
+  ],
+  [
+    "tagged verification shell key",
+    (yaml: string) =>
+      yaml.replace(
+        "      - name: Verify exact release artifact\n        shell: bash\n",
+        "      - name: Verify exact release artifact\n        !!str shell: bash -c 'exit 0' -- {0}\n",
+      ),
+  ],
+] as const) {
+  test(`release verification rejects ${name}`, () => {
+    const yaml = workflow("release.yml");
+    const mutated = mutate(yaml);
+    assert.notEqual(mutated, yaml, `${name} mutation must modify the workflow`);
+    assert.throws(
+      () => assertReleaseArtifactVerificationRequired(mutated),
+      /if|continue-on-error|blocking|duplicate|quoted|shell|strictly equal|deep-equal|parse/i,
+    );
+  });
+}
+
+test("release verification matrix rejects missing and unsupported runners", () => {
+  const yaml = workflow("release.yml");
+  const mutations = [
+    yaml.replace(", macos-latest", ""),
+    yaml.replace(
+      "runner: [ubuntu-latest, macos-latest]",
+      "runner: [ubuntu-latest, macos-latest, windows-latest]",
+    ),
+    yaml.replace(
+      "        runner: [ubuntu-latest, macos-latest]",
+      "        runner: [ubuntu-latest, macos-latest]\n      # matrix comment decoy\n        include:\n          - runner: windows-2025",
+    ),
+  ];
+
+  for (const mutated of mutations) {
+    assert.notEqual(mutated, yaml, "release verification matrix mutation must modify the workflow");
+    assert.throws(
+      () => assertReleaseVerificationMatrix(mutated),
+      /fail-fast|matrix|runner|macos|windows|deep-equal|strictly equal/i,
+    );
+  }
+});
+
+test("release policy rejects authority, dependency, and tarball mutations", () => {
+  const yaml = workflow("release.yml");
+  const mutations = [
+    yaml.replace("cancel-in-progress: false", "cancel-in-progress: true"),
+    yaml.replace("  queue: max\n", "  # GitHub Actions queues one pending run when cancellation is disabled.\n"),
+    yaml.replace("needs: [preflight, obtain-artifact, verify-artifact]", "needs: [preflight, obtain-artifact]"),
+    yaml.replace("      id-token: write", "      contents: write"),
+    yaml.replace('npm publish "release-artifact/$TARBALL" --access public --tag latest', "npm publish release-artifact --access public --tag latest"),
+    yaml.replace("retention-days: 90", "retention-days: 14"),
+    yaml.replace("ref: ${{ needs.preflight.outputs.commit }}", "ref: main"),
+  ];
+  const checks = [
+    assertReleasePolicy,
+    assertReleasePolicy,
+    assertReleaseDependencies,
+    assertReleaseAuthorities,
+    (value: string) => assert.match(releaseJob(value, "publish-npm"), /npm publish "release-artifact\/\$TARBALL" --access public --tag latest/),
+    assertReleaseDiagnostics,
+    (value: string) => assertReleaseToolchain(releaseJob(value, "obtain-artifact"), /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/),
+  ];
+  for (let index = 0; index < mutations.length; index += 1) {
+    assert.throws(() => checks[index](mutations[index]), /match|permission|cancel|retention|ref|publish|contents|dependency|deep-equal|strictly equal/i);
+  }
+});

@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head><meta charset="UTF-8" /></head>
+  <body>
+    <template data-composition-id="01-smoke">
+      <style>
+        #root { position: absolute; inset: 0; background: #faf9f5; color: #141413; }
+        #s01-title { position: absolute; left: 150px; top: 480px; font-size: 96px; }
+      </style>
+      <div id="root" data-composition-id="01-smoke" data-width="1920" data-height="1080" data-duration="3.5">
+        <div id="s01-title" class="clip" data-start="0" data-duration="3.5" data-track-index="0">Smoke test</div>
+      </div>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+      <script>
+        window.__timelines = window.__timelines || {};
+        window.__timelines["01-smoke"] = gsap.timeline({ paused: true });
+      </script>
+    </template>
+  </body>
+</html>

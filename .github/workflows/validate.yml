@@ -1,0 +1,80 @@
+name: Reusable validation
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        required: true
+        type: string
+      node-version:
+        required: true
+        type: string
+      mode:
+        required: true
+        type: string
+      audit:
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up exact Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - name: Install pinned npm
+        shell: bash
+        run: |
+          package_manager=$(node -p "require('./package.json').packageManager")
+          expected=${package_manager#npm@}
+          npm install --global "$package_manager"
+          test "$(npm --version)" = "$expected"
+          test "$expected" = "11.15.0"
+      - name: Install dependencies
+        run: npm ci
+      - name: Run requested validation
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          MD2VID_DIAGNOSTICS_DIR: release-diagnostics
+        run: |
+          case "$MODE" in
+            fast) npm run check ;;
+            full) npm run release:check ;;
+            public-snapshot) corepack npm run public:snapshot:check ;;
+            *) echo "unsupported validation mode" >&2; exit 2 ;;
+          esac
+      - name: Upload sanitized release diagnostics
+        if: failure() && inputs.mode == 'full'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-diagnostics-${{ inputs.runner }}-${{ github.run_id }}
+          path: release-diagnostics
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Enforce production audit policy
+        if: inputs.audit
+        run: npm run security:audit
+      - name: Record toolchain
+        if: always()
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          {
+            echo "### Validation toolchain"
+            echo "- Node: $(node --version)"
+            echo "- npm: $(npm --version)"
+            echo "- Mode: $MODE"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,116 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { resolveStudioAssetsDir, run } from "../patch-studio.ts";
+
+const ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
+const ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
+
+test("Studio asset resolution has no injected Windows path API", () => {
+  const source = readFileSync(
+    join(import.meta.dirname, "..", "patch-studio.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /interface PathApi|pathApi/);
+});
+
+test("automatic Studio asset resolution uses host POSIX path semantics", () => {
+  assert.equal(
+    resolveStudioAssetsDir("/pkg/node_modules/hyperframes/dist/cli.js"),
+    "/pkg/node_modules/hyperframes/dist/studio/assets",
+  );
+});
+
+test("malformed bundle failure names stage, version, anchor count, and path", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-bad-"));
+  const bundle = join(root, "index-test.js");
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    writeFileSync(bundle, `${ANCHOR_1}\n`);
+    assert.equal(run([bundle]), 1);
+    const body = errors.join("\n");
+    assert.match(body, /FAIL \[patch-studio\]/);
+    assert.match(body, /hyperframes@0\.7\.26/);
+    assert.match(body, /anchor-2 matched 0/);
+    assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing explicit bundle reports a normalized read failure", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-missing-"));
+  const bundle = join(root, "missing.js");
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    const body = errors.join("\n");
+    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(body, /read bundle/);
+    assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unreadable explicit bundle reports a normalized read failure", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-unreadable-"));
+  const bundle = join(root, "bundle-dir");
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    mkdirSync(bundle);
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    const body = errors.join("\n");
+    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(body, /read bundle/);
+    assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bundle write failure reports a normalized diagnostic", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-write-"));
+  const bundle = join(root, "index-test.js");
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    writeFileSync(bundle, `${ANCHOR_1}\n${ANCHOR_2}\n`);
+    chmodSync(bundle, 0o444);
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    const body = errors.join("\n");
+    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(body, /write patched bundle/);
+    assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("valid bundle patches once and remains idempotent", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-good-"));
+  const bundle = join(root, "index-test.js");
+  try {
+    writeFileSync(bundle, `${ANCHOR_1}\n${ANCHOR_2}\n`);
+    assert.equal(run([bundle]), 0);
+    const once = readFileSync(bundle, "utf8");
+    assert.match(once, /hfLast/);
+    assert.equal(run([bundle]), 0);
+    assert.equal(readFileSync(bundle, "utf8"), once);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

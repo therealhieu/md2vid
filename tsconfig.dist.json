@@ -1,0 +1,32 @@
+// tsconfig.dist.json — emit JS to dist/, rewriting .ts import specifiers → .js.
+//
+// The base tsconfig sets allowImportingTsExtensions:true (requires noEmit), so we
+// MUST flip it off here. rewriteRelativeImportExtensions (TS ≥5.7) lets the sources
+// keep their `.ts` import specifiers while emit rewrites them to `.js`, so the
+// shipped dist/ imports resolve at a consumer's runtime with no type-stripping.
+//
+// scripts/**: bin/md2vid.ts imports each run() body from scripts/*.ts (Task 0.1) +
+// scripts/install_skill.ts (Task 4.1), so dist/scripts/*.js MUST emit beside
+// dist/bin/md2vid.js or the shipped bin can't resolve its imports.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": true,
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["bin/**/*.ts", "engine/**/*.ts", "frameworks/**/*.ts", "scripts/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "outputs",
+    "test",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "frameworks/remotion/templates"
+  ]
+}

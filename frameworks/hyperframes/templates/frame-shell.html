@@ -1,0 +1,152 @@
+<template data-composition-id="frame-shell">
+  <div
+    id="frame-shell-root"
+    data-composition-id="frame-shell"
+    data-width="1920"
+    data-height="1080"
+    data-duration="5"
+    data-composition-variables='[
+      {"id":"theme","type":"string","label":"Theme","default":"claude"},
+      {"id":"page","type":"string","label":"Page","default":"01/01"},
+      {"id":"section","type":"string","label":"Section","default":"FRAME"},
+      {"id":"treatment","type":"string","label":"Treatment","default":"standard"}
+    ]'
+  >
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      #frame-shell-root {
+        --claude-paper: #f5f4ed;
+        --claude-ivory: #faf9f5;
+        --claude-ink: #141413;
+        --claude-muted: #5e5d59;
+        --claude-border: #e8e6dc;
+        --claude-coral: #CC785C;
+        --cobalt-paper: #f0ebde;
+        --cobalt-ink: #1f2be0;
+        --cobalt-soft: #5560e5;
+        --cobalt-grid: rgba(31, 43, 224, 0.10);
+
+        --frame-bg: var(--claude-paper);
+        --frame-surface: var(--claude-ivory);
+        --frame-ink: var(--claude-ink);
+        --frame-muted: var(--claude-muted);
+        --frame-accent: var(--claude-coral);
+        --frame-grid: rgba(20, 20, 19, 0.055);
+        --frame-edge: 76px;
+        --frame-rule: 1.5px solid var(--claude-border);
+        --frame-label-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --frame-display-font: Georgia, "Times New Roman", serif;
+        --frame-radius: 24px;
+        --frame-safe-left: 124px;
+        --frame-safe-right: 124px;
+        --frame-safe-top: 104px;
+        --frame-safe-bottom: 228px;
+
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        pointer-events: none;
+        color: var(--frame-ink);
+        font-family: var(--frame-label-font);
+        container-type: size;
+      }
+      #frame-shell-root[data-theme="cobalt"] {
+        --frame-bg: var(--cobalt-paper);
+        --frame-surface: var(--cobalt-paper);
+        --frame-ink: var(--cobalt-ink);
+        --frame-muted: var(--cobalt-soft);
+        --frame-accent: var(--cobalt-ink);
+        --frame-grid: var(--cobalt-grid);
+        --frame-rule: 2px solid var(--cobalt-ink);
+        --frame-label-font: "DM Mono", ui-monospace, Menlo, monospace;
+        --frame-display-font: Georgia, "Times New Roman", serif;
+        --frame-radius: 0px;
+      }
+      .clip { position: absolute; }
+      .hf-frame-grid {
+        inset: 0;
+        background-image:
+          linear-gradient(var(--frame-grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--frame-grid) 1px, transparent 1px);
+        background-size: 38px 38px;
+      }
+      .hf-frame-hairline-top,
+      .hf-frame-hairline-bottom {
+        left: var(--frame-edge);
+        right: var(--frame-edge);
+        height: 0;
+        border-top: var(--frame-rule);
+      }
+      .hf-frame-hairline-top { top: 58px; }
+      .hf-frame-hairline-bottom { top: 900px; }
+      .hf-frame-section,
+      .hf-frame-page {
+        top: 918px;
+        font-size: 17px;
+        line-height: 1;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--frame-ink);
+        opacity: 0.86;
+        white-space: nowrap;
+      }
+      .hf-frame-section { left: var(--frame-edge); }
+      .hf-frame-page { right: var(--frame-edge); }
+      .hf-frame-safe {
+        left: var(--frame-safe-left);
+        right: var(--frame-safe-right);
+        top: var(--frame-safe-top);
+        bottom: var(--frame-safe-bottom);
+        border: 1px solid transparent;
+      }
+      .hf-frame-ornament {
+        right: 90px;
+        top: 92px;
+        width: 104px;
+        height: 104px;
+        opacity: 0.18;
+        background:
+          linear-gradient(90deg, var(--frame-ink) 50%, transparent 50%),
+          linear-gradient(var(--frame-ink) 50%, transparent 50%);
+        background-size: 26px 26px;
+      }
+      #frame-shell-root[data-treatment="minimal"] .hf-frame-ornament { opacity: 0; }
+    </style>
+
+    <div id="frame-shell-grid" class="clip hf-frame-grid" data-start="0" data-duration="5" data-track-index="20"></div>
+    <div id="frame-shell-hairline-top" class="clip hf-frame-hairline-top" data-start="0" data-duration="5" data-track-index="21"></div>
+    <div id="frame-shell-hairline-bottom" class="clip hf-frame-hairline-bottom" data-start="0" data-duration="5" data-track-index="22"></div>
+    <div id="frame-shell-section" class="clip hf-frame-section" data-start="0" data-duration="5" data-track-index="23"></div>
+    <div id="frame-shell-page" class="clip hf-frame-page" data-start="0" data-duration="5" data-track-index="24"></div>
+    <div id="frame-shell-ornament" class="clip hf-frame-ornament" data-start="0" data-duration="5" data-track-index="25"></div>
+    <div id="frame-shell-safe" class="clip hf-frame-safe" data-start="0" data-duration="5" data-track-index="26" aria-hidden="true"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      (function () {
+        window.__timelines = window.__timelines || {};
+        var roots = Array.prototype.slice.call(document.querySelectorAll('[data-composition-id="frame-shell"]'));
+        var root = roots.find(function (candidate) { return !candidate.dataset.frameShellReady; }) || roots[roots.length - 1];
+        if (!root) return;
+        root.dataset.frameShellReady = "1";
+        var vars = { theme: "claude", page: "01/01", section: "FRAME", treatment: "standard" };
+        if (window.__hyperframes && typeof window.__hyperframes.getVariables === "function") {
+          var runtimeVars = window.__hyperframes.getVariables() || {};
+          vars.theme = runtimeVars.theme || vars.theme;
+          vars.page = runtimeVars.page || vars.page;
+          vars.section = runtimeVars.section || vars.section;
+          vars.treatment = runtimeVars.treatment || vars.treatment;
+        }
+        root.dataset.theme = vars.theme;
+        root.dataset.treatment = vars.treatment;
+        root.querySelector(".hf-frame-page").textContent = vars.page;
+        root.querySelector(".hf-frame-section").textContent = vars.section;
+        var tl = gsap.timeline({ paused: true });
+        tl.to({}, { duration: 5 }, 0);
+        window.__timelines["frame-shell"] = tl;
+      })();
+    </script>
+  </div>
+</template>

@@ -1,0 +1,20 @@
+{
+  "timing": {
+    "tail": 0.5,
+    "xfade": 0.5,
+    "gap": 0.5
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "slugs": {
+    "01": "01-cover",
+    "02": "02-core-idea",
+    "03": "03-lookup-flow",
+    "04": "04-collisions",
+    "05": "05-load-factor",
+    "06": "06-why-matters",
+    "07": "07-recap"
+  }
+}

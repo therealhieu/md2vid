@@ -1,0 +1,79 @@
+{
+  "name": "md2vid",
+  "version": "0.1.2",
+  "os": ["darwin", "linux"],
+  "packageManager": "npm@11.15.0",
+  "type": "module",
+  "description": "Turn Markdown documents into narrated HyperFrames or Remotion explainer videos.",
+  "keywords": ["markdown", "video", "explainer", "hyperframes", "remotion", "claude-code"],
+  "license": "MIT",
+  "author": "therealhieu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/therealhieu/md2vid.git"
+  },
+  "homepage": "https://github.com/therealhieu/md2vid#readme",
+  "bugs": {
+    "url": "https://github.com/therealhieu/md2vid/issues"
+  },
+  "bin": { "md2vid": "dist/bin/md2vid.js" },
+  "files": [
+    "dist",
+    "engine",
+    "frameworks",
+    "docs/standards",
+    "skill",
+    "bin",
+    "postinstall.mjs",
+    "README.md",
+    "LICENSE",
+    "!engine/**/__tests__/**",
+    "!engine/**/*.test.ts",
+    "!frameworks/**/__tests__/**",
+    "!frameworks/**/*.test.ts"
+  ],
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "transcribe": "node scripts/transcribe.ts",
+    "regroup": "node scripts/regroup.ts",
+    "verify": "node scripts/verify.ts",
+    "sync:skill-references": "node scripts/skill_references.ts --write",
+    "check:skill-references": "node scripts/skill_references.ts --check",
+    "clean:dist": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build:dist": "npm run clean:dist && tsc -p tsconfig.dist.json && node scripts/copy_dist_assets.ts",
+    "prepack": "npm run check:skill-references && npm run build:dist",
+    "security:audit": "node scripts/check_audit_policy.ts",
+    "public:snapshot": "node scripts/public_snapshot.ts",
+    "public:snapshot:test": "node --test test/ci/public-snapshot.test.ts test/ci/public-snapshot-check.test.ts test/ci/public-snapshot-checkout.test.ts",
+    "public:snapshot:check": "node scripts/check_public_snapshot.ts",
+    "release:pack": "node test/release/run.ts pack",
+    "release:verify-artifact": "node test/release/run.ts verify",
+    "release:verify-registry": "node test/release/run.ts registry",
+    "release:check": "npm run check && node test/release/run.ts all",
+    "release:check-name": "node dist/scripts/check_release_name.js",
+    "prepublishOnly": "node scripts/run_current_npm.ts",
+    "postinstall": "node postinstall.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:remotion": "tsc --noEmit -p frameworks/remotion/templates/tsconfig.json",
+    "test": "node --test 'test/**/*.test.ts' 'engine/**/*.test.ts' 'frameworks/**/*.test.ts'",
+    "check": "npm run typecheck && npm run typecheck:remotion && npm run test"
+  },
+  "dependencies": {
+    "hyperframes": "0.7.26"
+  },
+  "optionalDependencies": {
+    "@remotion/google-fonts": "4.0.486",
+    "@remotion/media": "4.0.486",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.486"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "yaml": "2.9.0"
+  }
+}

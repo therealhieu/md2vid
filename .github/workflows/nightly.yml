@@ -1,0 +1,43 @@
+name: Nightly validation
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  resolve-latest-node:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      version: ${{ steps.node.outputs.version }}
+    steps:
+      - name: Set up latest Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: node
+      - name: Resolve exact Node version
+        id: node
+        run: echo "version=$(node -p 'process.versions.node')" >> "$GITHUB_OUTPUT"
+
+  native-matrix:
+    needs: resolve-latest-node
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    uses: ./.github/workflows/validate.yml
+    with:
+      runner: ${{ matrix.runner }}
+      node-version: ${{ needs.resolve-latest-node.outputs.version }}
+      mode: full
+      audit: ${{ matrix.runner == 'ubuntu-latest' }}
+    permissions:
+      contents: read
