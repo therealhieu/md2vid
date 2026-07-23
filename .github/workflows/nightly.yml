@@ -1,5 +1,6 @@
 name: Nightly validation
 
+# Non-publishing scheduled and manual validation.
 on:
   schedule:
     - cron: "17 4 * * *"
