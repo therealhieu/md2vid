@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isAuthenticPublicSnapshotCheckout } from "../scripts/public_snapshot_checkout.ts";
+import { isPublicSnapshotRepositoryCheckout } from "../scripts/public_snapshot_checkout.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
@@ -54,7 +54,7 @@ test("every private-tree video framework-doc @import resolves, while public snap
   const outputs = join(REPO_ROOT, "outputs");
   if (!existsSync(outputs)) {
     assert.equal(
-      isAuthenticPublicSnapshotCheckout(REPO_ROOT),
+      isPublicSnapshotRepositoryCheckout(REPO_ROOT),
       true,
       "root outputs/ may be absent only from an authentic generated public snapshot checkout",
     );

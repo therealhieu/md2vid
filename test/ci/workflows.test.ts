@@ -513,6 +513,7 @@ test("reusable validation declares the exact read-only workflow_call contract", 
   assert.match(yaml, /audit:\s*\n\s+required: false\s*\n\s+default: false\s*\n\s+type: boolean/);
   assert.match(yaml, /^permissions:\s*\n\s+contents: read$/m);
   assert.match(jobBody(yaml, "validate"), /runs-on:\s*\$\{\{ inputs\.runner \}\}/);
+  assert.match(stepBody(yaml, "Check out source"), /fetch-depth:\s*0/);
 });
 
 test("reusable validation installs and verifies the packageManager npm pin in order", () => {
