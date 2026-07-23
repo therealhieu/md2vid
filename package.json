@@ -63,7 +63,7 @@
     "hyperframes": "0.7.26"
   },
   "optionalDependencies": {
-    "@remotion/google-fonts": "4.0.486",
+    "@remotion/google-fonts": "4.0.497",
     "@remotion/media": "4.0.486",
     "react": "19.0.0",
     "react-dom": "19.0.0",
