@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
+import { isPublicSnapshotRepositoryCheckout } from "../../scripts/public_snapshot_checkout.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -112,7 +112,7 @@ test("dev shim resolves /md2vid in the private source tree or is intentionally a
   const shim = join(REPO_ROOT, ".claude", "skills", "md2vid");
   if (!existsSync(shim)) {
     assert.equal(
-      isAuthenticPublicSnapshotCheckout(REPO_ROOT),
+      isPublicSnapshotRepositoryCheckout(REPO_ROOT),
       true,
       ".claude/skills/md2vid may be absent only from an authentic generated public snapshot checkout",
     );

@@ -27,8 +27,8 @@ function git(root: string, args: string[], encoding?: "utf8"): string | Buffer {
   });
 }
 
-function tree(root: string): TreeEntry[] {
-  const records = git(root, ["ls-tree", "-r", "-z", "--full-tree", "HEAD"])
+function tree(root: string, ref = "HEAD"): TreeEntry[] {
+  const records = git(root, ["ls-tree", "-r", "-z", "--full-tree", ref])
     .toString("utf8")
     .split("\0")
     .filter(Boolean);
@@ -90,47 +90,76 @@ function aggregateHash(paths: readonly PublicSnapshotPath[]): string {
   return `sha256:${aggregate.digest("hex")}`;
 }
 
+function isAuthenticPublicSnapshotCommit(root: string, ref: string): boolean {
+  const commitHeaders = git(root, ["cat-file", "-p", ref], "utf8").split("\n\n", 1)[0]!;
+  if (/^parent [a-f0-9]+$/m.test(commitHeaders)) return false;
+  const identity = git(root, ["show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", ref], "utf8").trim();
+  if (identity !== [
+    PUBLIC_SNAPSHOT_AUTHOR_NAME,
+    PUBLIC_SNAPSHOT_AUTHOR_EMAIL,
+    PUBLIC_SNAPSHOT_AUTHOR_NAME,
+    PUBLIC_SNAPSHOT_AUTHOR_EMAIL,
+  ].join("\0")) return false;
+
+  const entries = tree(root, ref);
+  const manifestEntry = entries.find((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST);
+  if (!manifestEntry || manifestEntry.mode !== "100644" || manifestEntry.type !== "blob") return false;
+  const committedManifest = git(root, ["cat-file", "blob", manifestEntry.object]);
+  const manifestValue: unknown = JSON.parse(committedManifest.toString("utf8"));
+  if (!isManifest(manifestValue)) return false;
+  if (!manifestValue.paths.every(validManifestPath)) return false;
+  if (manifestValue.count !== manifestValue.paths.length) return false;
+  if (manifestValue.hash !== aggregateHash(manifestValue.paths)) return false;
+
+  const manifestPaths = new Map(manifestValue.paths.map((entry) => [entry.path, entry]));
+  if (manifestPaths.size !== manifestValue.paths.length) return false;
+  if (entries.length !== manifestPaths.size + 1) return false;
+  for (const entry of entries) {
+    if (entry.path === PUBLIC_SNAPSHOT_MANIFEST) continue;
+    if (entry.type !== "blob") return false;
+    const expected = manifestPaths.get(entry.path);
+    if (!expected || expected.mode !== entry.mode) return false;
+    const content = git(root, ["cat-file", "blob", entry.object]);
+    if (expected.bytes !== content.byteLength) return false;
+    if (expected.sha256 !== createHash("sha256").update(content).digest("hex")) return false;
+  }
+  return true;
+}
+
+function canonicalRepositoryRoot(root: string): string | undefined {
+  const canonicalRoot = realpathSync(resolve(root));
+  if (realpathSync(git(canonicalRoot, ["rev-parse", "--show-toplevel"], "utf8").trim()) !== canonicalRoot) {
+    return undefined;
+  }
+  return canonicalRoot;
+}
+
 export function isAuthenticPublicSnapshotCheckout(root: string): boolean {
   try {
-    const canonicalRoot = realpathSync(resolve(root));
-    if (realpathSync(git(canonicalRoot, ["rev-parse", "--show-toplevel"], "utf8").trim()) !== canonicalRoot) return false;
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    if (!canonicalRoot) return false;
     if (git(canonicalRoot, ["branch", "--show-current"], "utf8").trim() !== "main") return false;
     if (git(canonicalRoot, ["rev-list", "--count", "HEAD"], "utf8").trim() !== "1") return false;
     if (git(canonicalRoot, ["rev-list", "--max-parents=0", "--count", "HEAD"], "utf8").trim() !== "1") return false;
     if (git(canonicalRoot, ["tag", "--list"], "utf8").trim() !== "") return false;
     if (git(canonicalRoot, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], "utf8").trim() !== "main") return false;
-    const identity = git(canonicalRoot, ["show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", "HEAD"], "utf8").trim();
-    if (identity !== [
-      PUBLIC_SNAPSHOT_AUTHOR_NAME,
-      PUBLIC_SNAPSHOT_AUTHOR_EMAIL,
-      PUBLIC_SNAPSHOT_AUTHOR_NAME,
-      PUBLIC_SNAPSHOT_AUTHOR_EMAIL,
-    ].join("\0")) return false;
+    if (!isAuthenticPublicSnapshotCommit(canonicalRoot, "HEAD")) return false;
+    const committedManifest = git(canonicalRoot, ["show", `HEAD:${PUBLIC_SNAPSHOT_MANIFEST}`]);
+    return readFileSync(join(canonicalRoot, PUBLIC_SNAPSHOT_MANIFEST)).equals(committedManifest);
+  } catch {
+    return false;
+  }
+}
 
-    const entries = tree(canonicalRoot);
-    const manifestEntry = entries.find((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST);
-    if (!manifestEntry || manifestEntry.mode !== "100644" || manifestEntry.type !== "blob") return false;
-    const committedManifest = git(canonicalRoot, ["cat-file", "blob", manifestEntry.object]);
-    if (!readFileSync(join(canonicalRoot, PUBLIC_SNAPSHOT_MANIFEST)).equals(committedManifest)) return false;
-    const manifestValue: unknown = JSON.parse(committedManifest.toString("utf8"));
-    if (!isManifest(manifestValue)) return false;
-    if (!manifestValue.paths.every(validManifestPath)) return false;
-    if (manifestValue.count !== manifestValue.paths.length) return false;
-    if (manifestValue.hash !== aggregateHash(manifestValue.paths)) return false;
-
-    const manifestPaths = new Map(manifestValue.paths.map((entry) => [entry.path, entry]));
-    if (manifestPaths.size !== manifestValue.paths.length) return false;
-    if (entries.length !== manifestPaths.size + 1) return false;
-    for (const entry of entries) {
-      if (entry.path === PUBLIC_SNAPSHOT_MANIFEST) continue;
-      if (entry.type !== "blob") return false;
-      const expected = manifestPaths.get(entry.path);
-      if (!expected || expected.mode !== entry.mode) return false;
-      const content = git(canonicalRoot, ["cat-file", "blob", entry.object]);
-      if (expected.bytes !== content.byteLength) return false;
-      if (expected.sha256 !== createHash("sha256").update(content).digest("hex")) return false;
-    }
-    return true;
+export function isPublicSnapshotRepositoryCheckout(root: string): boolean {
+  try {
+    const canonicalRoot = canonicalRepositoryRoot(root);
+    if (!canonicalRoot) return false;
+    const roots = git(canonicalRoot, ["rev-list", "--max-parents=0", "HEAD"], "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    return roots.length === 1 && isAuthenticPublicSnapshotCommit(canonicalRoot, roots[0]!);
   } catch {
     return false;
   }

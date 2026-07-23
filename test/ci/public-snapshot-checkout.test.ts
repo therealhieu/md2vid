@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { pathToFileURL } from "node:url";
 import { buildPublicSnapshot } from "../../scripts/public_snapshot.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..");
@@ -32,6 +33,17 @@ function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
   }).trim();
 }
 
+function shallowClone(t: TestContext, source: string, prefix: string): string {
+  const parent = temporaryDirectory(t, prefix);
+  const checkout = join(parent, "checkout");
+  execFileSync("git", ["clone", "--depth=1", "--no-tags", pathToFileURL(source).href, checkout], {
+    encoding: "utf8",
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return checkout;
+}
+
 function createSourceRepository(t: TestContext): string {
   const root = temporaryDirectory(t, "md2vid-snapshot-auth-source-");
   git(root, ["init", "--initial-branch=main"]);
@@ -51,6 +63,11 @@ async function validator(): Promise<(root: string) => boolean> {
   return module.isAuthenticPublicSnapshotCheckout;
 }
 
+async function repositoryValidator(): Promise<(root: string) => boolean> {
+  const module = await import("../../scripts/public_snapshot_checkout.ts") as typeof import("../../scripts/public_snapshot_checkout.ts") & Record<string, any>;
+  return module.isPublicSnapshotRepositoryCheckout;
+}
+
 test("authentic generated one-commit public snapshot checkout is recognized", async (t) => {
   const source = createSourceRepository(t);
   const parent = temporaryDirectory(t, "md2vid-snapshot-auth-output-");
@@ -64,12 +81,67 @@ test("authentic generated one-commit public snapshot checkout is recognized", as
 
   assert.match(git(snapshot, ["ls-tree", "HEAD", "--", "bin/tool.js"]), /^100755 blob /);
   assert.equal((await validator())(snapshot), true);
+  assert.equal((await repositoryValidator())(snapshot), true);
 });
 
-test("private-tree tests require the shared authentic snapshot validator", () => {
+test("public snapshot descendants retain an authenticated root", async (t) => {
+  const source = createSourceRepository(t);
+  const parent = temporaryDirectory(t, "md2vid-snapshot-descendant-");
+  const snapshot = join(parent, "snapshot");
+  const template = join(parent, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts");
+  checker.initializePublicSnapshotRepository(snapshot, template);
+  writeFileSync(join(snapshot, "README.md"), "# Public descendant\n");
+  git(snapshot, ["add", "README.md"]);
+  git(snapshot, ["commit", "-m", "docs: update public readme"]);
+
+  assert.equal((await validator())(snapshot), false);
+  assert.equal((await repositoryValidator())(snapshot), true);
+});
+
+test("shallow public descendants fail closed without the authenticated root", async (t) => {
+  const source = createSourceRepository(t);
+  const parent = temporaryDirectory(t, "md2vid-snapshot-shallow-source-");
+  const snapshot = join(parent, "snapshot");
+  const template = join(parent, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts");
+  checker.initializePublicSnapshotRepository(snapshot, template);
+  writeFileSync(join(snapshot, "README.md"), "# Public descendant\n");
+  git(snapshot, ["add", "README.md"]);
+  git(snapshot, ["commit", "-m", "docs: update public readme"]);
+  const shallow = shallowClone(t, snapshot, "md2vid-snapshot-shallow-checkout-");
+
+  assert.equal((await repositoryValidator())(shallow), false);
+});
+
+test("shallow boundary commits cannot impersonate the authenticated root", async (t) => {
+  const source = createSourceRepository(t);
+  const parent = temporaryDirectory(t, "md2vid-snapshot-shallow-spoof-");
+  const snapshot = join(parent, "snapshot");
+  const template = join(parent, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts");
+  checker.initializePublicSnapshotRepository(snapshot, template);
+  git(snapshot, ["commit", "--allow-empty", "-m", "spoof public root"], {
+    GIT_AUTHOR_NAME: PUBLIC_NAME,
+    GIT_AUTHOR_EMAIL: PUBLIC_EMAIL,
+    GIT_COMMITTER_NAME: PUBLIC_NAME,
+    GIT_COMMITTER_EMAIL: PUBLIC_EMAIL,
+  });
+  const shallow = shallowClone(t, snapshot, "md2vid-snapshot-shallow-spoof-checkout-");
+
+  assert.equal((await repositoryValidator())(shallow), false);
+});
+
+test("private-tree tests require the shared public repository validator", () => {
   for (const path of ["test/cli/skill-commands.test.ts", "test/docs-boundary.test.ts"]) {
     const source = readFileSync(join(ROOT, path), "utf8");
-    assert.match(source, /isAuthenticPublicSnapshotCheckout/);
+    assert.match(source, /isPublicSnapshotRepositoryCheckout/);
     assert.doesNotMatch(source, /existsSync\(PUBLIC_SNAPSHOT_MANIFEST\)/);
   }
 });
@@ -88,4 +160,5 @@ test("bogus manifest in an ordinary repository is not an authentic public snapsh
   });
 
   assert.equal((await validator())(repo), false);
+  assert.equal((await repositoryValidator())(repo), false);
 });

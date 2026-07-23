@@ -13,6 +13,7 @@ import {
 } from "./public_snapshot.ts";
 import {
   isAuthenticPublicSnapshotCheckout,
+  isPublicSnapshotRepositoryCheckout,
   PUBLIC_SNAPSHOT_AUTHOR_EMAIL,
   PUBLIC_SNAPSHOT_AUTHOR_NAME,
   PUBLIC_SNAPSHOT_COMMIT_DATE,
@@ -168,6 +169,25 @@ export function initializePublicSnapshotRepository(snapshot: string, emptyTempla
   requireAuthenticSnapshot(snapshot, "immediately after initialization");
 }
 
+export function assertSourceCommitBoundary(
+  sourceRoot: string,
+  sourceCommit: string,
+  snapshot: string,
+): void {
+  const snapshotCommit = git(snapshot, ["rev-parse", "HEAD"]);
+  if (
+    snapshotCommit === sourceCommit &&
+    isPublicSnapshotRepositoryCheckout(sourceRoot)
+  ) return;
+
+  const sourceObject = spawnSync("git", ["cat-file", "-e", `${sourceCommit}^{commit}`], {
+    cwd: snapshot,
+    env: isolatedGitEnvironment(),
+    stdio: "ignore",
+  });
+  if (sourceObject.status === 0) fail("private source commit is reachable in the fresh repository");
+}
+
 export function checkPublicSnapshot(repo = process.cwd(), npmExecPath = process.env.npm_execpath): void {
   if (!npmExecPath) fail("npm_execpath is required; invoke this check through the package's pinned npm CLI");
   const gitRoot = git(resolve(repo), ["rev-parse", "--show-toplevel"]);
@@ -209,12 +229,7 @@ export function checkPublicSnapshot(repo = process.cwd(), npmExecPath = process.
       ].join("\0"),
       "public commit identity",
     );
-    const privateObject = spawnSync("git", ["cat-file", "-e", `${sourceCommit}^{commit}`], {
-      cwd: snapshot,
-      env: isolatedGitEnvironment(),
-      stdio: "ignore",
-    });
-    if (privateObject.status === 0) fail("private source commit is reachable in the fresh repository");
+    assertSourceCommitBoundary(gitRoot, sourceCommit, snapshot);
 
     runAuthenticatedSnapshotValidation(snapshot, npmExecPath);
 

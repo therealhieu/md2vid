@@ -48,6 +48,45 @@ async function createAuthenticSnapshot(t: TestContext): Promise<string> {
   return snapshot;
 }
 
+test("source boundary accepts deterministic regeneration of an authentic public snapshot", async (t) => {
+  const source = await createAuthenticSnapshot(t);
+  const root = temporaryDirectory(t, "md2vid-checker-idempotent-");
+  const regenerated = join(root, "regenerated");
+  const template = join(root, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: regenerated });
+  const checker = await import("../../scripts/check_public_snapshot.ts") as typeof import("../../scripts/check_public_snapshot.ts") & Record<string, any>;
+  checker.initializePublicSnapshotRepository(regenerated, template);
+  const sourceCommit = git(source, ["rev-parse", "HEAD"]);
+  git(source, ["branch", "work"]);
+
+  assert.equal(git(regenerated, ["rev-parse", "HEAD"]), sourceCommit);
+  assert.doesNotThrow(() => checker.assertSourceCommitBoundary(source, sourceCommit, regenerated));
+});
+
+test("source boundary rejects imported private source history", async (t) => {
+  const root = temporaryDirectory(t, "md2vid-checker-private-history-");
+  const source = join(root, "source");
+  const snapshot = join(root, "snapshot");
+  const template = join(root, "empty-template");
+  mkdirSync(source);
+  mkdirSync(template);
+  git(source, ["init", "--initial-branch=main"]);
+  writeFileSync(join(source, "README.md"), "# Private\n");
+  git(source, ["add", "--all"]);
+  git(source, ["commit", "-m", "private source"]);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts") as typeof import("../../scripts/check_public_snapshot.ts") & Record<string, any>;
+  checker.initializePublicSnapshotRepository(snapshot, template);
+  const sourceCommit = git(source, ["rev-parse", "HEAD"]);
+  git(snapshot, ["fetch", "--no-tags", source, sourceCommit]);
+
+  assert.throws(
+    () => checker.assertSourceCommitBoundary(source, sourceCommit, snapshot),
+    /private source commit is reachable/i,
+  );
+});
+
 test("checker module import has no CLI side effects", (t) => {
   const cwd = temporaryDirectory(t, "md2vid-checker-import-");
   const result = spawnSync(
