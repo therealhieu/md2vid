@@ -148,7 +148,7 @@ test("regroup: run() returns 0 after a build, non-zero when caption_groups is mi
   }
 });
 
-test("verify: run() returns 0 after a build, 2 when the dir does not exist", async () => {
+test("verify: run() returns 0 after a build, 1 when the dir does not exist", async () => {
   const build = await runOf("build.ts");
   const regroup = await runOf("regroup.ts");
   const verify = await runOf("verify.ts");
@@ -157,7 +157,7 @@ test("verify: run() returns 0 after a build, 2 when the dir does not exist", asy
     await build([output]);
     await regroup([output, "--max-chars", "54"]);
     assert.equal(await verify([output]), 0);
-    assert.equal(await verify([join(tmp, "no-such-dir")]), 2);
+    assert.equal(await verify([join(tmp, "no-such-dir")]), 1);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -217,6 +217,10 @@ test("project commands report neutral artifacts from the resolved shared directo
       assert.equal(regroupResult.code, 1);
       assert.ok(regroupResult.stderr.includes(join(shared, "caption_groups.json")), regroupResult.stderr);
 
+      writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+      if (layout === "canonical") {
+        writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
+      }
       const verifyResult = await captureRun(verify, [output]);
       assert.ok(verifyResult.stdout.includes(join(shared, "caption_groups.json")), verifyResult.stdout);
     } finally {
@@ -251,6 +255,8 @@ test("verify keeps canonical shared authoritative over stale flat captions", asy
   try {
     mkdirSync(join(output, "compositions"), { recursive: true });
     mkdirSync(shared, { recursive: true });
+    writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+    writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
     writeFileSync(join(output, "caption_groups.json"), JSON.stringify({ groups: [{ words: ["stale"] }] }));
     writeFileSync(join(output, "compositions", "captions.html"), "var GROUPS = [];\n");
 
