@@ -44,6 +44,14 @@ function assertOrder(body: string, fragments: string[]): void {
   }
 }
 
+function sectionBetween(body: string, start: string, end: string): string {
+  const startIndex = body.indexOf(start);
+  const endIndex = body.indexOf(end, startIndex + start.length);
+  assert.ok(startIndex >= 0, `missing section ${JSON.stringify(start)}`);
+  assert.ok(endIndex > startIndex, `missing section boundary ${JSON.stringify(end)}`);
+  return body.slice(startIndex, endIndex);
+}
+
 test("skill lives at skill/md2vid/SKILL.md", () => {
   assert.ok(existsSync(SKILL), "skill/md2vid/SKILL.md must exist");
 });
@@ -85,13 +93,73 @@ test("mechanical steps invoke the md2vid CLI", () => {
   }
 });
 
-test("skill documents the shipped narration and generated-project workflow", () => {
+test("skill documents the shipped narration contract without an invented audio command", () => {
   const body = readFileSync(SKILL, "utf8");
   assert.doesNotMatch(body, /\bmd2vid audio\b/);
   assert.match(body, /audio_request\.json\.example/);
   assert.match(body, /voice IDs.*meaningful/i);
   assert.match(body, /array order/i);
-  assertOrder(body, ["npm run build", "npm run check", "preview"]);
+});
+
+test("single-framework branch is a complete flat-project workflow", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  assert.doesNotMatch(flat, /outputs\/<slug>\//);
+  assertOrder(flat, [
+    "md2vid new <slug>",
+    "<slug>/STORYBOARD.md",
+    "<slug>/SCRIPT.md",
+    "<slug>/audio_request.json",
+    "<slug>/audio_meta.json",
+    "<slug>/assets/voice/",
+    "<slug>/video.config.json",
+    "<slug>/compositions/frames/",
+    "<slug>/src/scenes/",
+    "cd <slug>",
+    "npm run transcribe",
+    "npm run build",
+    "npm run check",
+    "npm run dev",
+    "npm run still",
+    "npm run studio",
+    "npm run render",
+  ]);
+});
+
+test("multi-framework branch is a complete canonical-project workflow", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What build does",
+  );
+  assertOrder(canonical, [
+    "md2vid new <slug>-hyperframes",
+    "md2vid new <slug>-remotion --framework remotion",
+    "outputs/<slug>/shared/STORYBOARD.md",
+    "outputs/<slug>/shared/SCRIPT.md",
+    "outputs/<slug>/shared/audio_request.json",
+    "outputs/<slug>/shared/audio_meta.json",
+    "outputs/<slug>/shared/assets/voice/",
+    "outputs/<slug>/shared/video.config.json",
+    "outputs/<slug>/hyperframes/compositions/frames/",
+    "outputs/<slug>/remotion/src/scenes/",
+    "cd outputs/<slug>/hyperframes",
+    "npm run transcribe",
+    "npm run build",
+    "npm run check",
+    "npm run dev",
+    "cd outputs/<slug>/remotion",
+    "npm run build",
+    "npm run check",
+    "npm run still",
+    "npm run studio",
+    "npm run render",
+  ]);
 });
 
 test("installed operational guidance never executes npx hyperframes", () => {

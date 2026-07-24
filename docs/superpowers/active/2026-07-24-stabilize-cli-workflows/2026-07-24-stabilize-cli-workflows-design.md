@@ -1,7 +1,7 @@
 # Stabilize md2vid CLI Workflows — Design
 
-**Date:** 2026-07-24  
-**Status:** Approved  
+**Date:** 2026-07-24
+**Status:** Approved
 **Branch:** `fix/stabilize-cli-workflows`
 
 ## Goal

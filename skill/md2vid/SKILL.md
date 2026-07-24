@@ -125,133 +125,115 @@ Record choice early; do not start Remotion visual work unless requested (R1: ric
 
 ## Pipeline
 
-Do these in order. Each step names its gate.
+First complete the two neutral planning gates without choosing output paths:
 
-### 1. Ingest
+1. **Ingest:** read the source in full and inventory every heading, diagram, Mermaid chart, table, image, code block, and worked example.
+2. **Coverage approval — GATE:** propose the source-section → frame map and any omissions with reasons. Do not author files until the user approves it. Duration follows content density, never a forced 30–90 seconds.
 
-Read the input doc in full. Inventory every heading, diagram, Mermaid chart, table, image, code block, and worked example. Nothing is skipped silently.
+Then choose exactly one complete path below. Do not start flat and silently switch to canonical paths later.
 
-### 2. Coverage map + omissions — GATE (user approval)
+### Branch A — Single framework (flat, default)
 
-Build a source-section → frame(s) table at the top of `STORYBOARD.md`. List any material you propose to omit **with a reason**. Do not proceed to authoring until the user approves coverage and omissions. Duration follows content density — never force 30–90s (per `video-generation.md` § Duration).
+Use this for the default HyperFrames workflow or one explicitly requested Remotion output.
 
-### 3. Storyboard → `outputs/<slug>/shared/STORYBOARD.md`
+1. Scaffold first into the flat project directory:
 
-For each frame declare: source section, **knowledge type → treatment**, the one focal, the one coral moment, and the 3-scene spine (anchor ≤0.5s → VO-paced reveals → held landing ≥0.5s). **Frame 1 is an intro with the agenda** (Cover → Enumerate); **the final frame is a recap** mirroring the agenda (Enumerate → Closing). Vary framing between consecutive same-type frames; allocate deliberate breather frames.
+   ```bash
+   md2vid new <slug>
+   # or, for Remotion only:
+   md2vid new <slug> --framework remotion
+   ```
 
-Create `outputs/<slug>/shared/` if missing. Storyboard is framework-neutral.
+2. Put all neutral authoring files directly in that scaffold:
 
-### 4. Script → `outputs/<slug>/shared/SCRIPT.md`
+   - `<slug>/STORYBOARD.md` — coverage map, knowledge type → treatment, focal, coral moment, narration-cued reveals, and held landing per frame.
+   - `<slug>/SCRIPT.md` — one timed narration block per frame.
+   - Review `<slug>/audio_request.json.example`, then prepare `<slug>/audio_request.json`.
+   - Use `/hyperframes-media` to generate `<slug>/audio_meta.json` and `<slug>/assets/voice/*.wav`.
+   - Fill `<slug>/video.config.json` `slugs` and timing. Voice IDs may be meaningful but must be unique; frame sequence follows `voices[]` array order.
 
-One narration block per frame, timed. Concise spoken language that explains the on-screen focal — not the doc read verbatim (unless asked).
+3. Author framework visuals in the same flat project:
 
-### 5. Scaffold framework output(s)
+   - HyperFrames: `<slug>/compositions/frames/NN-*.html`; filenames match `video.config.json.slugs` exactly.
+   - Remotion: `<slug>/src/scenes/*Scene.tsx`; import and register every custom scene in `Video.tsx`. Run `npm install` once before Remotion checks.
 
-From any cwd (the `md2vid` CLI resolves `<dir>` to absolute):
+4. Run the generated scripts from the flat project root:
 
-```bash
-# Default HyperFrames
-md2vid new <slug>
-# or explicit
-md2vid new <slug> --framework hyperframes
-md2vid new <slug> --framework remotion
-```
+   ```bash
+   cd <slug>
+   npm run transcribe   # only when audio_meta words[] timings are empty
+   npm run build
+   npm run check
+   npm run dev          # HyperFrames review
+   npm run still        # Remotion smoke
+   npm run studio       # Remotion review
+   npm run render       # only after review and explicit request
+   ```
 
-**Layout note:** `md2vid new <slug>` scaffolds a flat project into **`./<slug>`** under the current working directory (an installed CLI writes where you run it, not into the package). Build/verify then target that dir directly: `md2vid build ./<slug>`. For multi-framework work, promote the flat tree into the canonical `<slug>/shared/` + `<slug>/<framework>/` layout shown above and target each framework dir. If you keep the flat tree, reshape once:
+`npm run build` includes `md2vid build .` and caption regrouping. `npm run check` starts with `md2vid verify .` and then runs the framework checks. Direct diagnosis stays flat too: `md2vid transcribe <slug>`, `md2vid build <slug>`, and `md2vid verify <slug>`.
 
-- Move/copy neutral files into `shared/` (`video.config.json` without framework-only knobs, meta, storyboard, script, audio).
-- Keep framework files under `hyperframes/` or `remotion/` with `output.config.json` (`{ "framework": "…" }`).
-- Prefer the canonical `shared/` + per-framework layout above for any new multi-framework project.
+### Branch B — Multiple frameworks (canonical)
 
-**Do not hand-copy a previous video's build scripts** — adapters own emission.
+Use this only when the user requests both frameworks or a shared-neutral multi-framework project.
 
-After scaffolding, review `audio_request.json.example`; it shows the narration-planning shape but is not generated audio. Then fill **`shared/video.config.json`** `slugs` (one entry per voice ID → frame slug) and pick `timing.gap` (`0` = back-to-back; `>0` = held stop between frames). Framework-local knobs stay in `<framework>/output.config.json`.
+1. Scaffold both runtimes before arranging the canonical tree:
 
-### 6. Audio (shared)
+   ```bash
+   md2vid new <slug>-hyperframes
+   md2vid new <slug>-remotion --framework remotion
+   ```
 
-Use the scaffolded `audio_request.json.example` to prepare `audio_request.json` (one line per frame's narration, plus optional `sfx`/`bgm`), then use `/hyperframes-media` to generate the shared audio artifacts. Emit into **`shared/`**: `audio_meta.json` + `assets/voice/*.wav`.
+2. Promote the generated projects explicitly:
 
-Voice IDs may be meaningful strings such as `intro`, `details`, and `recap`; they must be non-empty and unique. Frame sequence follows `audio_meta.json` `voices[]` array order, never ID spelling or numeric value. Every ID must map to its authored visual slug in `video.config.json.slugs`. Each voice entry includes `id`, project-relative WAV `path`, `duration_s`, and word-level `words` timings.
+   ```text
+   <slug>-hyperframes/ → outputs/<slug>/hyperframes/
+   <slug>-remotion/    → outputs/<slug>/remotion/
+   ```
 
-Default voice/theme: warm, measured, editorial. If word-timings are empty:
+   Create `outputs/<slug>/shared/`. Move the HyperFrames scaffold's neutral `meta.json`, `video.config.json`, and `audio_request.json.example` there, then remove the duplicate neutral copies from the Remotion directory. Keep each framework's `output.config.json`, package scripts, runtime, and copied standard in its framework directory.
 
-```bash
-md2vid transcribe outputs/<slug>/hyperframes
-# or any framework output dir — transcribe resolves sibling shared/
-```
+3. Put shared authoring only under the canonical neutral root:
 
-### 7. Author visuals (framework-specific)
+   - `outputs/<slug>/shared/STORYBOARD.md`
+   - `outputs/<slug>/shared/SCRIPT.md`
+   - Review the example, then prepare `outputs/<slug>/shared/audio_request.json`.
+   - Generate `outputs/<slug>/shared/audio_meta.json` and `outputs/<slug>/shared/assets/voice/*.wav` with `/hyperframes-media`.
+   - Fill `outputs/<slug>/shared/video.config.json`; every meaningful voice ID maps to a visual slug, and `voices[]` array order controls sequence.
 
-#### 7a. HyperFrames → `hyperframes/compositions/frames/NN-*.html`
+4. Author framework visuals only in their output directories:
 
-- Create each frame under the generated project's `compositions/frames/` directory, following `references/standards/design/frame-content.md`.
-- Filename **must exactly match** `shared/video.config.json` slugs.
-- Skills: start at `/hyperframes`, then `/faceless-explainer` and domain skills (`/hyperframes-core`, `/hyperframes-animation`, `/hyperframes-creative`).
-- Obey `frame-content.md`: transparent root, content tracks `0-9`, shell track `20`, captions track `30`, IDs prefixed, one paused timeline per `data-composition-id`.
-- **Redraw every diagram/table from theme atoms — never paste a raster, screenshot, or Mermaid render.**
-- Project docs: `CLAUDE.md` / `AGENTS.md` single `@import` of the scaffolder's copied-in standard (`.md2vid/standards/hyperframes.md`).
+   - `outputs/<slug>/hyperframes/compositions/frames/NN-*.html`
+   - `outputs/<slug>/remotion/src/scenes/*Scene.tsx`
 
-#### 7b. Remotion → `remotion/src/scenes/*Scene.tsx`
+   HyperFrames follows `references/standards/design/frame-content.md` and the generated `.md2vid/standards/hyperframes.md`. Remotion custom scenes are imported and explicitly registered in `Video.tsx`; run `npm install` once in the Remotion directory.
 
-- Composition entry is scaffolded under `remotion/src/` (do not clobber existing hand-authored `src/` on re-emit).
-- Wire scenes through `Video.tsx` `SceneRouter` (slug → component); keep **Captions at composition root** (global clock); **Audio inside each Sequence**.
-- Motion: `useCurrentFrame` + `interpolate` / spring only — **no CSS transitions**.
-- Crossfade: triangle opacity over plan `timing.xfade` (fade in + fade out).
-- Reuse the generated project's `src/theme.ts`, `src/primitives.tsx`, and `src/fonts.ts`; keep new scenes under `src/scenes/`.
-- Rich per-frame visuals are **hand-authored** (not auto-generated from IR). Title-card fallback is acceptable only if the user accepted baseline R1 scope.
-- Project docs / standards: `references/standards/frameworks/remotion.md`.
-- Install once: `cd outputs/<slug>/remotion && npm install` (pin all `@remotion/*` to the same version as the template).
+5. Transcribe the shared narration once, then build, check, and review each framework from its own output directory:
 
-### 8. Build (IR + framework emit) & regroup
+   ```bash
+   cd outputs/<slug>/hyperframes
+   npm run transcribe   # only when shared audio_meta words[] timings are empty
+   npm run build
+   npm run check
+   npm run dev          # review
+   npm run render       # only after review and explicit request
 
-Use each generated project's package script; it runs `md2vid build .` followed by `md2vid regroup . --max-chars 54`:
+   cd outputs/<slug>/remotion
+   npm run build
+   npm run check
+   npm run still        # smoke
+   npm run studio       # review
+   npm run render       # only after review and explicit request
+   ```
 
-```bash
-cd outputs/<slug>/hyperframes && npm run build
-cd outputs/<slug>/remotion && npm run build   # if present
-```
+The canonical direct commands target framework outputs, never `shared/`: `md2vid transcribe outputs/<slug>/hyperframes`, `md2vid build outputs/<slug>/hyperframes`, `md2vid build outputs/<slug>/remotion`, `md2vid verify outputs/<slug>/hyperframes`, and `md2vid verify outputs/<slug>/remotion`.
 
-The direct `md2vid build <dir>` and `md2vid regroup <dir> --max-chars 54` commands remain available for targeted diagnosis or non-generated layouts.
+## What build does
 
-What this does:
+1. `engine.plan()` writes neutral IR (`cues.json`, `caption_groups.json`, `build/build_plan.json`) beside the neutral inputs: the flat project root for Branch A or `shared/` for Branch B.
+2. Adapter `emit()` writes framework files and stages real WAVs transactionally (HyperFrames: `index.html`, baked captions, `assets/voice/**`; Remotion: `build_plan.json`, `public/assets/voice/**`) without clobbering authored frames or `src/**`.
+3. Caption regrouping targets ~50–56 characters and re-bakes HyperFrames `var GROUPS` so JSON and HTML stay synchronized.
 
-1. `engine.plan()` → writes neutral IR into `shared/` (`cues.json`, `caption_groups.json`, `build/build_plan.json`).
-2. Adapter `emit()` → framework files and transactional real-WAV staging (HF: `index.html` + baked captions + `assets/voice/**`; Remotion: `build_plan.json` + `public/assets/voice/**`); missing runtime files are added without clobbering authored frames or `src/**`.
-3. `regroup` merges caption lines to ~50–56 chars; HF emit re-bakes `var GROUPS` so JSON ↔ HTML match.
-
-You do **not** hand-write `index.html` / `captions.html`. The generated HyperFrames project's caption skin is `.hyperframes/caption-skin.html`. Remotion karaoke is `src/Captions.tsx` (re-authoring, not GSAP byte-parity).
-
-### 9. Verify and review — GATE (must pass)
-
-Run the generated `check` script after build and before any preview, still, studio, or render:
-
-```bash
-cd outputs/<slug>/hyperframes && npm run check
-cd outputs/<slug>/remotion && npm run check   # if present
-cd outputs/<slug>/remotion && npm run still   # fast smoke after check
-```
-
-`npm run check` starts with `md2vid verify .` and then runs framework checks. The direct commands remain available for targeted diagnosis:
-
-```bash
-md2vid verify outputs/<slug>/hyperframes
-md2vid verify outputs/<slug>/remotion   # if present
-```
-
-Fix every FAIL. Walk `video-generation.md` § Verification checklist by hand — scripts cover machine invariants; treatment/focal/triad are yours. Then review HyperFrames with `npm run dev` or Remotion with `npm run studio`; render only after review.
-
-### 10. Render — only on explicit request
-
-```bash
-# HyperFrames
-cd outputs/<slug>/hyperframes && npm run render
-# prefer default renders/ or an ignored out/ path
-
-# Remotion
-cd outputs/<slug>/remotion && npm run render   # → out/video.mp4 (gitignored)
-```
-
-Deliver preview otherwise. MP4s under `outputs/**/out/` and `outputs/**/renders/` are gitignored.
+Do not hand-write emitted `index.html` or `captions.html`. Fix every failed check, then walk `video-generation.md` § Verification checklist manually; machine checks cannot judge source coverage, treatment quality, focal timing, or the expression triad.
 
 ## The three hard gates
 
@@ -290,24 +272,32 @@ Deliver preview otherwise. MP4s under `outputs/**/out/` and `outputs/**/renders/
 
 ## Quick command cheat sheet
 
+### Flat single-framework
+
 ```bash
-# Scaffold
-md2vid new my-slug
-md2vid new my-slug --framework remotion
+md2vid new my-slug                       # or add --framework remotion
+# write STORYBOARD.md, SCRIPT.md, narration/config, and visuals under my-slug/
+cd my-slug
+npm run transcribe                       # only if word timings are missing
+npm run build
+npm run check
+npm run dev                              # HyperFrames review
+npm run still && npm run studio          # Remotion smoke + review
+npm run render                           # explicit request, after review
+```
 
-# Build + regroup (generated scripts)
-cd outputs/my-slug/hyperframes && npm run build
-cd outputs/my-slug/remotion && npm run build
+### Canonical multi-framework
 
-# Check before preview/still/render
-cd outputs/my-slug/hyperframes && npm run check
-cd outputs/my-slug/remotion && npm run check
-
-# Review
-cd outputs/my-slug/hyperframes && npm run dev
-cd outputs/my-slug/remotion && npm run still && npm run studio
-
-# Render (explicit request only, after review)
-cd outputs/my-slug/hyperframes && npm run render
-cd outputs/my-slug/remotion && npm run render
+```bash
+md2vid new my-slug-hyperframes
+md2vid new my-slug-remotion --framework remotion
+# arrange outputs/my-slug/shared + hyperframes + remotion as Branch B specifies
+cd outputs/my-slug/hyperframes
+npm run transcribe                       # shared narration, once
+npm run build && npm run check
+npm run dev                              # review
+cd ../remotion
+npm run build && npm run check
+npm run still && npm run studio          # smoke + review
+npm run render                           # explicit request, after review
 ```
