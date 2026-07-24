@@ -16,6 +16,89 @@ const CFG = (over: any = {}) => ({
   slugs: over.slugs ?? { "01": "01-a", "02": "02-b" },
 });
 
+test("keeps meaningful IDs while deriving frame order", () => {
+  const p = plan(
+    meta([
+      V("intro", 5, [{ text: "Intro", start: 0, end: 1 }]),
+      V("details", 6, [{ text: "Details", start: 0, end: 1 }]),
+      V("recap", 7, [{ text: "Recap", start: 0, end: 1 }]),
+    ]),
+    CFG({ slugs: { intro: "01-intro", details: "02-details", recap: "03-recap" } })
+  );
+
+  assert.deepEqual(p.frames.map(({ id, frameNum, slug }) => ({ id, frameNum, slug })), [
+    { id: "intro", frameNum: 1, slug: "01-intro" },
+    { id: "details", frameNum: 2, slug: "02-details" },
+    { id: "recap", frameNum: 3, slug: "03-recap" },
+  ]);
+  assert.deepEqual(p.captionGroups.map((group) => group.frame), [1, 2, 3]);
+});
+
+test("rejects duplicate voice IDs", () => {
+  assert.throws(
+    () => plan(
+      meta([
+        V("intro", 5, [{ text: "One", start: 0, end: 1 }]),
+        V("intro", 5, [{ text: "Two", start: 0, end: 1 }]),
+      ]),
+      CFG({ slugs: { intro: "01-intro" } })
+    ),
+    /duplicate voice id "intro"/
+  );
+});
+
+test("rejects empty voice IDs and missing slug mappings", () => {
+  assert.throws(
+    () => plan(meta([V(" ", 5, [{ text: "One", start: 0, end: 1 }])]), CFG({ slugs: {} })),
+    /non-empty string/
+  );
+  assert.throws(
+    () => plan(meta([V("intro", 5, [{ text: "One", start: 0, end: 1 }])]), CFG({ slugs: {} })),
+    /missing slug mapping for voice id "intro"/
+  );
+});
+
+function assertMalformedSlugs(slugs: unknown) {
+  const malformedConfig = CFG();
+  malformedConfig.slugs = slugs;
+  assert.throws(
+    () => plan(meta([V("0", 5, [{ text: "One", start: 0, end: 1 }])]), malformedConfig),
+    /"slugs" must be a non-null, non-array object/
+  );
+}
+
+test("rejects string slug mappings", () => {
+  assertMalformedSlugs("mapped");
+});
+
+test("rejects array slug mappings", () => {
+  assertMalformedSlugs(["mapped"]);
+});
+
+test("rejects null slug mappings", () => {
+  assertMalformedSlugs(null);
+});
+
+test("supports prototype-like IDs through own-property lookup", () => {
+  const slugs = Object.create(null) as Record<string, string>;
+  slugs["constructor"] = "01-constructor";
+  const p = plan(
+    meta([V("constructor", 5, [{ text: "One", start: 0, end: 1 }])]),
+    CFG({ slugs })
+  );
+  assert.equal(p.frames[0].slug, "01-constructor");
+});
+
+test("rejects inherited slug mappings", () => {
+  assert.throws(
+    () => plan(
+      meta([V("constructor", 5, [{ text: "One", start: 0, end: 1 }])]),
+      CFG({ slugs: {} })
+    ),
+    /missing slug mapping for voice id "constructor"/
+  );
+});
+
 test("back-to-back layout (gap=0): frame N starts where N-1's voice ends", () => {
   const p = plan(
     meta([
@@ -66,7 +149,7 @@ test("missing slug hard-fails", () => {
         meta([V("01", 5, [{ text: "a", start: 0, end: 1 }]), V("99", 5, [{ text: "b", start: 0, end: 1 }])]),
         CFG({ slugs: { "01": "01-a" } })
       ),
-    /missing an entry for voice id/
+    /missing slug mapping for voice id "99"/
   );
 });
 

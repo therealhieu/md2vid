@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -43,7 +43,7 @@ function seedVideo() {
   ]) {
     writeFileSync(join(output, "compositions", "frames", `${slug}.html`), "<html></html>\n");
   }
-  return { tmp, output };
+  return { tmp, shared, output };
 }
 
 async function runOf(script: string): Promise<(argv: string[]) => Promise<number> | number> {
@@ -78,6 +78,53 @@ test("build: run() returns 0 on a valid video, non-zero on a missing dir", async
     assert.notEqual(await run([join(tmp, "no-such-dir")]), 0);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("build validation failures leave neutral and framework outputs unchanged", async () => {
+  const run = await runOf("build.ts");
+
+  for (const failure of ["duplicate IDs", "missing slug mapping", "string slugs", "array slugs"] as const) {
+    const { tmp, shared, output } = seedVideo();
+    try {
+      const metaPath = join(shared, "audio_meta.json");
+      const configPath = join(shared, "video.config.json");
+      const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+
+      if (failure === "duplicate IDs") {
+        meta.voices[1].id = meta.voices[0].id;
+      } else if (failure === "missing slug mapping") {
+        delete config.slugs[meta.voices[0].id];
+      } else {
+        meta.voices.forEach((voice: { id: string }, index: number) => {
+          voice.id = String(index);
+        });
+        config.slugs = failure === "string slugs"
+          ? "abcdefg"
+          : ["a", "b", "c", "d", "e", "f", "g"];
+      }
+      writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n");
+      writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+
+      mkdirSync(join(shared, "build"), { recursive: true });
+      const sentinels = [
+        [join(shared, "cues.json"), `neutral cues: ${failure}\n`],
+        [join(shared, "caption_groups.json"), `neutral captions: ${failure}\n`],
+        [join(shared, "build", "build_plan.json"), `neutral plan: ${failure}\n`],
+        [join(output, "index.html"), `framework index: ${failure}\n`],
+        [join(output, "compositions", "captions.html"), `framework captions: ${failure}\n`],
+      ] as const;
+      for (const [path, contents] of sentinels) writeFileSync(path, contents);
+
+      const result = await captureRun(run, [output]);
+      assert.equal(result.code, 1, failure);
+      for (const [path, contents] of sentinels) {
+        assert.equal(readFileSync(path, "utf8"), contents, `${failure}: ${path} was mutated`);
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }
 });
 

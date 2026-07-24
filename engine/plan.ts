@@ -21,21 +21,36 @@ export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
     throw new Error("audio_meta.json has voices with no words — re-run the audio engine / md2vid transcribe.");
   }
 
-  const SLUGS = config.slugs || {};
+  const rawSlugs: unknown = config.slugs;
+  if (
+    rawSlugs !== undefined
+    && (rawSlugs === null || typeof rawSlugs !== "object" || Array.isArray(rawSlugs))
+  ) {
+    throw new Error('video.config.json "slugs" must be a non-null, non-array object');
+  }
+  const SLUGS = (rawSlugs ?? {}) as Record<string, string>;
   const TAIL = config.timing?.tail ?? 0.5; // held-landing tail after the voice ends
   const XFADE = config.timing?.xfade ?? 0.5; // crossfade duration between frames
   const GAP = config.timing?.gap ?? 0; // silent stop between frames (0 => back-to-back)
   const WIDTH = config.canvas?.width ?? 1920;
   const HEIGHT = config.canvas?.height ?? 1080;
 
-  // Every voice id must have a slug — a missing slug silently yields a `${id}-frame`
-  // placeholder that never matches an authored file (see the 08-pading / 04-cross-cor bug).
-  const missingSlugs = voices.map((v) => v.id).filter((id) => !SLUGS[id]);
-  if (missingSlugs.length) {
-    throw new Error(
-      `video.config.json "slugs" is missing an entry for voice id(s): ${JSON.stringify(missingSlugs)} — ` +
-        `add "<id>": "<id>-slug" so index.html mounts the right frame file.`
-    );
+  // Voice identity is stable metadata; sequence order comes from array position.
+  // Validate the complete identity-to-slug contract before constructing the timeline.
+  const seen = new Set<string>();
+  for (const [index, voice] of voices.entries()) {
+    if (typeof voice.id !== "string" || voice.id.trim().length === 0) {
+      throw new Error(`voice at index ${index} has invalid id — expected a non-empty string`);
+    }
+    if (seen.has(voice.id)) throw new Error(`duplicate voice id "${voice.id}"`);
+    seen.add(voice.id);
+    if (
+      !Object.hasOwn(SLUGS, voice.id)
+      || typeof SLUGS[voice.id] !== "string"
+      || SLUGS[voice.id].trim() === ""
+    ) {
+      throw new Error(`missing slug mapping for voice id "${voice.id}"`);
+    }
   }
 
   // ── Timeline layout: each frame's start/duration ───────────────────────────
@@ -54,7 +69,7 @@ export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
     cursor += isLast ? v.duration_s : v.duration_s + GAP;
     return {
       id,
-      frameNum: Number(id),
+      frameNum: i + 1,
       slug,
       voicePath: v.path,
       voiceDur: v.duration_s,
