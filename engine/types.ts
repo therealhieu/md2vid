@@ -46,6 +46,7 @@ export interface Finding { level: Level; msg: string; }
 // ── Scaffold and adapter contracts ──────────────────────────────────────────
 export interface FrameworkScaffoldSpec {
   outputConfig: Record<string, unknown>;
+  frameworkCheck: string;
   packageScripts: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;

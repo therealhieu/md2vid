@@ -12,6 +12,7 @@ import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, rmSync, symlinkSync
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { plan } from "../../engine/plan.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -205,13 +206,19 @@ test("project commands report neutral artifacts from the resolved shared directo
       mkdirSync(output, { recursive: true });
       if (layout === "canonical") mkdirSync(shared, { recursive: true });
 
+      const audioMetaPath = join(shared, "audio_meta.json");
+      const missingAudioError = [
+        `FAIL: missing audio_meta.json at ${audioMetaPath}`,
+        "Create narration with the /md2vid skill workflow or follow https://github.com/therealhieu/md2vid#narration.",
+      ].join("\n");
+
       const buildResult = await captureRun(build, [output]);
       assert.equal(buildResult.code, 1);
-      assert.ok(buildResult.stderr.includes(join(shared, "audio_meta.json")), buildResult.stderr);
+      assert.equal(buildResult.stderr, missingAudioError);
 
       const transcribeResult = await captureRun(transcribe, [output]);
       assert.equal(transcribeResult.code, 1);
-      assert.ok(transcribeResult.stderr.includes(join(shared, "audio_meta.json")), transcribeResult.stderr);
+      assert.equal(transcribeResult.stderr, missingAudioError);
 
       const regroupResult = await captureRun(regroup, [output]);
       assert.equal(regroupResult.code, 1);
@@ -227,6 +234,38 @@ test("project commands report neutral artifacts from the resolved shared directo
       rmSync(root, { recursive: true, force: true });
     }
   }
+});
+
+test("missing-audio guidance targets an existing package README heading", async () => {
+  const build = await runOf("build.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-readme-anchor-"));
+  try {
+    const result = await captureRun(build, [root]);
+    assert.equal(result.code, 1);
+    const reference = result.stderr.match(/https:\/\/github\.com\/therealhieu\/md2vid#([a-z0-9-]+)/);
+    assert.ok(reference, result.stderr);
+
+    const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+    const anchors = [...readme.matchAll(/^##\s+(.+)$/gm)].map((match) =>
+      match[1].trim().toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-")
+    );
+    assert.ok(anchors.includes(reference[1]), `missing README heading for #${reference[1]}`);
+    assert.match(readme, /There is no `md2vid audio` command\./);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("documented minimal audio_meta satisfies the planner contract", () => {
+  const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+  const example = readme.match(/A minimal `audio_meta\.json` is:\n\n```json\n([\s\S]*?)\n```/);
+  assert.ok(example, "README must contain the minimal audio_meta JSON example");
+
+  const meta = JSON.parse(example[1]);
+  const result = plan(meta, { slugs: { intro: "01-intro" } });
+  assert.equal(result.frames.length, 1);
+  assert.equal(result.frames[0].id, "intro");
+  assert.equal(result.frames[0].slug, "01-intro");
 });
 
 test("project commands report layout stat failures instead of throwing", async () => {

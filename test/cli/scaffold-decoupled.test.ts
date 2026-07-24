@@ -24,8 +24,9 @@ const DOCS_STANDARDS = join(REPO_ROOT, "docs", "standards", "frameworks");
 const REPO_RELATIVE = /\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs/;
 
 const HYPERFRAMES_NEXT_STEPS = [
+  "review audio_request.json.example and generate narration",
   "author frames in compositions/frames/",
-  "fill video.config.json and add narration",
+  "fill video.config.json voice-id -> frame-slug mappings",
   "npm run build",
   "npm run check",
   "npm run dev",
@@ -33,11 +34,12 @@ const HYPERFRAMES_NEXT_STEPS = [
 
 const REMOTION_NEXT_STEPS = [
   "npm install",
-  "author src/scenes/*.tsx",
-  "fill video.config.json and add narration",
+  "review audio_request.json.example and generate narration",
+  "author and register src/scenes/*.tsx",
+  "fill video.config.json voice-id -> frame-slug mappings",
   "npm run build",
-  "npm run typecheck",
-  "npm run still",
+  "npm run check",
+  "npm run still or npm run studio",
 ];
 
 function scaffold(slug: string, extraArgs: string[], outputsRoot: string) {
@@ -225,9 +227,9 @@ test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
     },
+    frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
       dev: "md2vid hyperframes preview --no-open",
-      check: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
       render: "md2vid hyperframes render",
       publish: "md2vid hyperframes publish",
     },
@@ -270,6 +272,7 @@ test("Remotion scaffoldSpec is the sole exact package manifest source", async ()
   const { scaffoldSpec } = await import("../../frameworks/remotion/scaffold.ts");
   assert.deepEqual(scaffoldSpec("ignored"), {
     outputConfig: { framework: "remotion" },
+    frameworkCheck: "tsc --noEmit -p tsconfig.json",
     packageScripts: {
       studio: "remotion studio src/index.ts",
       render: "node render.ts",
@@ -293,6 +296,42 @@ test("Remotion scaffoldSpec is the sole exact package manifest source", async ()
     },
     nextSteps: REMOTION_NEXT_STEPS,
   });
+});
+
+test("generated framework package scripts expose verified workflows", () => {
+  const expected = {
+    hyperframes: {
+      build: "md2vid build . && md2vid regroup . --max-chars 54",
+      transcribe: "md2vid transcribe .",
+      verify: "md2vid verify .",
+      check: "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
+      dev: "md2vid hyperframes preview --no-open",
+      publish: "md2vid hyperframes publish",
+      render: "md2vid hyperframes render",
+    },
+    remotion: {
+      build: "md2vid build . && md2vid regroup . --max-chars 54",
+      transcribe: "md2vid transcribe .",
+      verify: "md2vid verify .",
+      check: "md2vid verify . && tsc --noEmit -p tsconfig.json",
+      render: "node render.ts",
+      still: "node render.ts --still",
+      studio: "remotion studio src/index.ts",
+      typecheck: "tsc --noEmit -p tsconfig.json",
+    },
+  } as const;
+
+  const root = mkdtempSync(join(tmpdir(), "verified-package-scripts-"));
+  try {
+    for (const framework of ["hyperframes", "remotion"] as const) {
+      const slug = `verified-${framework}`;
+      scaffold(slug, ["--framework", framework], root);
+      const pkg = JSON.parse(readFileSync(join(root, slug, "package.json"), "utf8"));
+      assert.deepEqual(pkg.scripts, expected[framework]);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Remotion ensureRuntime recursively fills missing templates without overwriting authored src", async () => {
@@ -340,6 +379,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
       for (const rel of [
         "meta.json",
         "package.json",
+        "audio_request.json.example",
         "video.config.json",
         "output.config.json",
         "CLAUDE.md",

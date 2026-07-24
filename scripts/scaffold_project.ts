@@ -11,14 +11,16 @@ import type { FrameworkScaffoldSpec } from "../engine/types.ts";
 import { validateGsapSrc } from "../frameworks/hyperframes/scaffold.ts";
 import { resolvePackageRoot } from "./package_root.ts";
 
-const COMMON_SCRIPTS = {
-  build: "md2vid build . && md2vid regroup . --max-chars 54",
-  transcribe: "md2vid transcribe .",
-} as const;
+const AUDIO_REQUEST_EXAMPLE = {
+  lines: [
+    { id: "intro", text: "Introduce the topic." },
+    { id: "recap", text: "Recap the key idea." },
+  ],
+};
 
 const NEUTRAL_CONFIG = {
   $comment:
-    "Per-project build config for `md2vid build .`. Fill slugs with every voice id -> frame slug. gap=0 => back-to-back narration; gap>0 => a silent held-landing stop between frames.",
+    "Map every audio_meta voices[].id to its frame slug. Voice IDs may be meaningful strings; frame order follows the voices[] array. gap=0 is back-to-back; gap>0 adds a held landing.",
   timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
   canvas: { width: 1920, height: 1080 },
   slugs: {},
@@ -29,7 +31,13 @@ function sortedRecord(values: Record<string, string>): Record<string, string> {
 }
 
 export function mergePackageManifest(slug: string, spec: FrameworkScaffoldSpec): Record<string, unknown> {
-  for (const name of Object.keys(COMMON_SCRIPTS)) {
+  const commonScripts = {
+    build: "md2vid build . && md2vid regroup . --max-chars 54",
+    transcribe: "md2vid transcribe .",
+    verify: "md2vid verify .",
+    check: `md2vid verify . && ${spec.frameworkCheck}`,
+  };
+  for (const name of Object.keys(commonScripts)) {
     if (Object.hasOwn(spec.packageScripts, name)) {
       throw new Error(`adapter conflicts with common package script "${name}"`);
     }
@@ -39,7 +47,7 @@ export function mergePackageManifest(slug: string, spec: FrameworkScaffoldSpec):
     name: slug,
     private: true,
     type: "module",
-    scripts: { ...COMMON_SCRIPTS, ...sortedRecord(spec.packageScripts) },
+    scripts: { ...commonScripts, ...sortedRecord(spec.packageScripts) },
   };
   if (spec.dependencies) manifest.dependencies = sortedRecord(spec.dependencies);
   if (spec.devDependencies) manifest.devDependencies = sortedRecord(spec.devDependencies);
@@ -63,6 +71,7 @@ export function writeCommonScaffold(
     createdAt: new Date().toISOString(),
   });
   writeJson(join(stageDir, "video.config.json"), NEUTRAL_CONFIG);
+  writeJson(join(stageDir, "audio_request.json.example"), AUDIO_REQUEST_EXAMPLE);
   writeJson(join(stageDir, "output.config.json"), spec.outputConfig);
   writeJson(join(stageDir, "package.json"), mergePackageManifest(slug, spec));
 
@@ -94,6 +103,7 @@ export function validateCommonScaffold(stageDir: string, slug: string): void {
   for (const name of [
     "meta.json",
     "video.config.json",
+    "audio_request.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",

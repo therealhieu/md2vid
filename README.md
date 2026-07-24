@@ -36,6 +36,43 @@ Then invoke:
 
 Use “Remotion” or “both frameworks” explicitly when required.
 
+## Narration
+
+New projects include `audio_request.json.example` as a narration planning example. Review its lines, then use the `/md2vid` skill workflow to generate or prepare voice WAV files and `audio_meta.json`. There is no `md2vid audio` command.
+
+Store voice files under `assets/voice/` and reference them with project-relative paths. A minimal `audio_meta.json` is:
+
+```json
+{
+  "voices": [
+    {
+      "id": "intro",
+      "path": "assets/voice/intro.wav",
+      "duration_s": 3.2,
+      "words": [
+        {
+          "text": "Welcome.",
+          "start": 0,
+          "end": 0.8
+        }
+      ]
+    }
+  ]
+}
+```
+
+Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID must be non-empty and unique. Frame order follows the `voices[]` array, not the spelling or numeric value of an ID. Map each voice ID to its authored frame slug in `video.config.json`:
+
+```json
+{
+  "slugs": {
+    "intro": "01-intro"
+  }
+}
+```
+
+The `/md2vid` skill workflow owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets.
+
 ## CLI
 
 ```text

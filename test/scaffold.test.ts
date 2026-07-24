@@ -58,9 +58,16 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     assert.ok(existsSync(join(dir, "compositions", "frames")), "frames dir scaffolded");
 
     // Every file the scaffolder promises must land, so a dropped write fails CI.
-    for (const rel of ["meta.json", "package.json", "hyperframes.json", "AGENTS.md", "caption-overrides.json"]) {
+    for (const rel of ["meta.json", "package.json", "audio_request.json.example", "hyperframes.json", "AGENTS.md", "caption-overrides.json"]) {
       assert.ok(existsSync(join(dir, rel)), `scaffolder wrote ${rel}`);
     }
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "audio_request.json.example"), "utf8")), {
+      lines: [
+        { id: "intro", text: "Introduce the topic." },
+        { id: "recap", text: "Recap the key idea." },
+      ],
+    });
+    assert.equal(existsSync(join(dir, "audio_meta.json")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

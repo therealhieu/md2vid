@@ -83,15 +83,16 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
   assertTemplates();
   return {
     outputConfig: { framework: "hyperframes", gsapSrc: DEFAULT_GSAP_SRC },
+    frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
       dev: "md2vid hyperframes preview --no-open",
-      check: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
       render: "md2vid hyperframes render",
       publish: "md2vid hyperframes publish",
     },
     nextSteps: [
+      "review audio_request.json.example and generate narration",
       "author frames in compositions/frames/",
-      "fill video.config.json and add narration",
+      "fill video.config.json voice-id -> frame-slug mappings",
       "npm run build",
       "npm run check",
       "npm run dev",

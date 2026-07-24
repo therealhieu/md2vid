@@ -27,6 +27,13 @@ import { resolveProjectLayout } from "./project_layout.ts";
 
 class BuildError extends Error {}
 
+const MISSING_AUDIO_NEXT_STEP =
+  "Create narration with the /md2vid skill workflow or follow https://github.com/therealhieu/md2vid#narration.";
+
+function missingAudioMeta(path: string): string {
+  return `missing audio_meta.json at ${path}\n${MISSING_AUDIO_NEXT_STEP}`;
+}
+
 const USAGE = "Usage: md2vid build <output-dir> [--captions-only]";
 
 function parseBuildArgs(argv: string[]) {
@@ -57,7 +64,7 @@ export function run(argv: string[]): number {
     if (!existsSync(OUTPUT)) throw new BuildError(`not a directory: ${OUTPUT}`);
 
     const metaPath = join(SHARED, "audio_meta.json");
-    if (!existsSync(metaPath)) throw new BuildError(`missing audio_meta.json — ${metaPath}`);
+    if (!existsSync(metaPath)) throw new BuildError(missingAudioMeta(metaPath));
 
     const meta = JSON.parse(readFileSync(metaPath, "utf8"));
     const config = loadConfig(SHARED, OUTPUT);

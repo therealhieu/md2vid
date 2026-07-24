@@ -16,6 +16,13 @@ import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
+const MISSING_AUDIO_NEXT_STEP =
+  "Create narration with the /md2vid skill workflow or follow https://github.com/therealhieu/md2vid#narration.";
+
+function missingAudioMeta(path: string): string {
+  return `missing audio_meta.json at ${path}\n${MISSING_AUDIO_NEXT_STEP}`;
+}
+
 const USAGE = "Usage: md2vid transcribe <output-dir>";
 
 function parseTranscribeArgs(argv: string[]) {
@@ -49,7 +56,7 @@ export function run(argv: string[], deps: TranscribeDependencies = {}): number {
     const { sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
     const metaPath = join(SHARED, "audio_meta.json");
     if (!existsSync(metaPath)) {
-      console.error(`FAIL: missing audio_meta.json — ${metaPath}`);
+      console.error(`FAIL: ${missingAudioMeta(metaPath)}`);
       return 1;
     }
     const meta = JSON.parse(readFileSync(metaPath, "utf8"));

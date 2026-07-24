@@ -434,6 +434,30 @@ test("verify and transcribe dispatch", () => {
   }
 });
 
+test("build and transcribe print actionable missing-audio errors through the router", () => {
+  for (const layout of ["canonical", "flat"] as const) {
+    const root = mkdtempSync(join(tmpdir(), `router-missing-audio-${layout}-`));
+    const output = layout === "canonical" ? join(root, "hyperframes") : join(root, "demo");
+    const shared = layout === "canonical" ? join(root, "shared") : output;
+    try {
+      mkdirSync(output, { recursive: true });
+      if (layout === "canonical") mkdirSync(shared, { recursive: true });
+      const expected = [
+        `FAIL: missing audio_meta.json at ${join(shared, "audio_meta.json")}`,
+        "Create narration with the /md2vid skill workflow or follow https://github.com/therealhieu/md2vid#narration.",
+      ].join("\n") + "\n";
+
+      for (const command of ["build", "transcribe"]) {
+        const result = runBin([command, output]);
+        assert.equal(result.code, 1, `${layout} ${command}`);
+        assert.equal(result.stderr, expected, `${layout} ${command}`);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("patch-studio dispatches (idempotent, exit 0)", () => {
   assert.equal(runBin(["patch-studio"]).code, 0);
 });
