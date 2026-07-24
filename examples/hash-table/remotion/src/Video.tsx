@@ -8,6 +8,14 @@ import { sceneOpacity, secToFrames } from "./primitives";
 // Ensure fonts load for the whole composition tree.
 import "./fonts";
 
+import { CoverScene } from "./scenes/CoverScene";
+import { CoreIdeaScene } from "./scenes/CoreIdeaScene";
+import { LookupFlowScene } from "./scenes/LookupFlowScene";
+import { CollisionsScene } from "./scenes/CollisionsScene";
+import { LoadFactorScene } from "./scenes/LoadFactorScene";
+import { WhyMattersScene } from "./scenes/WhyMattersScene";
+import { RecapScene } from "./scenes/RecapScene";
+
 const humanize = (slug: string) =>
   slug.replace(/^\d+[-_]?/, "").replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -32,7 +40,15 @@ const TitleCard: React.FC<SceneProps & { frame: PlanFrame }> = ({ opacity, frame
   </AbsoluteFill>
 );
 
-const SCENES: Record<string, React.FC<SceneProps>> = {};
+const SCENES: Record<string, React.FC<SceneProps>> = {
+  "01-cover": CoverScene,
+  "02-core-idea": CoreIdeaScene,
+  "03-lookup-flow": LookupFlowScene,
+  "04-collisions": CollisionsScene,
+  "05-load-factor": LoadFactorScene,
+  "06-why-matters": WhyMattersScene,
+  "07-recap": RecapScene,
+};
 
 // durationInFrames must be passed in — useVideoConfig().durationInFrames is the
 // full composition length, not the Sequence length.

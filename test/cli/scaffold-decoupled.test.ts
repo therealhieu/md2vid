@@ -179,6 +179,20 @@ test("Remotion scaffold: no file in the generated tree carries a repo-relative p
   }
 });
 
+test("generated Remotion source is content-neutral", () => {
+  const root = mkdtempSync(join(tmpdir(), "neutral-remotion-"));
+  try {
+    scaffold("neutral-remotion", ["--framework", "remotion"], root);
+    const src = join(root, "neutral-remotion", "src");
+    const tree = readTree(src).map((file) => file.body).join("\n");
+    assert.match(tree, /const SCENES: Record<string, React\.FC<SceneProps>> = \{\};/);
+    assert.doesNotMatch(tree, /Hash table|DATA STRUCTURES|LookupFlowScene|CollisionsScene|LoadFactorScene/i);
+    assert.equal(existsSync(join(src, "scenes")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("canonical HyperFrames templates use the TS default GSAP source", async () => {
   const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
   for (const name of ["caption-skin.html", "frame-shell.html", "frame-template.html"]) {
