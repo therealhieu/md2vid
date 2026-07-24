@@ -52,6 +52,17 @@ export interface FrameworkScaffoldSpec {
   nextSteps: string[];
 }
 
+export interface EmitOptions {
+  captionsOnly?: boolean;
+  runtimeSourceDir?: string;
+}
+
+export interface CaptionArtifactContext {
+  sharedDir: string;
+  outputDir: string;
+  captionGroupsPath: string;
+}
+
 export interface FrameworkAdapter {
   name: string;
   scaffoldSpec(slug: string): FrameworkScaffoldSpec;
@@ -59,7 +70,9 @@ export interface FrameworkAdapter {
   ensureRuntime(videoDir: string, slug: string): void;
   emit(
     plan: BuildPlan, sharedDir: string, outputDir: string,
-    config: VideoConfig, opts?: { captionsOnly?: boolean }
+    config: VideoConfig, opts?: EmitOptions
   ): void;
+  captionArtifactPath: string;
+  verifyCaptionArtifact(context: CaptionArtifactContext): Finding[];
   verify(videoDir: string, sharedDir?: string): Finding[];
 }

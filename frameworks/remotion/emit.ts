@@ -11,13 +11,13 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BuildPlan, CaptionGroup, VideoConfig } from "../../engine/types.ts";
+import type { BuildPlan, CaptionGroup, EmitOptions, VideoConfig } from "../../engine/types.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { ensureRuntime } from "./scaffold.ts";
 
 export function emit(
   plan: BuildPlan, sharedDir: string, outputDir: string,
-  _config: VideoConfig, { captionsOnly = false }: { captionsOnly?: boolean } = {}
+  _config: VideoConfig, { captionsOnly = false }: EmitOptions = {}
 ): void {
   // Re-read the regrouped caption groups off disk (the source of truth, post-regroup).
   const groupsPath = join(sharedDir, "caption_groups.json");

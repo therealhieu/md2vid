@@ -15,7 +15,7 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Finding } from "../../engine/types.ts";
+import type { CaptionArtifactContext, Finding } from "../../engine/types.ts";
 import { DEFAULT_GSAP_SRC, gsapSrcForDocument, validateGsapSrc } from "./scaffold.ts";
 
 const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
@@ -238,49 +238,79 @@ function requireProjectDocImport(video: string, problem: (msg: string) => void, 
 
 // The renderer reads captions.html (not the JSON), so the baked `var GROUPS` must
 // match the on-disk caption_groups.json group-for-group. HF-specific (references HTML).
-function requireBakedGroupsMatchJson(
-  video: string,
-  problem: (msg: string) => void,
-  sharedDir?: string,
-) {
-  // Direct adapter callers retain legacy auto-detection. CLI callers pass the already
-  // resolved shared directory so every verification layer uses one authoritative layout.
-  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
-  const src = sharedDir
-    ? join(sharedDir, "caption_groups.json")
-    : isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
-  const html = join(video, "compositions", "captions.html");
+export function verifyHyperframesCaptionArtifact(
+  context: CaptionArtifactContext,
+): Finding[] {
+  const findings: Finding[] = [];
+  const problem = (msg: string) => findings.push({ level: "error" as const, msg });
+  const html = join(context.outputDir, "compositions", "captions.html");
 
-  if (!isFile(src)) return; // captions disabled — neutral verify already warns.
-  if (!isFile(html)) {
-    problem("missing compositions/captions.html but caption_groups.json exists");
-    return;
-  }
-
-  const groups = JSON.parse(readFileSync(src, "utf8")).groups ?? [];
-  const htmlText = readFileSync(html, "utf8");
-  const m = htmlText.match(/^ *var GROUPS = (\[.*\]);$/m);
-  if (!m) {
-    problem("captions.html has no `var GROUPS = [...]` line to compare against");
-    return;
-  }
-  let baked = null;
+  let groups: unknown;
   try {
-    baked = JSON.parse(m[1]);
-  } catch (exc) {
-    problem(`baked var GROUPS is not valid JSON: ${(exc as Error).message}`);
-    return;
+    const parsed = JSON.parse(readFileSync(context.captionGroupsPath, "utf8")) as { groups?: unknown };
+    groups = parsed.groups ?? [];
+  } catch (error) {
+    problem(`staged caption_groups.json is not valid JSON: ${(error as Error).message}`);
+    return findings;
   }
-  if (baked.length !== groups.length) {
+  if (!Array.isArray(groups)) {
+    problem("staged caption_groups.json groups must be an array");
+    return findings;
+  }
+  if (!isFile(html)) {
+    problem(`missing staged caption HTML: ${html}`);
+    return findings;
+  }
+
+  const htmlText = readFileSync(html, "utf8");
+  const match = htmlText.match(/^ *var GROUPS = (\[.*\]);$/m);
+  if (!match) {
+    problem("captions.html has no `var GROUPS = [...]` line to compare against");
+    return findings;
+  }
+
+  let baked: unknown;
+  try {
+    baked = JSON.parse(match[1]);
+  } catch (error) {
+    problem(`baked var GROUPS is not valid JSON: ${(error as Error).message}`);
+    return findings;
+  }
+  if (!Array.isArray(baked)) {
+    problem("baked var GROUPS must be a JSON array");
+  } else if (baked.length !== groups.length) {
     problem(
       `caption group count out of sync: JSON has ${groups.length}, ` +
-        `captions.html has ${baked.length} — rebuild with \`md2vid regroup\``
+        `captions.html has ${baked.length} — rebuild with \`md2vid regroup\``,
     );
   } else if (JSON.stringify(baked) !== JSON.stringify(groups)) {
     problem(
       "caption_groups.json and baked var GROUPS differ in content — " +
-        "rebuild with `md2vid regroup`"
+        "rebuild with `md2vid regroup`",
     );
+  }
+  return findings;
+}
+
+function requireBakedGroupsMatchJson(
+  video: string,
+  problem: (msg: string) => void,
+  sharedDir?: string,
+): void {
+  // Direct adapter callers retain legacy auto-detection. CLI callers pass the already
+  // resolved shared directory so every verification layer uses one authoritative layout.
+  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
+  const captionGroupsPath = sharedDir
+    ? join(sharedDir, "caption_groups.json")
+    : isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
+  if (!isFile(captionGroupsPath)) return; // captions disabled — neutral verify already warns.
+
+  for (const finding of verifyHyperframesCaptionArtifact({
+    sharedDir: sharedDir ?? video,
+    outputDir: video,
+    captionGroupsPath,
+  })) {
+    problem(finding.msg.replace("missing staged caption HTML: ", "missing compositions/captions.html but caption_groups.json exists — "));
   }
 }
 

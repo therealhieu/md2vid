@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BuildPlan, CaptionGroup, VideoConfig } from "../../engine/types.ts";
+import type { BuildPlan, CaptionGroup, EmitOptions, VideoConfig } from "../../engine/types.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import {
   DEFAULT_GSAP_SRC,
@@ -187,8 +187,17 @@ ${transitions}
 // The adapter contract: plan in, framework files out. Idempotent.
 // Reads the REGROUPED shared/caption_groups.json off disk for the baked GROUPS (see
 // header). `captionsOnly` skips index.html — used by the mid-chain captions refill.
-export function emit(plan: BuildPlan, sharedDir: string, outputDir: string, config: VideoConfig, { captionsOnly = false }: { captionsOnly?: boolean } = {}): void {
-  const emittedConfig = { ...config, gsapSrc: validateGsapSrc(outputDir, config.gsapSrc) };
+export function emit(
+  plan: BuildPlan,
+  sharedDir: string,
+  outputDir: string,
+  config: VideoConfig,
+  { captionsOnly = false, runtimeSourceDir }: EmitOptions = {},
+): void {
+  const emittedConfig = {
+    ...config,
+    gsapSrc: validateGsapSrc(runtimeSourceDir ?? outputDir, config.gsapSrc),
+  };
   const groupsPath = join(sharedDir, "caption_groups.json");
   const groups = JSON.parse(readFileSync(groupsPath, "utf8")).groups;
 

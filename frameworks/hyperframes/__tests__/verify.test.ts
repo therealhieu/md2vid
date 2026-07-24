@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_GSAP_SRC } from "../scaffold.ts";
-import { verify, verifyFrameShell } from "../verify.ts";
+import { verify, verifyFrameShell, verifyHyperframesCaptionArtifact } from "../verify.ts";
 
 const errs = (findings: Array<{ level: string; msg: string }>) =>
   findings.filter((f) => f.level === "error").map((f) => f.msg);
@@ -226,6 +226,56 @@ test("flags baked GROUPS whose content differs from the JSON", () => {
   const { root, output } = makeVideo({ groups, captionsHtml: bakeCaptions(drifted) });
   try {
     assert.ok(errs(verify(output)).some((m: string) => m.includes("differ in content")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("focused caption verification reports missing and malformed staged HTML", () => {
+  const root = mkdtempSync(join(tmpdir(), "hf-caption-verify-"));
+  try {
+    const sharedDir = join(root, "shared");
+    const outputDir = join(root, "hyperframes");
+    mkdirSync(sharedDir, { recursive: true });
+    mkdirSync(join(outputDir, "compositions"), { recursive: true });
+    const captionGroupsPath = join(sharedDir, "caption_groups.json");
+    writeFileSync(captionGroupsPath, JSON.stringify({ groups: DEFAULT_GROUPS }));
+
+    let messages = errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath }));
+    assert.ok(messages.some((message) => message.includes("missing staged caption HTML")), JSON.stringify(messages));
+
+    writeFileSync(join(outputDir, "compositions", "captions.html"), "no baked groups\n");
+    messages = errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath }));
+    assert.ok(messages.some((message) => message.includes("no `var GROUPS")), JSON.stringify(messages));
+
+    writeFileSync(join(outputDir, "compositions", "captions.html"), "var GROUPS = [bad];\n");
+    messages = errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath }));
+    assert.ok(messages.some((message) => message.includes("not valid JSON")), JSON.stringify(messages));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("focused caption verification compares explicit staged paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "hf-caption-verify-match-"));
+  try {
+    const sharedDir = join(root, "shared");
+    const outputDir = join(root, "hyperframes");
+    mkdirSync(sharedDir, { recursive: true });
+    mkdirSync(join(outputDir, "compositions"), { recursive: true });
+    const captionGroupsPath = join(sharedDir, "custom-caption-groups.json");
+    writeFileSync(captionGroupsPath, JSON.stringify({ groups: DEFAULT_GROUPS }));
+    writeFileSync(join(outputDir, "compositions", "captions.html"), bakeCaptions(DEFAULT_GROUPS));
+
+    assert.deepEqual(
+      errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath })),
+      [],
+    );
+
+    const drifted = [{ ...DEFAULT_GROUPS[0], text: "different" }];
+    writeFileSync(join(outputDir, "compositions", "captions.html"), bakeCaptions(drifted));
+    const messages = errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath }));
+    assert.ok(messages.some((message) => message.includes("differ in content")), JSON.stringify(messages));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

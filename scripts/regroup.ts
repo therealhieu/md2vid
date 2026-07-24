@@ -1,25 +1,41 @@
 #!/usr/bin/env node
-// regroup.mjs — thin caption-regroup dispatch.
+// regroup.ts — failure-atomic caption-regroup dispatch.
 //
-// Usage: node scripts/regroup.mjs <output-dir> [--max-chars 54] [--dry-run]
+// Usage: node scripts/regroup.ts <output-dir> [--max-chars 54] [--dry-run]
 //
-// Regroups the neutral shared/caption_groups.json into balanced ~max-chars lines
-// (engine/captions.regroup — pure), writes the JSON back, then asks the framework
-// adapter to re-emit its caption output from the regrouped JSON (adapter.emit with
-// captionsOnly). The neutral layer never touches framework files; the adapter owns
-// all HTML/TSX. Default framework is hyperframes.
+// Regroups the neutral caption groups in memory, stages both neutral and framework-
+// owned caption artifacts, validates the staged pair, then promotes both managed files
+// with rollback. The adapter remains the only owner of framework output bytes.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { regroup, groupLineChars } from "../engine/captions.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
+import {
+  promoteManagedFiles,
+  type ManagedFileTransactionDependencies,
+} from "./managed_file_transaction.ts";
 import { isMainModule } from "./main-guard.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
 class RegroupError extends Error {}
+
+export interface RegroupDependencies {
+  loadConfig?: typeof loadConfig;
+  buildPlan?: typeof buildPlan;
+  getAdapter?: typeof getAdapter;
+  transactionDependencies?: ManagedFileTransactionDependencies;
+}
 
 const USAGE = "Usage: md2vid regroup <output-dir> [--max-chars 54] [--dry-run]";
 
@@ -36,7 +52,7 @@ function parseRegroupArgs(argv: string[]) {
   }, argv);
 }
 
-export function run(argv: string[]): number {
+export function run(argv: string[], dependencies: RegroupDependencies = {}): number {
   const parsed = parseRegroupArgs(argv);
   if (parsed.kind === "help") {
     console.log(USAGE);
@@ -48,54 +64,99 @@ export function run(argv: string[]): number {
     return 2;
   }
 
-  const MAX_CHARS = Number(parsed.values["max-chars"] ?? 54);
-  if (!Number.isFinite(MAX_CHARS) || MAX_CHARS < 10) {
-    console.error(`--max-chars must be a number >= 10 (got ${MAX_CHARS})`);
+  const maxChars = Number(parsed.values["max-chars"] ?? 54);
+  if (!Number.isFinite(maxChars) || maxChars < 10) {
+    console.error(`--max-chars must be a number >= 10 (got ${maxChars})`);
     console.error(USAGE);
     return 2;
   }
   const dryRun = parsed.values["dry-run"] === true;
+  let stagingRoot: string | undefined;
 
   try {
-    const { outputDir: OUTPUT, sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
-    const SRC = join(SHARED, "caption_groups.json");
-    if (!existsSync(SRC)) throw new RegroupError(`Not found: ${SRC}`);
+    const layout = resolveProjectLayout(parsed.positionals[0]);
+    const captionGroupsPath = join(layout.sharedDir, "caption_groups.json");
+    if (!existsSync(captionGroupsPath)) throw new RegroupError(`Not found: ${captionGroupsPath}`);
+    const data = JSON.parse(readFileSync(captionGroupsPath, "utf8"));
 
-    const data = JSON.parse(readFileSync(SRC, "utf8"));
+    const audioMetaPath = join(layout.sharedDir, "audio_meta.json");
+    if (!existsSync(audioMetaPath)) throw new RegroupError(`missing audio_meta.json — ${audioMetaPath}`);
+    const meta = JSON.parse(readFileSync(audioMetaPath, "utf8"));
+    const config = (dependencies.loadConfig ?? loadConfig)(layout.sharedDir, layout.outputDir);
+    const adapter = (dependencies.getAdapter ?? getAdapter)(config.framework);
+    const plan = (dependencies.buildPlan ?? buildPlan)(meta, config);
+    const newGroups = regroup(data.groups, maxChars);
 
-    // Pure engine regroup.
-    const newGroups = regroup(data.groups, MAX_CHARS);
-
-    // report
-    const wc = newGroups.map((g) => g.words.length);
-    const cc = newGroups.map((g) => groupLineChars(g.words));
-    const avg = (a: number[]) => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(2);
-    console.log(`max-chars ${MAX_CHARS}${dryRun ? "  (dry run — no files written)" : ""}`);
+    const wordCounts = newGroups.map((group) => group.words.length);
+    const charCounts = newGroups.map((group) => groupLineChars(group.words));
+    const average = (values: number[]) => (
+      values.reduce((sum, value) => sum + value, 0) / values.length
+    ).toFixed(2);
+    console.log(`max-chars ${maxChars}${dryRun ? "  (dry run — no files written)" : ""}`);
     console.log(`groups ${data.groups.length} -> ${newGroups.length}`);
     console.log(
-      `avg words/group ${avg(wc)}  max ${Math.max(...wc)}  1-word ${wc.filter((n) => n === 1).length}  2-word ${wc.filter((n) => n === 2).length}`
+      `avg words/group ${average(wordCounts)}  max ${Math.max(...wordCounts)}  ` +
+        `1-word ${wordCounts.filter((count) => count === 1).length}  ` +
+        `2-word ${wordCounts.filter((count) => count === 2).length}`,
     );
-    console.log(`avg chars/group ${avg(cc)}  max ${Math.max(...cc)}`);
+    console.log(`avg chars/group ${average(charCounts)}  max ${Math.max(...charCounts)}`);
 
     if (dryRun) return 0;
 
-    // Write the regrouped neutral JSON.
-    writeFileSync(SRC, JSON.stringify({ ...data, groups: newGroups }, null, 2) + "\n");
-    console.log(`wrote ${SRC}`);
+    const projectRoot = layout.flat ? layout.outputDir : dirname(layout.outputDir);
+    stagingRoot = mkdtempSync(join(projectRoot, ".md2vid-regroup-"));
+    const stagedSharedDir = join(stagingRoot, "shared");
+    const stagedOutputDir = join(stagingRoot, "output");
+    const stagedCaptionGroupsPath = join(stagedSharedDir, "caption_groups.json");
+    const stagedFrameworkPath = join(stagedOutputDir, adapter.captionArtifactPath);
+    mkdirSync(stagedSharedDir, { recursive: true });
+    mkdirSync(dirname(stagedFrameworkPath), { recursive: true });
 
-    // Ask the framework adapter to re-emit its caption output from the regrouped JSON.
-    // The adapter owns HTML — regroup never writes it (closes Issue 4).
-    const metaPath = join(SHARED, "audio_meta.json");
-    if (!existsSync(metaPath)) throw new RegroupError(`missing audio_meta.json — ${metaPath}`);
-    const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-    const config = loadConfig(SHARED, OUTPUT);
-    const PLAN = buildPlan(meta, config);
-    getAdapter(config.framework).emit(PLAN, SHARED, OUTPUT, config, { captionsOnly: true });
-    console.log(`re-emitted captions for framework: ${config.framework ?? "hyperframes"}`);
+    writeFileSync(
+      stagedCaptionGroupsPath,
+      `${JSON.stringify({ ...data, groups: newGroups }, null, 2)}\n`,
+    );
+    const regroupedPlan = { ...plan, captionGroups: newGroups };
+    adapter.emit(regroupedPlan, stagedSharedDir, stagedOutputDir, config, {
+      captionsOnly: true,
+      runtimeSourceDir: layout.outputDir,
+    });
+
+    const findings = adapter.verifyCaptionArtifact({
+      sharedDir: stagedSharedDir,
+      outputDir: stagedOutputDir,
+      captionGroupsPath: stagedCaptionGroupsPath,
+    });
+    const errors = findings.filter((finding) => finding.level === "error");
+    if (errors.length) {
+      throw new RegroupError(
+        `staged caption verification failed: ${errors.map((finding) => finding.msg).join("; ")}`,
+      );
+    }
+
+    const frameworkPath = join(layout.outputDir, adapter.captionArtifactPath);
+    const promotion = promoteManagedFiles(projectRoot, stagingRoot, [
+      { target: relative(projectRoot, captionGroupsPath), staged: stagedCaptionGroupsPath },
+      { target: relative(projectRoot, frameworkPath), staged: stagedFrameworkPath },
+    ], dependencies.transactionDependencies);
+    if (promotion.cleanupErrors.length) {
+      const retained = promotion.retainedBackups.length
+        ? `; retained backups: ${promotion.retainedBackups.join(", ")}`
+        : "";
+      console.error(
+        `WARN: managed file promotion committed but backup cleanup failed${retained}: ` +
+          promotion.cleanupErrors.map((error) => error.message).join("; "),
+      );
+    }
+
+    console.log(`wrote ${captionGroupsPath}`);
+    console.log(`re-emitted captions for framework: ${adapter.name}`);
     return 0;
-  } catch (e: unknown) {
-    console.error(`FAIL: ${(e as Error).message}`);
+  } catch (error: unknown) {
+    console.error(`FAIL: ${(error as Error).message}`);
     return 1;
+  } finally {
+    if (stagingRoot) rmSync(stagingRoot, { recursive: true, force: true });
   }
 }
 

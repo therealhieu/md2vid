@@ -1,8 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { getAdapter } from "../../frameworks/index.ts";
+import {
+  run as regroupRun,
+  type RegroupDependencies,
+} from "../../scripts/regroup.ts";
 import { run as verifyRun } from "../../scripts/verify.ts";
 
 type Project = {
@@ -66,6 +79,187 @@ function validRemotionProject(): Project {
 function cleanup(project: Project): void {
   rmSync(project.root, { recursive: true, force: true });
 }
+
+const ORIGINAL_JSON = `${JSON.stringify({
+  total_duration_s: 2,
+  width: 1920,
+  height: 1080,
+  groups: [{
+    id: "caption-group-original",
+    frame: 1,
+    start: 0,
+    end: 2,
+    text: "One two three four five six.",
+    words: [
+      { id: "w1", text: "One", start: 0, end: 0.3 },
+      { id: "w2", text: "two", start: 0.3, end: 0.6 },
+      { id: "w3", text: "three", start: 0.6, end: 0.9 },
+      { id: "w4", text: "four", start: 0.9, end: 1.2 },
+      { id: "w5", text: "five", start: 1.2, end: 1.5 },
+      { id: "w6", text: "six.", start: 1.5, end: 2 },
+    ],
+  }],
+}, null, 2)}\n`;
+const ORIGINAL_HTML = "ORIGINAL_HTML\n";
+const ORIGINAL_PLAN = "ORIGINAL_PLAN\n";
+
+function regroupProject(framework: "hyperframes" | "remotion"): Project & {
+  neutralPath: string;
+  frameworkPath: string;
+  originalFramework: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), `md2vid-regroup-${framework}-`));
+  const shared = join(root, "shared");
+  const output = join(root, framework);
+  mkdirSync(shared, { recursive: true });
+  mkdirSync(output, { recursive: true });
+  writeFileSync(join(shared, "video.config.json"), JSON.stringify({
+    timing: { tail: 0.5, xfade: 0.5, gap: 0 },
+    canvas: { width: 1920, height: 1080 },
+    slugs: { intro: "intro" },
+  }));
+  writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework }));
+  writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
+    voices: [{
+      id: "intro",
+      path: "assets/voice/intro.wav",
+      duration_s: 2,
+      words: [
+        { text: "One", start: 0, end: 0.3 },
+        { text: "two", start: 0.3, end: 0.6 },
+        { text: "three", start: 0.6, end: 0.9 },
+        { text: "four", start: 0.9, end: 1.2 },
+        { text: "five", start: 1.2, end: 1.5 },
+        { text: "six.", start: 1.5, end: 2 },
+      ],
+    }],
+  }));
+  const neutralPath = join(shared, "caption_groups.json");
+  writeFileSync(neutralPath, ORIGINAL_JSON);
+
+  const originalFramework = framework === "hyperframes" ? ORIGINAL_HTML : ORIGINAL_PLAN;
+  const frameworkPath = framework === "hyperframes"
+    ? join(output, "compositions", "captions.html")
+    : join(output, "build_plan.json");
+  mkdirSync(join(frameworkPath, ".."), { recursive: true });
+  writeFileSync(frameworkPath, originalFramework);
+  return { root, shared, output, neutralPath, frameworkPath, originalFramework };
+}
+
+function findTransactionResidue(root: string): string[] {
+  return readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((path) => path.includes(".md2vid-regroup-") || path.includes("md2vid-backup"))
+    .sort();
+}
+
+function failingRegroupDependencies(
+  framework: "hyperframes" | "remotion",
+  point: "config" | "planning" | "emit" | "verify" | "first-promotion" | "second-promotion",
+): RegroupDependencies {
+  if (point === "config") {
+    return { loadConfig() { throw new Error("injected config failure"); } };
+  }
+  if (point === "planning") {
+    return { buildPlan() { throw new Error("injected planning failure"); } };
+  }
+  if (point === "emit") {
+    return {
+      getAdapter() {
+        return {
+          ...getAdapter(framework),
+          emit() { throw new Error("injected emit failure"); },
+        };
+      },
+    };
+  }
+  if (point === "verify") {
+    return {
+      getAdapter() {
+        return {
+          ...getAdapter(framework),
+          verifyCaptionArtifact() {
+            return [{ level: "error", msg: "injected staged verification failure" }];
+          },
+        };
+      },
+    };
+  }
+
+  let promotions = 0;
+  const failAt = point === "first-promotion" ? 1 : 2;
+  return {
+    transactionDependencies: {
+      rename(source, destination) {
+        if (String(source).includes(".md2vid-regroup-") && ++promotions === failAt) {
+          throw new Error(`injected ${point} failure`);
+        }
+        renameSync(source, destination);
+      },
+    },
+  };
+}
+
+for (const framework of ["hyperframes", "remotion"] as const) {
+  for (const point of [
+    "config",
+    "planning",
+    "emit",
+    "verify",
+    "first-promotion",
+    "second-promotion",
+  ] as const) {
+    test(`regroup preserves ${framework} artifacts after ${point} failure`, () => {
+      const project = regroupProject(framework);
+      try {
+        const result = captureConsole(() => regroupRun(
+          [project.output, "--max-chars", "10"],
+          failingRegroupDependencies(framework, point),
+        ));
+
+        assert.equal(result.code, 1, result.stdout);
+        assert.equal(readFileSync(project.neutralPath, "utf8"), ORIGINAL_JSON);
+        assert.equal(readFileSync(project.frameworkPath, "utf8"), project.originalFramework);
+        assert.deepEqual(findTransactionResidue(project.root), []);
+        assert.doesNotMatch(result.stdout, /wrote|re-emitted/);
+      } finally {
+        cleanup(project);
+      }
+    });
+  }
+}
+
+test("regroup reports committed backup cleanup warnings without returning failure", () => {
+  const project = regroupProject("hyperframes");
+  try {
+    let backupRemovals = 0;
+    const result = captureConsole(() => regroupRun(
+      [project.output, "--max-chars", "10"],
+      {
+        transactionDependencies: {
+          remove(path, options) {
+            if (String(path).includes("md2vid-backup") && ++backupRemovals === 2) {
+              throw new Error("injected committed cleanup failure");
+            }
+            rmSync(path, options);
+          },
+        },
+      },
+    ));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.notEqual(readFileSync(project.neutralPath, "utf8"), ORIGINAL_JSON);
+    assert.notEqual(readFileSync(project.frameworkPath, "utf8"), project.originalFramework);
+    assert.match(result.stderr, /WARN:.*backup cleanup failed/);
+    assert.match(result.stderr, /captions\.html\.md2vid-backup-1/);
+    assert.equal(
+      readdirSync(project.root, { recursive: true, encoding: "utf8" })
+        .some((path) => path.includes(".md2vid-regroup-")),
+      false,
+    );
+  } finally {
+    cleanup(project);
+  }
+});
 
 test("verify fails when neutral config is missing even if emitted files exist", () => {
   const project = validHyperframesProject();

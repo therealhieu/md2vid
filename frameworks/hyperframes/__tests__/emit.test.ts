@@ -130,6 +130,46 @@ test("missing WAV leaves prior managed voices and emitted references unchanged",
   }
 });
 
+test("captionsOnly emits a staged caption artifact with the pinned CDN", () => {
+  const { tmp, shared } = setup();
+  const stagedOutput = join(tmp, "stage", "hyperframes");
+  try {
+    const plan = makePlan();
+    mkdirSync(join(stagedOutput, "compositions"), { recursive: true });
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+
+    emit(plan, shared, stagedOutput, {}, { captionsOnly: true });
+
+    const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
+    assert.match(captions, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("captionsOnly validates local GSAP from the runtime source while writing to staging", () => {
+  const { tmp, shared, output } = setup();
+  const stagedOutput = join(tmp, "stage", "hyperframes");
+  try {
+    const plan = makePlan();
+    mkdirSync(join(output, "assets"), { recursive: true });
+    mkdirSync(join(stagedOutput, "compositions"), { recursive: true });
+    writeFileSync(join(output, "assets", "gsap.min.js"), "CUSTOM GSAP");
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+
+    emit(plan, shared, stagedOutput, { gsapSrc: "assets/gsap.min.js" }, {
+      captionsOnly: true,
+      runtimeSourceDir: output,
+    });
+
+    const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
+    assert.match(captions, /<script src="\.\.\/assets\/gsap\.min\.js">/);
+    assert.equal(existsSync(join(stagedOutput, "assets", "gsap.min.js")), false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("captionsOnly skips runtime and voice staging", () => {
   const { tmp, shared, output } = setup();
   try {

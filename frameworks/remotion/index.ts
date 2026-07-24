@@ -7,7 +7,7 @@
 
 import { emit } from "./emit.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
-import { verify } from "./verify.ts";
+import { verify, verifyRemotionCaptionArtifact } from "./verify.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
 const adapter: FrameworkAdapter = {
@@ -16,6 +16,8 @@ const adapter: FrameworkAdapter = {
   writeScaffoldRuntime,
   ensureRuntime,
   emit,
+  captionArtifactPath: "build_plan.json",
+  verifyCaptionArtifact: verifyRemotionCaptionArtifact,
   verify,
 };
 export default adapter;

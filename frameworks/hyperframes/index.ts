@@ -4,7 +4,7 @@
 // maps a framework name to one of these; scripts dispatch off config.framework.
 //
 import { emit } from "./emit.ts";
-import { verify } from "./verify.ts";
+import { verify, verifyHyperframesCaptionArtifact } from "./verify.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
@@ -14,6 +14,8 @@ const adapter: FrameworkAdapter = {
   writeScaffoldRuntime,
   ensureRuntime,
   emit,
+  captionArtifactPath: "compositions/captions.html",
+  verifyCaptionArtifact: verifyHyperframesCaptionArtifact,
   verify,
 };
 export default adapter;

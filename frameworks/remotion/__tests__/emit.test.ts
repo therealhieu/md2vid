@@ -109,6 +109,26 @@ test("remotion emit fills missing runtime files without overwriting authored src
   }
 });
 
+test("remotion captionsOnly emits build_plan.json into a staging output", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-emit-stage-"));
+  try {
+    const shared = join(tmp, "stage", "shared");
+    const output = join(tmp, "stage", "remotion");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(output, { recursive: true });
+    const groups = [{ ...fixture().plan.captionGroups[0], text: "staged" }];
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups }));
+
+    emit(fixture().plan, shared, output, fixture().config, { captionsOnly: true });
+
+    const written = JSON.parse(readFileSync(join(output, "build_plan.json"), "utf8"));
+    assert.deepEqual(written.captionGroups, groups);
+    assert.equal(existsSync(join(output, "src")), false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("remotion emit with captionsOnly refreshes build_plan.json without re-scaffolding src", () => {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-emit-co-"));
   try {
