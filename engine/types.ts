@@ -61,5 +61,5 @@ export interface FrameworkAdapter {
     plan: BuildPlan, sharedDir: string, outputDir: string,
     config: VideoConfig, opts?: { captionsOnly?: boolean }
   ): void;
-  verify(videoDir: string): Finding[];
+  verify(videoDir: string, sharedDir?: string): Finding[];
 }

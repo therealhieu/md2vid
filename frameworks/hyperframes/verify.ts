@@ -37,7 +37,7 @@ const SHARED_PROJECT_DOC = `frameworks/${PROJECT_DOC_BASENAME}`;
 // shared/ dir when reshaped, else beside index.html (flat layout-reference videos).
 // Reads caption groups off disk itself — takes no plan (mirrors verifyNeutral's shape
 // but the HF checks are all file-layout assertions).
-export function verify(videoDir: string): Finding[] {
+export function verify(videoDir: string, sharedDir?: string): Finding[] {
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
@@ -45,7 +45,7 @@ export function verify(videoDir: string): Finding[] {
   requireGsapSource(videoDir, problem);
   requireIndexMountsFrames(videoDir, problem, warn);
   requireProjectDocImport(videoDir, problem, warn);
-  requireBakedGroupsMatchJson(videoDir, problem);
+  requireBakedGroupsMatchJson(videoDir, problem, sharedDir);
 
   return findings;
 }
@@ -238,11 +238,17 @@ function requireProjectDocImport(video: string, problem: (msg: string) => void, 
 
 // The renderer reads captions.html (not the JSON), so the baked `var GROUPS` must
 // match the on-disk caption_groups.json group-for-group. HF-specific (references HTML).
-function requireBakedGroupsMatchJson(video: string, problem: (msg: string) => void) {
-  // Reshaped layout keeps neutral IR in the sibling shared/ dir; flat layout-reference
-  // videos keep it beside index.html. Prefer shared/ when present.
+function requireBakedGroupsMatchJson(
+  video: string,
+  problem: (msg: string) => void,
+  sharedDir?: string,
+) {
+  // Direct adapter callers retain legacy auto-detection. CLI callers pass the already
+  // resolved shared directory so every verification layer uses one authoritative layout.
   const sharedSrc = join(video, "..", "shared", "caption_groups.json");
-  const src = isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
+  const src = sharedDir
+    ? join(sharedDir, "caption_groups.json")
+    : isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
   const html = join(video, "compositions", "captions.html");
 
   if (!isFile(src)) return; // captions disabled — neutral verify already warns.

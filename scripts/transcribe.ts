@@ -10,10 +10,11 @@
 // future swap is a one-file change.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { transcribeVoices } from "../engine/transcribe.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { resolveProjectLayout } from "./project_layout.ts";
 
 const USAGE = "Usage: md2vid transcribe <output-dir>";
 
@@ -27,7 +28,11 @@ function parseTranscribeArgs(argv: string[]) {
   }, argv);
 }
 
-export function run(argv: string[]): number {
+interface TranscribeDependencies {
+  transcribeVoices?: typeof transcribeVoices;
+}
+
+export function run(argv: string[], deps: TranscribeDependencies = {}): number {
   const parsed = parseTranscribeArgs(argv);
   if (parsed.kind === "help") {
     console.log(USAGE);
@@ -38,18 +43,17 @@ export function run(argv: string[]): number {
     console.error(parsed.usage);
     return 2;
   }
-  const OUTPUT = resolve(parsed.positionals[0]);
-  const sharedDir = resolve(OUTPUT, "..", "shared");
-  const BASE = existsSync(join(sharedDir, "audio_meta.json")) ? sharedDir : OUTPUT;
-  const metaPath = join(BASE, "audio_meta.json");
-  if (!existsSync(metaPath)) {
-    console.error(`FAIL: missing audio_meta.json — ${metaPath}`);
-    return 1;
-  }
+  const transcribe = deps.transcribeVoices ?? transcribeVoices;
 
   try {
+    const { sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
+    const metaPath = join(SHARED, "audio_meta.json");
+    if (!existsSync(metaPath)) {
+      console.error(`FAIL: missing audio_meta.json — ${metaPath}`);
+      return 1;
+    }
     const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-    const { ok, total } = transcribeVoices(meta, BASE);
+    const { ok, total } = transcribe(meta, SHARED);
     writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n");
     console.log(`\nOK: ${ok}/${total} lines transcribed → audio_meta.json`);
     return ok !== total ? 1 : 0;

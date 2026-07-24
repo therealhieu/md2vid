@@ -10,12 +10,13 @@
 // any video regardless of framework; the framework verify runs only for that framework.
 
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { verifyNeutral } from "../engine/verify.ts";
 import { loadConfig } from "../engine/config.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { resolveProjectLayout } from "./project_layout.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
 // — a hard ceiling only kicks in well past the readable target so a legitimately long
@@ -38,19 +39,11 @@ function parseVerifyArgs(argv: string[]) {
   }, argv);
 }
 
-// Locate the neutral caption groups: reshaped layout keeps them in the sibling
-// shared/ dir; flat layout-reference videos keep them beside index.html.
-function captionGroupsPath(video: string) {
-  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
-  return isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
-}
-
 // Resolve the framework for this output dir. Reshaped videos carry it in
 // output.config.json; flat layout-reference videos default to hyperframes.
-function frameworkFor(video: string) {
-  const shared = join(video, "..", "shared");
+function frameworkFor(sharedDir: string, outputDir: string) {
   try {
-    const config = loadConfig(isDir(shared) ? shared : video, video);
+    const config = loadConfig(sharedDir, outputDir);
     return config.framework ?? "hyperframes";
   } catch {
     return "hyperframes";
@@ -81,14 +74,21 @@ export function run(argv: string[]): number {
   const problem = (msg: string) => problems.push(msg);
   const warn = (msg: string) => warnings.push(msg);
 
-  const video = resolve(parsed.positionals[0]);
-  if (!isDir(video)) {
-    console.log(`FAIL: not a directory: ${video}`);
+  let OUTPUT: string;
+  let SHARED: string;
+  try {
+    ({ outputDir: OUTPUT, sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]));
+  } catch (error: unknown) {
+    console.error(`FAIL: ${(error as Error).message}`);
+    return 1;
+  }
+  if (!isDir(OUTPUT)) {
+    console.log(`FAIL: not a directory: ${OUTPUT}`);
     return 2;
   }
 
   // Neutral caption invariants — delegate to the engine, framework-agnostic.
-  const src = captionGroupsPath(video);
+  const src = join(SHARED, "caption_groups.json");
   if (!isFile(src)) {
     warn(`no caption_groups.json (captions disabled?) — ${src}`);
   } else {
@@ -100,8 +100,8 @@ export function run(argv: string[]): number {
   }
 
   // Framework-specific layout checks — dispatch off config.framework.
-  const adapter = getAdapter(frameworkFor(video));
-  for (const f of adapter.verify(video)) {
+  const adapter = getAdapter(frameworkFor(SHARED, OUTPUT));
+  for (const f of adapter.verify(OUTPUT, SHARED)) {
     if (f.level === "error") problem(f.msg);
     else warn(f.msg);
   }

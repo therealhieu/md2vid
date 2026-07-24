@@ -10,13 +10,14 @@
 // all HTML/TSX. Default framework is hyperframes.
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { regroup, groupLineChars } from "../engine/captions.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { resolveProjectLayout } from "./project_layout.ts";
 
 class RegroupError extends Error {}
 
@@ -54,11 +55,9 @@ export function run(argv: string[]): number {
     return 2;
   }
   const dryRun = parsed.values["dry-run"] === true;
-  const OUTPUT = resolve(parsed.positionals[0]);
 
   try {
-    // Neutral caption IR lives in the sibling shared/ dir; the emitted output is in OUTPUT.
-    const SHARED = resolve(OUTPUT, "..", "shared");
+    const { outputDir: OUTPUT, sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
     const SRC = join(SHARED, "caption_groups.json");
     if (!existsSync(SRC)) throw new RegroupError(`Not found: ${SRC}`);
 

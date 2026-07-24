@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -141,6 +141,100 @@ test("transcribe: run() returns non-zero when audio_meta.json is missing", async
     assert.notEqual(await run([join(bare, "hyperframes")]), 0);
   } finally {
     rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+test("project commands report neutral artifacts from the resolved shared directory", async () => {
+  const build = await runOf("build.ts");
+  const regroup = await runOf("regroup.ts");
+  const transcribe = await runOf("transcribe.ts");
+  const verify = await runOf("verify.ts");
+
+  for (const layout of ["canonical", "flat"] as const) {
+    const root = mkdtempSync(join(tmpdir(), `run-exports-${layout}-`));
+    const output = layout === "canonical" ? join(root, "hyperframes") : join(root, "demo");
+    const shared = layout === "canonical" ? join(root, "shared") : output;
+    try {
+      mkdirSync(output, { recursive: true });
+      if (layout === "canonical") mkdirSync(shared, { recursive: true });
+
+      const buildResult = await captureRun(build, [output]);
+      assert.equal(buildResult.code, 1);
+      assert.ok(buildResult.stderr.includes(join(shared, "audio_meta.json")), buildResult.stderr);
+
+      const transcribeResult = await captureRun(transcribe, [output]);
+      assert.equal(transcribeResult.code, 1);
+      assert.ok(transcribeResult.stderr.includes(join(shared, "audio_meta.json")), transcribeResult.stderr);
+
+      const regroupResult = await captureRun(regroup, [output]);
+      assert.equal(regroupResult.code, 1);
+      assert.ok(regroupResult.stderr.includes(join(shared, "caption_groups.json")), regroupResult.stderr);
+
+      const verifyResult = await captureRun(verify, [output]);
+      assert.ok(verifyResult.stdout.includes(join(shared, "caption_groups.json")), verifyResult.stdout);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("project commands report layout stat failures instead of throwing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "run-exports-layout-error-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  try {
+    mkdirSync(output, { recursive: true });
+    symlinkSync("shared", shared);
+
+    for (const script of ["build.ts", "regroup.ts", "transcribe.ts", "verify.ts"]) {
+      const result = await captureRun(await runOf(script), [output]);
+      assert.equal(result.code, 1, script);
+      assert.match(result.stderr, /FAIL:/, script);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verify keeps canonical shared authoritative over stale flat captions", async () => {
+  const verify = await runOf("verify.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-verify-layout-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  try {
+    mkdirSync(join(output, "compositions"), { recursive: true });
+    mkdirSync(shared, { recursive: true });
+    writeFileSync(join(output, "caption_groups.json"), JSON.stringify({ groups: [{ words: ["stale"] }] }));
+    writeFileSync(join(output, "compositions", "captions.html"), "var GROUPS = [];\n");
+
+    const result = await captureRun(verify, [output]);
+    assert.doesNotMatch(result.stdout, /caption group count out of sync/);
+    assert.ok(result.stdout.includes(join(shared, "caption_groups.json")), result.stdout);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("transcribe passes the resolved shared directory to its provider", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const root = mkdtempSync(join(tmpdir(), "run-exports-transcribe-layout-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  let receivedBase: string | undefined;
+  try {
+    mkdirSync(output, { recursive: true });
+    mkdirSync(shared, { recursive: true });
+    writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({ voices: [] }));
+
+    const transcribe: typeof import("../../engine/transcribe.ts").transcribeVoices = (meta, baseDir) => {
+      receivedBase = baseDir;
+      return { meta, ok: 0, total: 0 };
+    };
+
+    assert.equal(module.run([output], { transcribeVoices: transcribe }), 0);
+    assert.equal(receivedBase, resolve(shared));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -17,12 +17,13 @@
 // videos with no `framework` field are unchanged.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { resolveProjectLayout } from "./project_layout.ts";
 
 class BuildError extends Error {}
 
@@ -49,17 +50,11 @@ export function run(argv: string[]): number {
     console.error(parsed.usage);
     return 2;
   }
-  const OUTPUT = resolve(parsed.positionals[0]);
   const captionsOnly = parsed.values["captions-only"] === true;
 
   try {
+    const { outputDir: OUTPUT, sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
     if (!existsSync(OUTPUT)) throw new BuildError(`not a directory: ${OUTPUT}`);
-
-    // Neutral inputs/IR live in the sibling shared/ dir (reshaped layout); flat
-    // layout-reference / freshly-scaffolded videos keep them beside the output. Mirror
-    // the same shared/-else-flat resolution verify.ts + transcribe.ts use.
-    const sharedSibling = resolve(OUTPUT, "..", "shared");
-    const SHARED = existsSync(sharedSibling) ? sharedSibling : OUTPUT;
 
     const metaPath = join(SHARED, "audio_meta.json");
     if (!existsSync(metaPath)) throw new BuildError(`missing audio_meta.json — ${metaPath}`);
