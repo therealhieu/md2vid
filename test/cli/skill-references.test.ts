@@ -13,6 +13,24 @@ import {
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const SKILL_ROOT = join(REPO_ROOT, "skill", "md2vid");
 
+function assertOrder(body: string, fragments: string[], label: string): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `${label}: expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
+function readSourceAndCopy(sourceFromRoot: string): Array<{ label: string; body: string }> {
+  const entry = SKILL_REFERENCE_MAP.find((candidate) => candidate.sourceFromRoot === sourceFromRoot);
+  assert.ok(entry, `missing skill reference mapping for ${sourceFromRoot}`);
+  return [
+    { label: entry.sourceFromRoot, body: readFileSync(join(REPO_ROOT, entry.sourceFromRoot), "utf8") },
+    { label: entry.destinationFromRoot, body: readFileSync(join(REPO_ROOT, entry.destinationFromRoot), "utf8") },
+  ];
+}
+
 test("mandatory skill references are byte-identical to authoritative standards", () => {
   assert.deepEqual(
     SKILL_REFERENCE_MAP.map((entry) => entry.destination),
@@ -36,6 +54,30 @@ test("bundled Remotion standard uses the actual shared build-plan path", () => {
   );
   assert.doesNotMatch(body, /shared\/build_plan\.json/);
   assert.match(body, /shared\/build\/build_plan\.json/);
+});
+
+test("video-generation standards define the narration contract and pre-review gate", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /audio_request\.json\.example/, label);
+    for (const field of ["id", "path", "duration_s", "words"]) assert.match(body, new RegExp(`\\b${field}\\b`), label);
+    assert.match(body, /frame order.*voices\[\].*array/i, label);
+    assert.match(body, /npm run check.*before.*(?:preview|still|studio|render)/is, label);
+  }
+});
+
+test("framework standards document generated build and check ordering", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /audio_request\.json\.example/, label);
+    assertOrder(body, ["npm run build", "npm run check", "npm run dev"], label);
+    assert.match(body, /npm run check.*before.*render/is, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /neutral.*title card/i, label);
+    assert.match(body, /explicit.*register/i, label);
+    assert.match(body, /examples\/hash-table\/remotion\//, label);
+    assertOrder(body, ["npm run build", "npm run check", "npm run still"], label);
+    assert.match(body, /npm run check.*before.*render/is, label);
+  }
 });
 
 test("installed skill tree validates without repository files", () => {

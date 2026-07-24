@@ -42,6 +42,7 @@ outputs/<slug>/
     SCRIPT.md
     STORYBOARD.md
     video.config.json             # slugs, timing, canvas (no framework knobs)
+    audio_request.json.example    # scaffolded narration-planning example
     audio_meta.json               # voices + word timings
     assets/voice/*.wav
     cues.json                     # written by build
@@ -164,11 +165,13 @@ md2vid new <slug> --framework remotion
 
 **Do not hand-copy a previous video's build scripts** — adapters own emission.
 
-Then fill **`shared/video.config.json`** `slugs` (one entry per voice id → frame slug) and pick `timing.gap` (`0` = back-to-back; `>0` = held stop between frames). Framework-local knobs stay in `<framework>/output.config.json`.
+After scaffolding, review `audio_request.json.example`; it shows the narration-planning shape but is not generated audio. Then fill **`shared/video.config.json`** `slugs` (one entry per voice ID → frame slug) and pick `timing.gap` (`0` = back-to-back; `>0` = held stop between frames). Framework-local knobs stay in `<framework>/output.config.json`.
 
 ### 6. Audio (shared)
 
-Write `audio_request.json` (one line per frame's narration, plus optional `sfx`/`bgm`) against the shared project, then use `/hyperframes-media` to generate the shared audio artifacts. Emit into **`shared/`**: `audio_meta.json` + `assets/voice/*.wav`.
+Use the scaffolded `audio_request.json.example` to prepare `audio_request.json` (one line per frame's narration, plus optional `sfx`/`bgm`), then use `/hyperframes-media` to generate the shared audio artifacts. Emit into **`shared/`**: `audio_meta.json` + `assets/voice/*.wav`.
+
+Voice IDs may be meaningful strings such as `intro`, `details`, and `recap`; they must be non-empty and unique. Frame sequence follows `audio_meta.json` `voices[]` array order, never ID spelling or numeric value. Every ID must map to its authored visual slug in `video.config.json.slugs`. Each voice entry includes `id`, project-relative WAV `path`, `duration_s`, and word-level `words` timings.
 
 Default voice/theme: warm, measured, editorial. If word-timings are empty:
 
@@ -201,17 +204,14 @@ md2vid transcribe outputs/<slug>/hyperframes
 
 ### 8. Build (IR + framework emit) & regroup
 
-From any cwd (each `<dir>` resolves to absolute inside the CLI):
+Use each generated project's package script; it runs `md2vid build .` followed by `md2vid regroup . --max-chars 54`:
 
 ```bash
-# HyperFrames
-md2vid build outputs/<slug>/hyperframes
-md2vid regroup outputs/<slug>/hyperframes --max-chars 54
-
-# Remotion
-md2vid build outputs/<slug>/remotion
-md2vid regroup outputs/<slug>/remotion --max-chars 54
+cd outputs/<slug>/hyperframes && npm run build
+cd outputs/<slug>/remotion && npm run build   # if present
 ```
+
+The direct `md2vid build <dir>` and `md2vid regroup <dir> --max-chars 54` commands remain available for targeted diagnosis or non-generated layouts.
 
 What this does:
 
@@ -221,21 +221,24 @@ What this does:
 
 You do **not** hand-write `index.html` / `captions.html`. The generated HyperFrames project's caption skin is `.hyperframes/caption-skin.html`. Remotion karaoke is `src/Captions.tsx` (re-authoring, not GSAP byte-parity).
 
-### 9. Verify — GATE (must pass)
+### 9. Verify and review — GATE (must pass)
+
+Run the generated `check` script after build and before any preview, still, studio, or render:
 
 ```bash
-# Neutral + framework checks (any cwd)
-md2vid verify outputs/<slug>/hyperframes
-md2vid verify outputs/<slug>/remotion   # if present
-
-# HyperFrames tooling
-cd outputs/<slug>/hyperframes && npm run check   # lint + validate + inspect
-
-# Remotion smoke (CI-cheap)
-cd outputs/<slug>/remotion && npm run still
+cd outputs/<slug>/hyperframes && npm run check
+cd outputs/<slug>/remotion && npm run check   # if present
+cd outputs/<slug>/remotion && npm run still   # fast smoke after check
 ```
 
-Fix every FAIL. Walk `video-generation.md` § Verification checklist by hand — scripts cover machine invariants; treatment/focal/triad are yours.
+`npm run check` starts with `md2vid verify .` and then runs framework checks. The direct commands remain available for targeted diagnosis:
+
+```bash
+md2vid verify outputs/<slug>/hyperframes
+md2vid verify outputs/<slug>/remotion   # if present
+```
+
+Fix every FAIL. Walk `video-generation.md` § Verification checklist by hand — scripts cover machine invariants; treatment/focal/triad are yours. Then review HyperFrames with `npm run dev` or Remotion with `npm run studio`; render only after review.
 
 ### 10. Render — only on explicit request
 
@@ -292,17 +295,19 @@ Deliver preview otherwise. MP4s under `outputs/**/out/` and `outputs/**/renders/
 md2vid new my-slug
 md2vid new my-slug --framework remotion
 
-# Build + regroup (per framework output)
-md2vid build outputs/my-slug/hyperframes
-md2vid regroup outputs/my-slug/hyperframes --max-chars 54
-md2vid build outputs/my-slug/remotion
-md2vid regroup outputs/my-slug/remotion --max-chars 54
+# Build + regroup (generated scripts)
+cd outputs/my-slug/hyperframes && npm run build
+cd outputs/my-slug/remotion && npm run build
 
-# Verify
-md2vid verify outputs/my-slug/hyperframes
-md2vid verify outputs/my-slug/remotion
+# Check before preview/still/render
+cd outputs/my-slug/hyperframes && npm run check
+cd outputs/my-slug/remotion && npm run check
 
-# Render (explicit request only)
+# Review
+cd outputs/my-slug/hyperframes && npm run dev
+cd outputs/my-slug/remotion && npm run still && npm run studio
+
+# Render (explicit request only, after review)
 cd outputs/my-slug/hyperframes && npm run render
-cd outputs/my-slug/remotion && npm run still && npm run render
+cd outputs/my-slug/remotion && npm run render
 ```

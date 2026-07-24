@@ -35,6 +35,15 @@ function executableNpxHyperframesLines(body: string): string[] {
     .filter((line) => /^(?:\$\s*)?npx\s+hyperframes\b/.test(line));
 }
 
+function assertOrder(body: string, fragments: string[]): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
 test("skill lives at skill/md2vid/SKILL.md", () => {
   assert.ok(existsSync(SKILL), "skill/md2vid/SKILL.md must exist");
 });
@@ -74,6 +83,15 @@ test("mechanical steps invoke the md2vid CLI", () => {
   for (const cmd of [/md2vid new /, /md2vid build /, /md2vid regroup /, /md2vid verify /]) {
     assert.match(body, cmd, `skill must drive the CLI: ${cmd}`);
   }
+});
+
+test("skill documents the shipped narration and generated-project workflow", () => {
+  const body = readFileSync(SKILL, "utf8");
+  assert.doesNotMatch(body, /\bmd2vid audio\b/);
+  assert.match(body, /audio_request\.json\.example/);
+  assert.match(body, /voice IDs.*meaningful/i);
+  assert.match(body, /array order/i);
+  assertOrder(body, ["npm run build", "npm run check", "preview"]);
 });
 
 test("installed operational guidance never executes npx hyperframes", () => {

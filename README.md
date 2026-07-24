@@ -40,7 +40,7 @@ Use “Remotion” or “both frameworks” explicitly when required.
 
 New projects include `audio_request.json.example` as a narration planning example. Review its lines, then use the `/md2vid` skill workflow to generate or prepare voice WAV files and `audio_meta.json`. There is no `md2vid audio` command.
 
-Store voice files under `assets/voice/` and reference them with project-relative paths. A minimal `audio_meta.json` is:
+Store voice files under `assets/voice/` and reference them with paths relative to the flat project root or the canonical `shared/` root. A minimal `audio_meta.json` is:
 
 ```json
 {
@@ -71,7 +71,7 @@ Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID mus
 }
 ```
 
-The `/md2vid` skill workflow owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets.
+The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
 
 ## CLI
 
@@ -97,9 +97,10 @@ HyperFrames projects:
 
 ```bash
 cd <video-project>
+npm run build
 npm run check
-npm run dev
-npm run render
+npm run dev        # review in preview
+npm run render     # only after review
 ```
 
 New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to its project-relative path. Authored frame HTML must reference that same file relative to the frame document—for example, config `runtime/custom-gsap.js` becomes `../../runtime/custom-gsap.js` under `compositions/frames/`. md2vid does not copy GSAP bytes into new projects.
@@ -109,9 +110,11 @@ Remotion projects:
 ```bash
 cd <video-project>
 npm install
-npm run typecheck
-npm run still
-npm run render
+npm run build
+npm run check
+npm run still      # fast smoke
+npm run studio     # interactive review
+npm run render     # only after review
 ```
 
 `npm run dev` is long-running; run it in a background terminal. The rendered MP4 location is printed by the framework command.
@@ -123,8 +126,11 @@ md2vid does not auto-rewrite existing generated `package.json` files. Update exi
 ```json
 {
   "scripts": {
+    "build": "md2vid build . && md2vid regroup . --max-chars 54",
+    "transcribe": "md2vid transcribe .",
+    "verify": "md2vid verify .",
+    "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "dev": "md2vid hyperframes preview --no-open",
-    "check": "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "render": "md2vid hyperframes render",
     "publish": "md2vid hyperframes publish"
   }

@@ -60,6 +60,32 @@ Rules:
 - Avoid reading the document verbatim unless the user asks for a verbatim script.
 - Use concise spoken language, but keep the substance of the source.
 
+### Narration input contract
+
+Every generated scaffold includes `audio_request.json.example` as an onboarding example. Review it, then use `/md2vid` with `/hyperframes-media` to prepare WAV files and `audio_meta.json`; there is no `md2vid audio` command.
+
+Voice WAV files live under `assets/voice/`. Their `path` values are relative to the flat project root or, in canonical multi-framework layout, the sibling `shared/` root. The minimal metadata fields are:
+
+```json
+{
+  "voices": [
+    {
+      "id": "intro",
+      "path": "assets/voice/intro.wav",
+      "duration_s": 3.2,
+      "words": [
+        { "text": "Welcome", "start": 0.1, "end": 0.5 }
+      ]
+    }
+  ]
+}
+```
+
+- Voice `id` values may be meaningful strings and must be non-empty and unique.
+- Frame order follows the `voices[]` array order; IDs do not encode sequence.
+- `video.config.json.slugs` maps every voice ID to its framework visual slug.
+- `duration_s` is the voice duration in seconds; `words` contains word-level `text`, `start`, and `end` timings.
+
 ## Captions
 
 Captions are a designed layer, not raw transcript output. The default word-level grouping produces lines that are too short (~2 words) to read comfortably.
@@ -117,6 +143,19 @@ Every video project's `CLAUDE.md` and `AGENTS.md` must be a **single `@import`**
 ```
 
 This keeps the framework conventions (skill routing, `npm run` commands, timeline rules) in one source of truth. `hyperframes init` drops a full boilerplate copy into a new project — replace it with the one-line import. `md2vid verify <dir>` fails the video if either file pastes boilerplate instead of importing.
+
+## Generated-project review gate
+
+Run the generated workflow in this order:
+
+```text
+npm run build
+npm run check
+preview / still / studio review
+render only after review
+```
+
+`npm run build` creates the neutral plan, stages narration, and regroups captions. `npm run check` includes `md2vid verify` plus framework checks and is required before preview, still, studio, or render. `md2vid verify <dir>` remains available directly for targeted diagnosis.
 
 ## Verification checklist
 

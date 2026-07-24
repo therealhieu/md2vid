@@ -27,13 +27,37 @@ The domain skills (`/hyperframes-core`, `/hyperframes-animation`, `/hyperframes-
 ## Commands
 
 ```bash
-npm run dev          # start the preview server (long-running — keep it alive in background)
-npm run check        # lint + validate + inspect
-npm run render       # render to MP4
+npm run build        # md2vid build . + caption regrouping
+npm run check        # md2vid verify + lint + validate + inspect
+npm run dev          # start preview after check (long-running; keep it alive in background)
+npm run render       # render to MP4 only after review
 npm run publish      # publish and get a shareable link
 md2vid hyperframes lint --verbose  # include info-level findings
 md2vid hyperframes lint --json     # machine-readable output for CI
 md2vid hyperframes docs <topic>    # reference docs in terminal
+```
+
+## First run
+
+1. Review the generated `audio_request.json.example`, then prepare `audio_meta.json` and `assets/voice/*.wav` through `/md2vid` and `/hyperframes-media` or an external TTS provider.
+2. Use meaningful, unique voice IDs. Their `voices[]` array order controls frame sequence; map each ID to a visual slug in `video.config.json.slugs`.
+3. Author `compositions/frames/*.html` for those slugs.
+4. Run `npm run build`.
+5. Run `npm run check` before preview or render.
+6. Run `npm run dev` for review; render only after review.
+
+The generated scripts are:
+
+```json
+{
+  "build": "md2vid build . && md2vid regroup . --max-chars 54",
+  "transcribe": "md2vid transcribe .",
+  "verify": "md2vid verify .",
+  "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
+  "dev": "md2vid hyperframes preview --no-open",
+  "render": "md2vid hyperframes render",
+  "publish": "md2vid hyperframes publish"
+}
 ```
 
 ### Existing generated projects
@@ -43,8 +67,11 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 ```json
 {
   "scripts": {
+    "build": "md2vid build . && md2vid regroup . --max-chars 54",
+    "transcribe": "md2vid transcribe .",
+    "verify": "md2vid verify .",
+    "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "dev": "md2vid hyperframes preview --no-open",
-    "check": "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "render": "md2vid hyperframes render",
     "publish": "md2vid hyperframes publish"
   }
