@@ -60,6 +60,13 @@ test("hash-table Remotion example retains all scene routes", () => {
   }
 });
 
+test("hash-table Remotion example stays public but excluded from the npm package", () => {
+  const packageFiles = (JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as {
+    files: string[];
+  }).files;
+  assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
+});
+
 test("hash-table Remotion example ships exact configs and safe overlay instructions", () => {
   assert.deepEqual(JSON.parse(readFileSync(join(EXAMPLE, "video.config.json"), "utf8")), {
     timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },

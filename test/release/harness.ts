@@ -1036,18 +1036,15 @@ export function assertInstalledSkill(
   }
 }
 
-function stageCanonicalAuthoredInputs(outputDir: string, sharedDir: string): void {
-  mkdirSync(sharedDir, { recursive: true });
-  const scaffoldedConfig = join(outputDir, "video.config.json");
-  const sharedConfig = join(sharedDir, "video.config.json");
-  renameSync(scaffoldedConfig, sharedConfig);
-  cpSync(join(FIXTURES, "audio_meta.json"), join(sharedDir, "audio_meta.json"));
-  cpSync(join(FIXTURES, "assets", "voice"), join(sharedDir, "assets", "voice"), {
+function stageFlatAuthoredInputs(project: string): void {
+  cpSync(join(FIXTURES, "audio_meta.json"), join(project, "audio_meta.json"));
+  cpSync(join(FIXTURES, "assets", "voice"), join(project, "assets", "voice"), {
     recursive: true,
   });
-  const config = JSON.parse(readFileSync(sharedConfig, "utf8"));
-  config.slugs = { "01": "01-smoke" };
-  writeFileSync(sharedConfig, JSON.stringify(config, null, 2) + "\n");
+  const configPath = join(project, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.slugs = { intro: "01-smoke" };
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
 function assertCompleteScaffold(
@@ -1057,6 +1054,7 @@ function assertCompleteScaffold(
   const common = [
     "meta.json",
     "video.config.json",
+    "audio_request.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",
@@ -1085,6 +1083,31 @@ function assertCompleteScaffold(
   }
   if (framework === "hyperframes") {
     assert.equal(existsSync(join(project, "assets", "gsap.min.js")), false);
+  }
+}
+
+function assertGeneratedPackageScripts(
+  project: string,
+  framework: "hyperframes" | "remotion",
+): void {
+  const { scripts } = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  assert.equal(scripts.build, "md2vid build . && md2vid regroup . --max-chars 54");
+  assert.equal(scripts.transcribe, "md2vid transcribe .");
+  assert.equal(scripts.verify, "md2vid verify .");
+  assert.equal(
+    scripts.check,
+    framework === "hyperframes"
+      ? "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect"
+      : "md2vid verify . && tsc --noEmit -p tsconfig.json",
+  );
+  assert.equal(
+    framework === "hyperframes" ? scripts.dev : scripts.still,
+    framework === "hyperframes" ? "md2vid hyperframes preview --no-open" : "node render.ts --still",
+  );
+  for (const command of Object.values(scripts)) {
+    assert.doesNotMatch(command, /(?:^|\s)(?:\.\.\/|\/Users\/|\/home\/)/);
   }
 }
 
@@ -1162,12 +1185,16 @@ export async function runFrameworkSmoke(
 
   const caseRoot = join(context.work, `smoke-${framework}-case`);
   mkdirSync(caseRoot, { recursive: true });
-  runInstalledCli(context, ["new", framework, "--framework", framework], caseRoot);
+  const scaffoldArgs = framework === "hyperframes"
+    ? ["new", framework]
+    : ["new", framework, "--framework", framework];
+  runInstalledCli(context, scaffoldArgs, caseRoot);
   const project = join(caseRoot, framework);
-  const shared = join(caseRoot, "shared");
+  const shared = project;
   assertCompleteScaffold(project, framework);
+  assertGeneratedPackageScripts(project, framework);
   assertNoRepoRelativePaths(project);
-  stageCanonicalAuthoredInputs(project, shared);
+  stageFlatAuthoredInputs(project);
 
   if (framework === "hyperframes") {
     cpSync(
@@ -1183,12 +1210,10 @@ export async function runFrameworkSmoke(
     runProjectNpm(context, project, ["run", "build"]);
     runProjectNpm(context, project, ["run", "check"]);
 
-    const sourceWav = join(shared, "assets", "voice", "01.wav");
-    const staged = join(project, "assets", "voice", "01.wav");
+    const staged = join(project, "assets", "voice", "intro.wav");
     assert.ok(statSync(staged).isFile(), "HyperFrames staged WAV must be a regular file");
     assert.equal(lstatSync(staged).isSymbolicLink(), false);
     assert.ok(statSync(staged).size > 44, "HyperFrames staged WAV must be nonempty");
-    assert.deepEqual(readFileSync(staged), readFileSync(sourceWav));
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
@@ -1205,14 +1230,14 @@ export async function runFrameworkSmoke(
   } else {
     runProjectNpm(context, project, ["install"]);
     runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "typecheck"]);
+    runProjectNpm(context, project, ["run", "check"]);
     runProjectNpm(context, project, ["run", "still"]);
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
     const still = join(project, "out", "still.jpeg");
-    const sourceWav = join(shared, "assets", "voice", "01.wav");
-    const staged = join(project, "public", "assets", "voice", "01.wav");
+    const sourceWav = join(shared, "assets", "voice", "intro.wav");
+    const staged = join(project, "public", "assets", "voice", "intro.wav");
     assert.ok(statSync(still).size > 0, "Remotion still must be nonempty");
     assert.ok(statSync(staged).isFile(), "Remotion public WAV must be a regular file");
     assert.equal(lstatSync(staged).isSymbolicLink(), false);

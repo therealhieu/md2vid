@@ -40,6 +40,7 @@ const PUBLIC_PREFIXES = [
   "bin/",
   "docs/standards/",
   "engine/",
+  "examples/",
   "frameworks/",
   "scripts/",
   "security/",

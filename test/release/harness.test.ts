@@ -55,6 +55,13 @@ const PACKAGE_TAG = `v${PACKAGE_VERSION}`;
 const PACKAGE_TARBALL = `md2vid-${PACKAGE_VERSION}.tgz`;
 const NPM_VERSION = PACKAGE_METADATA.packageManager.slice("npm@".length);
 
+test("release smoke status reports generated check scripts for both frameworks", () => {
+  const source = readFileSync(join(import.meta.dirname, "run.ts"), "utf8");
+  assert.match(source, /smoke:hyperframes[^\n]*generated build\/check/);
+  assert.match(source, /smoke:remotion[^\n]*generated build\/check\/still/);
+  assert.doesNotMatch(source, /build\/typecheck\/still/);
+});
+
 test("release harness has no Windows command or process execution path", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
 
@@ -343,8 +350,12 @@ test("extracts every emitted HyperFrames voice URL", () => {
   `), ["assets/voice/01.wav", "assets/voice/chapter/02.wav"]);
 });
 
-test("the smoke fixture is a real nonempty WAV and remains outside the pack manifest", () => {
-  const wav = readFileSync(join(REPO_ROOT, "test", "cli", "fixtures", "smoke", "assets", "voice", "01.wav"));
+test("the meaningful-ID smoke fixture is a real nonempty WAV and remains outside the pack manifest", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
+  const wav = readFileSync(join(fixtureRoot, "assets", "voice", "intro.wav"));
+  const meta = JSON.parse(readFileSync(join(fixtureRoot, "audio_meta.json"), "utf8"));
+  assert.equal(meta.voices[0].id, "intro");
+  assert.equal(meta.voices[0].path, "assets/voice/intro.wav");
   assert.equal(wav.toString("ascii", 0, 4), "RIFF");
   assert.equal(wav.toString("ascii", 8, 12), "WAVE");
   assert.equal(wav.readUInt32LE(24), 8000);
@@ -519,9 +530,12 @@ test("useSuppliedArtifact requires a regular file and never removes repository d
   }
 });
 
-test("release parser accepts exact modes and rejects malformed options", () => {
+test("release parser accepts bare and supplied-artifact verify modes and rejects malformed options", () => {
   assert.deepEqual(parseReleaseArguments(["pack", "--output", "out"], {}), {
     mode: "pack", output: "out",
+  });
+  assert.deepEqual(parseReleaseArguments(["verify"], {}), {
+    mode: "all", diagnostics: undefined,
   });
   assert.deepEqual(parseReleaseArguments([
     "verify", "--tarball", "pkg.tgz", "--metadata-only",
@@ -529,6 +543,17 @@ test("release parser accepts exact modes and rejects malformed options", () => {
     mode: "verify", tarball: "pkg.tgz", metadataOnly: true, diagnostics: undefined,
     metadata: undefined, expectedVersion: undefined, expectedTag: undefined, expectedCommit: undefined,
   });
+  for (const partial of [
+    ["verify", "--metadata", "artifact.json"],
+    ["verify", "--metadata-only"],
+    [
+      "verify", "--expected-version", "1.2.3",
+      "--expected-tag", "v1.2.3",
+      "--expected-commit", "a".repeat(40),
+    ],
+  ]) {
+    assert.throws(() => parseReleaseArguments(partial, {}), /--tarball.*artifact options.*Usage:/s);
+  }
   assert.throws(() => parseReleaseArguments(["pack", "--output", "a", "--output", "b"], {}), /duplicate.*Usage:/s);
   assert.throws(() => parseReleaseArguments(["all", "trailing"], {}), /trailing.*Usage:/s);
   assert.throws(() => parseReleaseArguments(["verify", "--tarball"], {}), /missing.*Usage:/s);
@@ -537,7 +562,7 @@ test("release parser accepts exact modes and rejects malformed options", () => {
   assert.deepEqual(parseReleaseArguments([
     "registry", "--version", "1.2.3", "--integrity", REGISTRY_INTEGRITY,
   ], {}), { mode: "registry", version: "1.2.3", integrity: REGISTRY_INTEGRITY, diagnostics: undefined });
-  assert.match(USAGE, /^pack --output <directory>\nverify --tarball <path>/);
+  assert.match(USAGE, /^pack --output <directory>\nverify \[--tarball <path>/);
 });
 
 test("pack ignores ambient diagnostics configuration during parse and execution", async () => {
@@ -733,7 +758,7 @@ test("pack validation failures retain a sanitized pack stage diagnostic", async 
   }
 });
 
-test("all packs exactly once while verify never packs", async () => {
+test("bare verify packs once while supplied-artifact verify never packs", async () => {
   const root = createReleaseContext();
   const tarball = join(root.artifacts, PACKAGE_TARBALL);
   const packedBytes = gzipSync(Buffer.concat([
@@ -765,7 +790,9 @@ test("all packs exactly once while verify never packs", async () => {
   const allTarball = join(allRoot.artifacts, PACKAGE_TARBALL);
   packs = 0;
   verifies = 0;
-  await runRelease({ mode: "all", diagnostics: undefined }, {
+  const bareVerify = parseReleaseArguments(["verify"], {});
+  assert.deepEqual(bareVerify, { mode: "all", diagnostics: undefined });
+  await runRelease(bareVerify, {
     MD2VID_RELEASE_COMMIT: "b".repeat(40), npm_execpath: "/isolated/npm-cli.js",
   }, {
     createContext: () => allRoot,

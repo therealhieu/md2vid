@@ -34,7 +34,7 @@ const REQUIRED_NPM_VERSION = npmVersionFromPackageManager(PACKAGE_METADATA.packa
 
 export const USAGE = [
   "pack --output <directory>",
-  "verify --tarball <path> [--metadata <path>] [--expected-version <version> --expected-tag <tag> --expected-commit <sha>] [--metadata-only] [--diagnostics <directory>]",
+  "verify [--tarball <path> [--metadata <path>] [--expected-version <version> --expected-tag <tag> --expected-commit <sha>] [--metadata-only]] [--diagnostics <directory>]",
   "registry --version <version> --integrity <sha512-sri> [--diagnostics <directory>]",
   "all [--diagnostics <directory>]",
 ].join("\n");
@@ -123,7 +123,19 @@ export function parseReleaseArguments(
   const diagnostics = resolveDiagnosticsDirectory(value("diagnostics"), env);
   if (mode === "verify") {
     const tarball = value("tarball");
-    if (!tarball) throw parseError("missing --tarball");
+    const artifactOptions = [
+      "metadata",
+      "expected-version",
+      "expected-tag",
+      "expected-commit",
+      "metadata-only",
+    ].filter((name) => values.has(name));
+    if (!tarball) {
+      if (artifactOptions.length > 0) {
+        throw parseError("--tarball is required when artifact options are provided");
+      }
+      return { mode: "all", diagnostics };
+    }
     const expected = [value("expected-version"), value("expected-tag"), value("expected-commit")];
     if (expected.some((candidate) => candidate !== undefined) && expected.some((candidate) => candidate === undefined)) {
       throw parseError("expected identity options are all-or-none");
@@ -208,7 +220,7 @@ async function defaultVerifySuppliedArtifact(
   await runStage("smoke:hyperframes", () => frameworkSmoke(context, "hyperframes"), context);
   console.log(`OK [smoke:hyperframes]: generated build/check + Studio HTTP via ${context.tarball}`);
   await runStage("smoke:remotion", () => frameworkSmoke(context, "remotion"), context);
-  console.log(`OK [smoke:remotion]: generated build/typecheck/still via ${context.tarball}`);
+  console.log(`OK [smoke:remotion]: generated build/check/still via ${context.tarball}`);
 }
 
 function artifactForTarball(

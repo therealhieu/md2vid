@@ -1,8 +1,8 @@
 {
   "voices": [
     {
-      "id": "01",
-      "path": "assets/voice/01.wav",
+      "id": "intro",
+      "path": "assets/voice/intro.wav",
       "duration_s": 3.0,
       "words": [
         { "id": "w0", "text": "A", "start": 0.0, "end": 0.2 },

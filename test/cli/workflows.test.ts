@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {
+  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,10 +14,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { getAdapter } from "../../frameworks/index.ts";
+import { run as buildRun } from "../../scripts/build.ts";
+import { createProject } from "../../scripts/new_video.ts";
 import {
   run as regroupRun,
   type RegroupDependencies,
 } from "../../scripts/regroup.ts";
+import { run as transcribeRun } from "../../scripts/transcribe.ts";
 import { run as verifyRun } from "../../scripts/verify.ts";
 
 type Project = {
@@ -23,6 +28,72 @@ type Project = {
   shared: string;
   output: string;
 };
+
+interface WorkflowCase {
+  framework: "hyperframes" | "remotion";
+  layout: "flat" | "canonical";
+}
+
+interface WorkflowProject {
+  root: string;
+  outputDir: string;
+  sharedDir: string;
+}
+
+const SMOKE_WAV = join(import.meta.dirname, "fixtures", "smoke", "assets", "voice", "intro.wav");
+
+function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProject {
+  const root = mkdtempSync(join(tmpdir(), `md2vid-workflow-${layout}-${framework}-`));
+  const outputDir = layout === "flat" ? join(root, "video") : join(root, framework);
+  createProject(outputDir, "video", getAdapter(framework));
+
+  const sharedDir = layout === "flat" ? outputDir : join(root, "shared");
+  if (layout === "canonical") {
+    mkdirSync(sharedDir, { recursive: true });
+    renameSync(join(outputDir, "video.config.json"), join(sharedDir, "video.config.json"));
+  }
+
+  const phrases = {
+    intro: ["Intro", "sets", "the", "workflow", "context", "clearly."],
+    details: ["Details", "exercise", "each", "framework", "layout", "path."],
+    recap: ["Recap", "confirms", "the", "verified", "result", "again."],
+  };
+  const voices = (Object.keys(phrases) as Array<keyof typeof phrases>).map((id) => ({
+    id,
+    path: `assets/voice/${id}.wav`,
+    duration_s: 1,
+    words: phrases[id].map((text, index) => ({
+      text,
+      start: +(index / 7).toFixed(3),
+      end: +((index + 1) / 7).toFixed(3),
+    })),
+  }));
+  writeFileSync(join(sharedDir, "audio_meta.json"), `${JSON.stringify({ voices }, null, 2)}\n`);
+  const voiceDir = join(sharedDir, "assets", "voice");
+  mkdirSync(voiceDir, { recursive: true });
+  for (const { id } of voices) copyFileSync(SMOKE_WAV, join(voiceDir, `${id}.wav`));
+
+  const configPath = join(sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.slugs = {
+    intro: "01-intro",
+    details: "02-details",
+    recap: "03-recap",
+  };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  if (framework === "hyperframes") {
+    const framesDir = join(outputDir, "compositions", "frames");
+    for (const slug of Object.values(config.slugs) as string[]) {
+      writeFileSync(
+        join(framesDir, `${slug}.html`),
+        `<template data-composition-id="${slug}"><div>${slug}</div></template>\n`,
+      );
+    }
+  }
+
+  return { root, outputDir, sharedDir };
+}
 
 function captureConsole(run: () => number): { code: number; stdout: string; stderr: string } {
   const stdout: string[] = [];
@@ -197,6 +268,37 @@ function failingRegroupDependencies(
       },
     },
   };
+}
+
+for (const framework of ["hyperframes", "remotion"] as const) {
+  for (const layout of ["flat", "canonical"] as const) {
+    test(`${layout} ${framework} build, regroup, transcribe, and verify`, () => {
+      const project = createWorkflowCase({ framework, layout });
+      try {
+        assert.equal(buildRun([project.outputDir]), 0);
+        assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+
+        let transcribeBaseDir = "";
+        assert.equal(transcribeRun([project.outputDir], {
+          transcribeVoices(meta, baseDir) {
+            transcribeBaseDir = baseDir;
+            return { meta, ok: meta.voices.length, total: meta.voices.length };
+          },
+        }), 0);
+        assert.equal(transcribeBaseDir, project.sharedDir);
+        assert.equal(verifyRun([project.outputDir]), 0);
+
+        const plan = JSON.parse(readFileSync(join(project.sharedDir, "build", "build_plan.json"), "utf8"));
+        assert.deepEqual(
+          plan.frames.map((frame: { id: string; frameNum: number }) => [frame.id, frame.frameNum]),
+          [["intro", 1], ["details", 2], ["recap", 3]],
+        );
+        assert.equal(existsSync(join(project.sharedDir, "caption_groups.json")), true);
+      } finally {
+        rmSync(project.root, { recursive: true, force: true });
+      }
+    });
+  }
 }
 
 for (const framework of ["hyperframes", "remotion"] as const) {
