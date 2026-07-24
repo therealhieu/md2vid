@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { verifyNeutral } from "../engine/verify.ts";
 import { loadConfig } from "../engine/config.ts";
 import { getAdapter } from "../frameworks/index.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
@@ -25,28 +26,16 @@ const HARD_MAX_CHARS = 72;
 const isFile = (p: string) => existsSync(p) && statSync(p).isFile();
 const isDir = (p: string) => existsSync(p) && statSync(p).isDirectory();
 
-// Parse args. Returns an exit code (number) on bad input so run() can bail
-// without exiting the process — safe for repeated in-process calls.
-function parseArgs(argv: string[]): { dir: string; maxChars: number } | number {
-  const args: { dir: string | null; maxChars: number } = { dir: null, maxChars: TARGET_MAX_CHARS_DEFAULT };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--max-chars") args.maxChars = Number(argv[++i]);
-    else if (!a.startsWith("--") && args.dir === null) args.dir = a;
-    else {
-      console.error(`Unknown argument: ${a}`);
-      return 2;
-    }
-  }
-  if (!args.dir) {
-    console.error("Usage: md2vid verify <output-dir> [--max-chars N]");
-    return 2;
-  }
-  if (!Number.isFinite(args.maxChars)) {
-    console.error(`--max-chars must be a number (got ${args.maxChars})`);
-    return 2;
-  }
-  return args as { dir: string; maxChars: number };
+const USAGE = "Usage: md2vid verify <output-dir> [--max-chars N]";
+
+function parseVerifyArgs(argv: string[]) {
+  return parseCommand({
+    command: "verify",
+    usage: USAGE,
+    options: { "max-chars": { type: "string" } },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
 }
 
 // Locate the neutral caption groups: reshaped layout keeps them in the sibling
@@ -69,15 +58,30 @@ function frameworkFor(video: string) {
 }
 
 export function run(argv: string[]): number {
-  const args = parseArgs(argv);
-  if (typeof args === "number") return args;
+  const parsed = parseVerifyArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
+    return 2;
+  }
+
+  const maxChars = Number(parsed.values["max-chars"] ?? TARGET_MAX_CHARS_DEFAULT);
+  if (!Number.isFinite(maxChars)) {
+    console.error(`--max-chars must be a number (got ${maxChars})`);
+    console.error(USAGE);
+    return 2;
+  }
 
   const problems: string[] = [];
   const warnings: string[] = [];
   const problem = (msg: string) => problems.push(msg);
   const warn = (msg: string) => warnings.push(msg);
 
-  const video = resolve(args.dir);
+  const video = resolve(parsed.positionals[0]);
   if (!isDir(video)) {
     console.log(`FAIL: not a directory: ${video}`);
     return 2;
@@ -89,7 +93,7 @@ export function run(argv: string[]): number {
     warn(`no caption_groups.json (captions disabled?) — ${src}`);
   } else {
     const groups = JSON.parse(readFileSync(src, "utf8")).groups ?? [];
-    for (const f of verifyNeutral(groups, { targetMaxChars: args.maxChars, hardMaxChars: HARD_MAX_CHARS })) {
+    for (const f of verifyNeutral(groups, { targetMaxChars: maxChars, hardMaxChars: HARD_MAX_CHARS })) {
       if (f.level === "error") problem(f.msg);
       else warn(f.msg);
     }

@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -50,6 +50,24 @@ async function runOf(script: string): Promise<(argv: string[]) => Promise<number
   const mod = await import(join(SCRIPTS, script));
   assert.equal(typeof mod.run, "function", `${script} must export run(argv)`);
   return mod.run;
+}
+
+async function captureRun(
+  run: (argv: string[]) => Promise<number> | number,
+  argv: string[],
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  try {
+    console.log = (...args: unknown[]) => stdout.push(args.join(" "));
+    console.error = (...args: unknown[]) => stderr.push(args.join(" "));
+    return { code: await run(argv), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+  }
 }
 
 test("build: run() returns 0 on a valid video, non-zero on a missing dir", async () => {
@@ -123,6 +141,42 @@ test("transcribe: run() returns non-zero when audio_meta.json is missing", async
     assert.notEqual(await run([join(bare, "hyperframes")]), 0);
   } finally {
     rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+test("invalid semantic CLI values return 2 and print command usage", async () => {
+  const cases = [
+    { script: "new_video.ts", argv: ["Bad_Slug"] },
+    { script: "regroup.ts", argv: ["output", "--max-chars", "nope"] },
+    { script: "verify.ts", argv: ["output", "--max-chars", "nope"] },
+  ];
+
+  for (const testCase of cases) {
+    const result = await captureRun(await runOf(testCase.script), testCase.argv);
+    assert.equal(result.code, 2, testCase.script);
+    assert.match(result.stderr, /Usage:/, testCase.script);
+    assert.equal(result.stdout, "", testCase.script);
+  }
+});
+
+test("install-skill: help returns 0 without installing files", async () => {
+  const run = await runOf("install_skill.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-install-help-"));
+  try {
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = root;
+    try {
+      const result = await captureRun(run, ["--help"]);
+      assert.equal(result.code, 0);
+      assert.match(result.stdout, /Usage: md2vid install-skill/);
+      assert.equal(result.stderr, "");
+      assert.equal(existsSync(join(root, "skills")), false);
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -12,15 +12,33 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { transcribeVoices } from "../engine/transcribe.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 
+const USAGE = "Usage: md2vid transcribe <output-dir>";
+
+function parseTranscribeArgs(argv: string[]) {
+  return parseCommand({
+    command: "transcribe",
+    usage: USAGE,
+    options: {},
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
+}
+
 export function run(argv: string[]): number {
-  const dirArg = argv.find((a) => !a.startsWith("--"));
-  if (!dirArg) {
-    console.error("Usage: md2vid transcribe <output-dir>");
+  const parsed = parseTranscribeArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
     return 2;
   }
-  const OUTPUT = resolve(dirArg);
+  const OUTPUT = resolve(parsed.positionals[0]);
   const sharedDir = resolve(OUTPUT, "..", "shared");
   const BASE = existsSync(join(sharedDir, "audio_meta.json")) ? sharedDir : OUTPUT;
   const metaPath = join(BASE, "audio_meta.json");

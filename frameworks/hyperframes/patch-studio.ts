@@ -23,6 +23,7 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
+import { parseCommand } from "../../scripts/cli_args.ts";
 import { isMainModule } from "../../scripts/main-guard.ts";
 
 const require = createRequire(import.meta.url);
@@ -71,10 +72,29 @@ function countOccurrences(haystack: string, needle: string) {
   return n;
 }
 
+const USAGE = "Usage: md2vid patch-studio [bundle-path]";
+
 export function run(argv: string[]): number {
+  const parsed = parseCommand({
+    command: "patch-studio",
+    usage: USAGE,
+    options: {},
+    minPositionals: 0,
+    maxPositionals: 1,
+  }, argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
+    return 2;
+  }
+
   let bundlePath: string;
   try {
-    bundlePath = argv[0] || resolveBundle();
+    bundlePath = parsed.positionals[0] || resolveBundle();
   } catch (e: unknown) {
     return fail((e as Error).message);
   }

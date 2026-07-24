@@ -15,7 +15,6 @@ export const FRAMEWORKS: Record<string, FrameworkAdapter> = { hyperframes, remot
 // calling run() can catch it and return an exit code — never exits the process
 // itself (that would kill the router/test host mid-dispatch).
 export function getAdapter(name = "hyperframes"): FrameworkAdapter {
-  const a = FRAMEWORKS[name];
-  if (!a) throw new Error(`unknown framework "${name}"`);
-  return a;
+  if (!Object.hasOwn(FRAMEWORKS, name)) throw new Error(`unknown framework "${name}"`);
+  return FRAMEWORKS[name];
 }

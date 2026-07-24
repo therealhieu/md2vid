@@ -21,24 +21,36 @@ import { join, resolve } from "node:path";
 import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { getAdapter } from "../frameworks/index.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 
 class BuildError extends Error {}
 
-function parseArgs(argv: string[]): { dir: string; captionsOnly: boolean } | number {
-  const dir = argv.find((a) => !a.startsWith("--"));
-  const captionsOnly = argv.includes("--captions-only");
-  if (!dir) {
-    console.error("Usage: md2vid build <output-dir> [--captions-only]");
-    return 2;
-  }
-  return { dir: resolve(dir), captionsOnly };
+const USAGE = "Usage: md2vid build <output-dir> [--captions-only]";
+
+function parseBuildArgs(argv: string[]) {
+  return parseCommand({
+    command: "build",
+    usage: USAGE,
+    options: { "captions-only": { type: "boolean" } },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
 }
 
 export function run(argv: string[]): number {
-  const parsed = parseArgs(argv);
-  if (typeof parsed === "number") return parsed;
-  const { dir: OUTPUT, captionsOnly } = parsed;
+  const parsed = parseBuildArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
+    return 2;
+  }
+  const OUTPUT = resolve(parsed.positionals[0]);
+  const captionsOnly = parsed.values["captions-only"] === true;
 
   try {
     if (!existsSync(OUTPUT)) throw new BuildError(`not a directory: ${OUTPUT}`);

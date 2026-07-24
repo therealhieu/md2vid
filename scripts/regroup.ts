@@ -15,38 +15,46 @@ import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { regroup, groupLineChars } from "../engine/captions.ts";
 import { getAdapter } from "../frameworks/index.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 
 class RegroupError extends Error {}
 
-function parseArgs(argv: string[]): { dir: string; maxChars: number; dryRun: boolean } | number {
-  const args: { dir: string | null; maxChars: number; dryRun: boolean } = { dir: null, maxChars: 54, dryRun: false };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--max-chars") args.maxChars = Number(argv[++i]);
-    else if (a === "--dry-run") args.dryRun = true;
-    else if (!a.startsWith("--") && args.dir === null) args.dir = a;
-    else {
-      console.error(`Unknown argument: ${a}`);
-      return 2;
-    }
-  }
-  if (!args.dir) {
-    console.error("Usage: md2vid regroup <output-dir> [--max-chars 54] [--dry-run]");
-    return 2;
-  }
-  if (!Number.isFinite(args.maxChars) || args.maxChars < 10) {
-    console.error(`--max-chars must be a number >= 10 (got ${args.maxChars})`);
-    return 2;
-  }
-  return args as { dir: string; maxChars: number; dryRun: boolean };
+const USAGE = "Usage: md2vid regroup <output-dir> [--max-chars 54] [--dry-run]";
+
+function parseRegroupArgs(argv: string[]) {
+  return parseCommand({
+    command: "regroup",
+    usage: USAGE,
+    options: {
+      "max-chars": { type: "string" },
+      "dry-run": { type: "boolean" },
+    },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
 }
 
 export function run(argv: string[]): number {
-  const parsed = parseArgs(argv);
-  if (typeof parsed === "number") return parsed;
-  const { dir, maxChars: MAX_CHARS, dryRun } = parsed;
-  const OUTPUT = resolve(dir);
+  const parsed = parseRegroupArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
+    return 2;
+  }
+
+  const MAX_CHARS = Number(parsed.values["max-chars"] ?? 54);
+  if (!Number.isFinite(MAX_CHARS) || MAX_CHARS < 10) {
+    console.error(`--max-chars must be a number >= 10 (got ${MAX_CHARS})`);
+    console.error(USAGE);
+    return 2;
+  }
+  const dryRun = parsed.values["dry-run"] === true;
+  const OUTPUT = resolve(parsed.positionals[0]);
 
   try {
     // Neutral caption IR lives in the sibling shared/ dir; the emitted output is in OUTPUT.
