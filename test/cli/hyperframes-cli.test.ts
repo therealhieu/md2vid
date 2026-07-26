@@ -34,13 +34,20 @@ function fakePackage({
     : join(root, "dist", "scripts", "hyperframes_cli.js");
   const packageRoot = join(root, "node_modules", "hyperframes");
   mkdirSync(dirname(md2vidModule), { recursive: true });
-  mkdirSync(join(packageRoot, "dist"), { recursive: true });
+  mkdirSync(join(packageRoot, "dist", "studio", "assets"), { recursive: true });
   writeFileSync(md2vidModule, "// resolver anchor\n");
   writeFileSync(
     join(packageRoot, "package.json"),
     JSON.stringify({ name: "hyperframes", version, bin }),
   );
-  writeFileSync(join(packageRoot, "dist", "cli.js"), "process.exit(0);\n");
+  writeFileSync(
+    join(packageRoot, "dist", "cli.js"),
+    'const subCompositionHosts = trackedCompositionHosts.filter((host) => host.hasAttribute("data-composition-src"));\n',
+  );
+  writeFileSync(
+    join(packageRoot, "dist", "studio", "assets", "index-test.js"),
+    "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;\nif(!g)return;l=!0;const A=g;fetch(\n",
+  );
   return { root, md2vidModule, packageRoot };
 }
 

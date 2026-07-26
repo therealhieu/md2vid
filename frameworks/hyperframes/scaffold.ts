@@ -6,7 +6,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
 
@@ -25,9 +25,8 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll("`", "&#96;");
 }
 
-export function gsapSrcForDocument(gsapSrc: string, documentPath: string): string {
-  if (gsapSrc === DEFAULT_GSAP_SRC) return gsapSrc;
-  return posix.relative(posix.dirname(documentPath), gsapSrc);
+export function gsapSrcForDocument(gsapSrc: string, _documentPath: string): string {
+  return gsapSrc;
 }
 
 export function gsapScriptSrcAttribute(gsapSrc: string, documentPath: string): string {

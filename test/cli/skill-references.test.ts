@@ -65,6 +65,52 @@ test("video-generation standards define the narration contract and pre-review ga
   }
 });
 
+test("narration timing policy is authoritative and synchronized", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /word timings.*finite/i, label);
+    assert.match(body, /ordered.*non-overlapping/i, label);
+    assert.match(body, /0.*start.*end.*duration_s/i, label);
+    assert.match(body, /final-word overrun.*bounded to.*duration_s/is, label);
+    assert.match(body, /end past.*clamped/i, label);
+    assert.match(body, /does not extend.*(?:WAV|duration_s)/i, label);
+    assert.match(body, /(?:build.*verify|verify.*build).*fail.*path.*voice.*word/is, label);
+  }
+});
+
+test("public and skill guidance use canonical HyperFrames paths without inventing an audio command", () => {
+  const documents = [
+    { label: "README.md", body: readFileSync(join(REPO_ROOT, "README.md"), "utf8") },
+    { label: "skill/md2vid/SKILL.md", body: readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8") },
+    ...readSourceAndCopy("docs/standards/frameworks/hyperframes.md"),
+  ];
+
+  for (const { label, body } of documents) {
+    assert.match(body, /compositions\/captions\.html/, label);
+    assert.doesNotMatch(body, /(?<!compositions\/)captions\.html/, label);
+    assert.match(body, /gsapSrc[\s\S]*exact unchanged string/i, label);
+    assert.doesNotMatch(body, /(?:^|\n)\s*md2vid audio(?:\s|$)/m, label);
+  }
+  assert.doesNotMatch(
+    readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8"),
+    /index\.html\s*\/\s*captions\.html/,
+  );
+});
+
+test("full-build guidance distinguishes authored sources from regenerated standalone captions", () => {
+  const documents = [
+    { label: "README.md", body: readFileSync(join(REPO_ROOT, "README.md"), "utf8") },
+    { label: "skill/md2vid/SKILL.md", body: readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8") },
+    ...readSourceAndCopy("docs/standards/frameworks/hyperframes.md"),
+  ];
+
+  for (const { label, body } of documents) {
+    assert.match(body, /authored frame(?: and source)? files remain untouched/i, label);
+    assert.match(body, /generated standalone `?compositions\/captions\.html`? is regenerated/i, label);
+    assert.doesNotMatch(body, /authored frame and caption files remain unchanged/i, label);
+    assert.doesNotMatch(body, /full build (?:keeps|leaves) (?:those )?standalone files (?:intact|untouched)/i, label);
+  }
+});
+
 test("framework standards document generated build and check ordering", () => {
   for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
     assert.match(body, /audio_request\.json\.example/, label);

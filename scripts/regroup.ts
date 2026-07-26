@@ -109,8 +109,12 @@ export function run(argv: string[], dependencies: RegroupDependencies = {}): num
     const stagedOutputDir = join(stagingRoot, "output");
     const stagedCaptionGroupsPath = join(stagedSharedDir, "caption_groups.json");
     const stagedFrameworkPath = join(stagedOutputDir, adapter.captionArtifactPath);
+    const stagedIndexPath = adapter.captionIndexArtifactPath
+      ? join(stagedOutputDir, adapter.captionIndexArtifactPath)
+      : undefined;
     mkdirSync(stagedSharedDir, { recursive: true });
     mkdirSync(dirname(stagedFrameworkPath), { recursive: true });
+    if (stagedIndexPath) mkdirSync(dirname(stagedIndexPath), { recursive: true });
 
     writeFileSync(
       stagedCaptionGroupsPath,
@@ -135,16 +139,31 @@ export function run(argv: string[], dependencies: RegroupDependencies = {}): num
     }
 
     const frameworkPath = join(layout.outputDir, adapter.captionArtifactPath);
-    const promotion = promoteManagedFiles(projectRoot, stagingRoot, [
+    const managedFiles = [
       { target: relative(projectRoot, captionGroupsPath), staged: stagedCaptionGroupsPath },
       { target: relative(projectRoot, frameworkPath), staged: stagedFrameworkPath },
-    ], dependencies.transactionDependencies);
+    ];
+    if (adapter.captionIndexArtifactPath && stagedIndexPath) {
+      managedFiles.push({
+        target: relative(projectRoot, join(layout.outputDir, adapter.captionIndexArtifactPath)),
+        staged: stagedIndexPath,
+      });
+    }
+    const promotion = promoteManagedFiles(
+      projectRoot,
+      stagingRoot,
+      managedFiles,
+      dependencies.transactionDependencies,
+    );
     if (promotion.cleanupErrors.length) {
       const retained = promotion.retainedBackups.length
         ? `; retained backups: ${promotion.retainedBackups.join(", ")}`
         : "";
+      const uncertain = promotion.uncertainBackups.length
+        ? `; uncertain backups: ${promotion.uncertainBackups.join(", ")}`
+        : "";
       console.error(
-        `WARN: managed file promotion committed but backup cleanup failed${retained}: ` +
+        `WARN: managed file promotion committed but backup cleanup failed${retained}${uncertain}: ` +
           promotion.cleanupErrors.map((error) => error.message).join("; "),
       );
     }

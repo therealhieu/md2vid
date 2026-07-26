@@ -15,7 +15,13 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CaptionArtifactContext, Finding } from "../../engine/types.ts";
+import type { CaptionArtifactContext, Finding, VerifyOptions } from "../../engine/types.ts";
+import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
+import {
+  extractTemplateById,
+  findElementRangeByAttribute,
+  scriptSources,
+} from "./html.ts";
 import { DEFAULT_GSAP_SRC, gsapSrcForDocument, validateGsapSrc } from "./scaffold.ts";
 
 const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
@@ -37,103 +43,25 @@ const SHARED_PROJECT_DOC = `frameworks/${PROJECT_DOC_BASENAME}`;
 // shared/ dir when reshaped, else beside index.html (flat layout-reference videos).
 // Reads caption groups off disk itself — takes no plan (mirrors verifyNeutral's shape
 // but the HF checks are all file-layout assertions).
-export function verify(videoDir: string, sharedDir?: string): Finding[] {
+export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
 
   requireGsapSource(videoDir, problem);
+  requireCaptionRuntimeInsideRoot(videoDir, problem);
   requireIndexMountsFrames(videoDir, problem, warn);
   requireProjectDocImport(videoDir, problem, warn);
   requireBakedGroupsMatchJson(videoDir, problem, sharedDir);
+  if (options.voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(videoDir, options.voiceSnapshots));
+  }
 
   return findings;
 }
 
-function scriptAttribute(attributes: string, expectedName: string): string | undefined {
-  let cursor = 0;
-  while (cursor < attributes.length) {
-    while (/\s|\//.test(attributes[cursor] ?? "")) cursor += 1;
-    const nameStart = cursor;
-    while (cursor < attributes.length && !/[\s=/>]/.test(attributes[cursor])) cursor += 1;
-    const name = attributes.slice(nameStart, cursor).toLowerCase();
-    if (!name) {
-      cursor += 1;
-      continue;
-    }
-
-    while (/\s/.test(attributes[cursor] ?? "")) cursor += 1;
-    if (attributes[cursor] !== "=") continue;
-    cursor += 1;
-    while (/\s/.test(attributes[cursor] ?? "")) cursor += 1;
-
-    let value = "";
-    const quote = attributes[cursor];
-    if (quote === '"' || quote === "'") {
-      cursor += 1;
-      const valueStart = cursor;
-      while (cursor < attributes.length && attributes[cursor] !== quote) cursor += 1;
-      value = attributes.slice(valueStart, cursor);
-      if (cursor < attributes.length) cursor += 1;
-    } else {
-      const valueStart = cursor;
-      while (cursor < attributes.length && !/[\s>]/.test(attributes[cursor])) cursor += 1;
-      value = attributes.slice(valueStart, cursor);
-    }
-
-    if (name === expectedName) return value;
-  }
-  return undefined;
-}
-
-function scriptSources(html: string): string[] {
-  const source = html.replace(/<!--[\s\S]*?-->/g, "");
-  const lower = source.toLowerCase();
-  const sources: string[] = [];
-  let cursor = 0;
-
-  while (cursor < source.length) {
-    const start = lower.indexOf("<script", cursor);
-    if (start === -1) break;
-    const afterName = source[start + 7];
-    if (afterName && !/[\s>/]/.test(afterName)) {
-      cursor = start + 7;
-      continue;
-    }
-
-    let end = start + 7;
-    let quote = "";
-    while (end < source.length) {
-      const character = source[end];
-      if (quote) {
-        if (character === quote) quote = "";
-      } else if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === ">") {
-        break;
-      }
-      end += 1;
-    }
-    if (end >= source.length) break;
-
-    const src = scriptAttribute(source.slice(start + 7, end), "src");
-    if (src !== undefined) sources.push(src);
-
-    const close = lower.indexOf("</script", end + 1);
-    if (close === -1) {
-      cursor = end + 1;
-      continue;
-    }
-    const closeEnd = lower.indexOf(">", close + 8);
-    cursor = closeEnd === -1 ? source.length : closeEnd + 1;
-  }
-
-  return sources;
-}
-
 function sourceTargetsConfiguredFile(
   video: string,
-  framePath: string,
   canonical: string,
   expected: string,
   source: string,
@@ -141,7 +69,49 @@ function sourceTargetsConfiguredFile(
   if (source !== expected) return false;
   if (canonical === DEFAULT_GSAP_SRC) return source === DEFAULT_GSAP_SRC;
   if (/^(?:https?:)?\/\//i.test(source)) return false;
-  return resolve(dirname(framePath), source) === resolve(video, canonical);
+  return resolve(video, source) === resolve(video, canonical);
+}
+
+function requireConfiguredGsapSource(
+  video: string,
+  documentPath: string,
+  gsapSrc: string,
+  problem: (msg: string) => void,
+): void {
+  const path = join(video, ...documentPath.split("/"));
+  if (!isFile(path)) return;
+  const expected = gsapSrcForDocument(gsapSrc, documentPath);
+  const sources = scriptSources(readFileSync(path, "utf8"));
+  const matching = sources.filter((source) =>
+    sourceTargetsConfiguredFile(video, gsapSrc, expected, source)
+  );
+  const gsapSources = sources.filter((source) => source === expected || /gsap/i.test(source));
+  if (matching.length !== 1 || gsapSources.length !== 1) {
+    problem(
+      `${documentPath} must include exactly one configured GSAP source ${expected}; ` +
+        `found ${JSON.stringify(gsapSources)}`,
+    );
+  }
+}
+
+function requireCaptionRuntimeInsideRoot(video: string, problem: (msg: string) => void): void {
+  const path = join(video, "compositions", "captions.html");
+  if (!isFile(path)) return;
+  const html = readFileSync(path, "utf8");
+  const range = findElementRangeByAttribute(
+    html,
+    "div",
+    "data-composition-id",
+    "captions",
+  );
+  if (!range) {
+    problem("compositions/captions.html must contain a captions composition root");
+    return;
+  }
+  const root = html.slice(range.start, range.end);
+  if (!root.includes("var GROUPS =") || !/window\.__timelines\[["']captions["']\]/.test(root)) {
+    problem("caption initialization script must be inside the captions composition root");
+  }
 }
 
 function requireGsapSource(video: string, problem: (msg: string) => void): void {
@@ -164,6 +134,9 @@ function requireGsapSource(video: string, problem: (msg: string) => void): void 
     return;
   }
 
+  requireConfiguredGsapSource(video, "index.html", gsapSrc, problem);
+  requireConfiguredGsapSource(video, "compositions/captions.html", gsapSrc, problem);
+
   const frameRoot = join(video, "compositions", "frames");
   if (!isDir(frameRoot)) return;
   for (const name of readdirSync(frameRoot).filter((file) => file.endsWith(".html"))) {
@@ -172,18 +145,7 @@ function requireGsapSource(video: string, problem: (msg: string) => void): void 
     if (!/\bgsap\b/i.test(html)) continue;
 
     const frameDocument = `compositions/frames/${name}`;
-    const expected = gsapSrcForDocument(gsapSrc, frameDocument);
-    const sources = scriptSources(html);
-    const matching = sources.filter((source) =>
-      sourceTargetsConfiguredFile(video, framePath, gsapSrc, expected, source)
-    );
-    const gsapSources = sources.filter((source) => source === expected || /gsap/i.test(source));
-    if (matching.length !== 1 || gsapSources.length !== 1) {
-      problem(
-        `${frameDocument} references the gsap global and must include exactly one configured GSAP source ` +
-          `${expected}; found ${JSON.stringify(gsapSources)}`,
-      );
-    }
+    requireConfiguredGsapSource(video, frameDocument, gsapSrc, problem);
   }
 }
 
@@ -262,32 +224,48 @@ export function verifyHyperframesCaptionArtifact(
     return findings;
   }
 
-  const htmlText = readFileSync(html, "utf8");
-  const match = htmlText.match(/^ *var GROUPS = (\[.*\]);$/m);
-  if (!match) {
-    problem("captions.html has no `var GROUPS = [...]` line to compare against");
-    return findings;
-  }
+  const compareGroups = (label: string, source: string) => {
+    const match = source.match(/^ *var GROUPS = (\[.*\]);$/m);
+    if (!match) {
+      problem(`${label} has no \`var GROUPS = [...]\` line to compare against`);
+      return;
+    }
+    let baked: unknown;
+    try {
+      baked = JSON.parse(match[1]);
+    } catch (error) {
+      problem(`${label} var GROUPS is not valid JSON: ${(error as Error).message}`);
+      return;
+    }
+    if (!Array.isArray(baked)) {
+      problem(`${label} var GROUPS must be a JSON array`);
+    } else if (baked.length !== groups.length) {
+      problem(
+        `${label} caption group count out of sync: JSON has ${groups.length}, ` +
+          `HTML has ${baked.length} — rebuild with \`md2vid regroup\``,
+      );
+    } else if (JSON.stringify(baked) !== JSON.stringify(groups)) {
+      problem(`${label} is out of sync with caption_groups.json — rebuild with \`md2vid regroup\``);
+    }
+  };
 
-  let baked: unknown;
-  try {
-    baked = JSON.parse(match[1]);
-  } catch (error) {
-    problem(`baked var GROUPS is not valid JSON: ${(error as Error).message}`);
+  compareGroups("captions.html", readFileSync(html, "utf8"));
+  const indexPath = join(context.outputDir, "index.html");
+  if (!isFile(indexPath)) {
+    problem(`missing staged caption index: ${indexPath}`);
     return findings;
   }
-  if (!Array.isArray(baked)) {
-    problem("baked var GROUPS must be a JSON array");
-  } else if (baked.length !== groups.length) {
-    problem(
-      `caption group count out of sync: JSON has ${groups.length}, ` +
-        `captions.html has ${baked.length} — rebuild with \`md2vid regroup\``,
-    );
-  } else if (JSON.stringify(baked) !== JSON.stringify(groups)) {
-    problem(
-      "caption_groups.json and baked var GROUPS differ in content — " +
-        "rebuild with `md2vid regroup`",
-    );
+  let embedded: string | undefined;
+  try {
+    embedded = extractTemplateById(readFileSync(indexPath, "utf8"), "captions-template");
+  } catch (error) {
+    problem(`index.html ${(error as Error).message}`);
+    return findings;
+  }
+  if (embedded === undefined) {
+    problem("index.html has no embedded captions-template");
+  } else {
+    compareGroups("embedded captions-template", embedded);
   }
   return findings;
 }

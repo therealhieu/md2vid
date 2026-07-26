@@ -102,15 +102,15 @@ test("validateCommonScaffold requires the narration request example", () => {
   }
 });
 
-test("validateFrameworkRuntime accepts the pinned CDN and an existing local gsapSrc", () => {
-  for (const gsapSrc of [DEFAULT_GSAP_SRC, "runtime/custom-gsap.js"]) {
+test("validateFrameworkRuntime accepts the pinned CDN and canonical local gsapSrc", () => {
+  for (const gsapSrc of [DEFAULT_GSAP_SRC, "assets/gsap/gsap.min.js"]) {
     const stage = mkdtempSync(join(tmpdir(), "hyperframes-runtime-valid-"));
     try {
       ensureRuntime(stage, "demo-video");
       if (gsapSrc !== DEFAULT_GSAP_SRC) {
-        const runtimeDir = join(stage, "runtime");
+        const runtimeDir = join(stage, "assets", "gsap");
         mkdirSync(runtimeDir, { recursive: true });
-        writeFileSync(join(runtimeDir, "custom-gsap.js"), "CUSTOM GSAP\n");
+        writeFileSync(join(runtimeDir, "gsap.min.js"), "CUSTOM GSAP\n");
       }
       writeFileSync(
         join(stage, "output.config.json"),

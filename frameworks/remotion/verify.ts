@@ -6,7 +6,8 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { CaptionArtifactContext, Finding } from "../../engine/types.ts";
+import type { CaptionArtifactContext, Finding, VerifyOptions } from "../../engine/types.ts";
+import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
 
 const FPS = 30; // must match templates/src/Root.tsx FPS
 
@@ -48,7 +49,7 @@ export function verifyRemotionCaptionArtifact(
   return findings;
 }
 
-export function verify(videoDir: string, sharedDir?: string): Finding[] {
+export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
@@ -91,6 +92,9 @@ export function verify(videoDir: string, sharedDir?: string): Finding[] {
     if (existsSync(captionGroupsPath)) {
       findings.push(...verifyRemotionCaptionArtifact({ sharedDir, outputDir: videoDir, captionGroupsPath }));
     }
+  }
+  if (options.voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), options.voiceSnapshots));
   }
 
   return findings;

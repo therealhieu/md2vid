@@ -123,14 +123,29 @@ test("historical deprecation guidance stays fixed after the active version advan
   assert.match(readme, historicalDeprecationPattern(deprecatedVersion));
 });
 
-test("public HyperFrames guidance documents the pinned CDN and offline override", () => {
+test("public HyperFrames guidance documents canonical project-root-relative local GSAP", () => {
   for (const body of [readme, hyperframesStandard]) {
     assert.match(body, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
     assert.match(body, /offline/i);
     assert.match(body, /gsapSrc/);
     assert.match(body, /network access[^.]*preview[^.]*render/i);
-    assert.match(body, /Authored frame HTML[^.]*same file/i);
-    assert.match(body, /\.\.\/\.\.\/runtime\/custom-gsap\.js/);
+    assert.match(body, /assets\/gsap\/gsap\.min\.js/);
+    assert.match(body, /exact unchanged|string.*unchanged/i);
+    assert.match(body, /project root/i);
+    assert.doesNotMatch(body, /\.\.\/\.\.\/runtime\/custom-gsap\.js/);
+  }
+});
+
+test("public HyperFrames install guidance documents proxy self-healing under allowScripts", () => {
+  for (const body of [readme, hyperframesStandard]) {
+    assert.match(body, /postinstall[^.]*normally[^.]*patch/i);
+    assert.match(body, /allowScripts/i);
+    assert.match(body, /md2vid hyperframes[^.]*self-heal/i);
+    assert.match(body, /caption-loop/i);
+    assert.doesNotMatch(body, /embedded-template preference patch/i);
+    assert.match(body, /warning[^.]*nonfatal[^.]*commands succeed/i);
+    assert.match(body, /embedded templates[^.]*omit[^.]*data-composition-src/i);
+    assert.match(body, /standalone authored files[\s\S]{0,180}remain/i);
   }
 });
 

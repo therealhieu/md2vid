@@ -211,26 +211,74 @@ test("canonical HyperFrames templates use the TS default GSAP source", async () 
   assert.equal(emitSource.includes(DEFAULT_GSAP_SRC), false, "emit must import the TS source of truth");
 });
 
-test("GSAP script helper maps project sources to document-relative escaped attributes", async () => {
+test("HyperFrames frame template documents the canonical project-root-relative local GSAP source", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  assert.match(template, /assets\/gsap\/gsap\.min\.js/);
+  assert.match(template, /unchanged|same project-root-relative path/i);
+  assert.doesNotMatch(template, /\.\.\/\.\.\/.*gsap/i);
+});
+
+test("canonical HyperFrames frame template nests frame styles inside the composition root", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  const rootStart = template.indexOf('<div id="root" data-composition-id="NN-slug"');
+  const rootEnd = template.lastIndexOf("</div>");
+  const styleStart = template.indexOf("<style>");
+  const styleEnd = template.indexOf("</style>", styleStart);
+
+  assert.ok(rootStart >= 0 && rootEnd > rootStart, "frame composition root must exist");
+  assert.ok(styleStart > rootStart, "frame styles must start inside the composition root");
+  assert.ok(styleEnd < rootEnd, "frame styles must end inside the composition root");
+  assert.doesNotMatch(template.slice(template.indexOf("<template>"), rootStart), /<style\b/i);
+});
+
+test("canonical HyperFrames frame template keeps runtime scripts inside the composition root", async () => {
+  const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  const templateStart = template.indexOf("<template>");
+  const rootStart = template.indexOf('<div id="root" data-composition-id="NN-slug"', templateStart);
+  const rootOpenEnd = template.indexOf(">", rootStart) + 1;
+  const rootEnd = template.lastIndexOf("</div>");
+  const rootInner = template.slice(rootOpenEnd, rootEnd);
+  const transportOutsideRoot = template.slice(templateStart, rootOpenEnd) + template.slice(rootEnd, template.indexOf("</template>"));
+
+  assert.match(template, /^<!--[\s\S]*?<!doctype html>[\s\S]*?<html>[\s\S]*?<body>[\s\S]*?<template>/);
+  assert.match(rootInner, new RegExp(`<script src="${DEFAULT_GSAP_SRC.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"><\\/script>`));
+  assert.match(rootInner, /window\.__timelines\["NN-slug"\] = tl/);
+  assert.match(rootInner, /\(function \(\) \{[\s\S]*?const tl = gsap\.timeline\(\{ paused: true \}\);[\s\S]*?\}\)\(\);/);
+  assert.ok(rootInner.indexOf(`<script src="${DEFAULT_GSAP_SRC}">`) > rootInner.indexOf('id="fNN-header"'));
+  assert.doesNotMatch(transportOutsideRoot, /<(?:style|script)\b/i);
+});
+
+test("GSAP script helper preserves project-root-relative sources in every document", async () => {
   const scaffold = await import("../../frameworks/hyperframes/scaffold.ts") as Record<string, any>;
   assert.equal(typeof scaffold.gsapSrcForDocument, "function");
   assert.equal(typeof scaffold.gsapScriptSrcAttribute, "function");
+  for (const documentPath of [
+    "index.html",
+    "compositions/captions.html",
+    "compositions/frames/01-frame.html",
+  ]) {
+    assert.equal(
+      scaffold.gsapSrcForDocument(scaffold.DEFAULT_GSAP_SRC, documentPath),
+      scaffold.DEFAULT_GSAP_SRC,
+    );
+    assert.equal(
+      scaffold.gsapSrcForDocument("assets/gsap/gsap.min.js", documentPath),
+      "assets/gsap/gsap.min.js",
+    );
+  }
   assert.equal(
-    scaffold.gsapSrcForDocument(scaffold.DEFAULT_GSAP_SRC, "compositions/frames/01-frame.html"),
-    scaffold.DEFAULT_GSAP_SRC,
-  );
-  assert.equal(scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "index.html"), "runtime/custom-gsap.js");
-  assert.equal(
-    scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "compositions/captions.html"),
-    "../runtime/custom-gsap.js",
-  );
-  assert.equal(
-    scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "compositions/frames/01-frame.html"),
-    "../../runtime/custom-gsap.js",
-  );
-  assert.equal(
-    scaffold.gsapScriptSrcAttribute('runtime/a"&<>' + "'`" + ".js", "index.html"),
-    "runtime/a&quot;&amp;&lt;&gt;&#39;&#96;.js",
+    scaffold.gsapScriptSrcAttribute('assets/a"&<>' + "'`" + ".js", "compositions/frames/01-frame.html"),
+    "assets/a&quot;&amp;&lt;&gt;&#39;&#96;.js",
   );
 });
 

@@ -7,6 +7,13 @@
 export interface Word { id?: string; text: string; start: number; end: number; }
 export interface Voice { id: string; path: string; duration_s: number; words: Word[]; }
 export interface AudioMeta { voices: Voice[]; }
+export interface VoiceAssetSnapshot {
+  path: string;
+  readBytes(): Buffer;
+  digest: string;
+  mode: number;
+  duration_s: number;
+}
 
 // ── Neutral IR — the serialized build_plan.json contract ─────────────────────
 export interface PlanFrame {
@@ -53,9 +60,19 @@ export interface FrameworkScaffoldSpec {
   nextSteps: string[];
 }
 
+export interface FrameworkPreparation {
+  embeddedFrameTemplates?: string[];
+  captionsHtml?: string;
+  captionIndexHtml?: string;
+  voiceSnapshots?: VoiceAssetSnapshot[];
+}
+
 export interface EmitOptions {
   captionsOnly?: boolean;
   runtimeSourceDir?: string;
+  assetSourceDir?: string;
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
+  prepared?: FrameworkPreparation;
 }
 
 export interface CaptionArtifactContext {
@@ -64,16 +81,26 @@ export interface CaptionArtifactContext {
   captionGroupsPath: string;
 }
 
+export interface VerifyOptions {
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
+}
+
 export interface FrameworkAdapter {
   name: string;
   scaffoldSpec(slug: string): FrameworkScaffoldSpec;
   writeScaffoldRuntime(stageDir: string, slug: string): void;
   ensureRuntime(videoDir: string, slug: string): void;
+  preflight(
+    plan: BuildPlan, sharedDir: string, outputDir: string,
+    config: VideoConfig, opts?: EmitOptions
+  ): FrameworkPreparation | void;
   emit(
     plan: BuildPlan, sharedDir: string, outputDir: string,
     config: VideoConfig, opts?: EmitOptions
   ): void;
   captionArtifactPath: string;
+  captionIndexArtifactPath?: string;
+  managedVoiceArtifactPath: string;
   verifyCaptionArtifact(context: CaptionArtifactContext): Finding[];
-  verify(videoDir: string, sharedDir?: string): Finding[];
+  verify(videoDir: string, sharedDir?: string, options?: VerifyOptions): Finding[];
 }

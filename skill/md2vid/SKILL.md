@@ -52,7 +52,8 @@ outputs/<slug>/
     output.config.json            # { "framework": "hyperframes", "gsapSrc": "..." }
     compositions/frames/*.html
     assets/voice/                 # real WAVs staged by full emit
-    index.html / captions.html    # emitted by adapter
+    index.html
+    compositions/captions.html   # emitted by adapter
     package.json, CLAUDE.md, …
   remotion/                       # framework OUTPUT (optional)
     output.config.json            # { "framework": "remotion" }
@@ -69,6 +70,14 @@ outputs/<slug>/
 - `md2vid build` resolves neutral inputs from the sibling `shared/` when present; otherwise flat (legacy/scaffold-only).
 - A full HyperFrames build stages `shared/assets/voice/**` as real files under `hyperframes/assets/voice/**`.
 - A full Remotion build stages the same files as real files under `remotion/public/assets/voice/**`.
+
+### HyperFrames local GSAP
+
+The pinned CDN remains the scaffold default. For an explicit offline/local opt-in, place your own runtime at a project-root-relative path such as `assets/gsap/gsap.min.js`, set that exact string as `output.config.json` → `gsapSrc`, and use the same exact unchanged string in authored frame `<script src>` tags. Standalone authored frames and the generated standalone `compositions/captions.html` each keep that dependency for direct preview; do not rewrite it as `../` or `../../`. Authored frame and source files remain untouched during a full build, while the generated standalone `compositions/captions.html` is regenerated from staged caption groups. It loads GSAP once from `index.html`, embeds sanitized frame/caption templates with only the matching external GSAP script removed, verifies caption sync, and atomically promotes neutral JSON, generated framework artifacts, and managed voice assets. Keep caption styles, content, and initialization inside the captions composition root. Caption regrouping atomically refreshes caption JSON, standalone captions, and the embedded `captions-template`; verification compares all three. Direct `build --captions-only` preflights the source index and atomically updates standalone and embedded caption HTML. md2vid validates the configured file but does not vendor or copy GSAP by default.
+
+### Transcript normalization
+
+Treat the WAV sample extent as authoritative: `sampleFrames = dataBytes / blockAlign`, and `duration_s` is that frame count divided by `sampleRate`, safely floored to 6 decimal places and never rounded upward. On Darwin/Linux, md2vid opens the final path with `O_NOFOLLOW | O_NONBLOCK`, rejects static intermediate symlinks and nonregular files, and checks component/file identities before and after reading. This detects ordinary cooperative changes best-effort, not an adversarial swap-and-restore race; Node core has no descriptor-relative traversal API, so keep the project tree quiescent while snapshots are captured. Once captured, immutable bytes drive timing, private-tree transcription input, build staging, and emitted-asset SHA-256 verification without a native addon or system helper. Words are finite, ordered, non-overlapping, and inside `0 <= start <= end <= duration_s`. `md2vid transcribe` replaces stale JSON durations, bounds only provider final-word overruns, and persists all voices together without extending the WAV. `md2vid build` and `md2vid verify` reject duration mismatches, out-of-WAV words, and missing/symlinked/stale emitted WAVs before managed output mutation or successful verification, with metadata path and voice/word identity. Do not hand-edit timings to bypass these gates. There is no `md2vid audio` command.
 
 ## Read first (authoritative standards — do not duplicate, obey)
 
@@ -230,10 +239,10 @@ The canonical direct commands target framework outputs, never `shared/`: `md2vid
 ## What build does
 
 1. `engine.plan()` writes neutral IR (`cues.json`, `caption_groups.json`, `build/build_plan.json`) beside the neutral inputs: the flat project root for Branch A or `shared/` for Branch B.
-2. Adapter `emit()` writes framework files and stages real WAVs transactionally (HyperFrames: `index.html`, baked captions, `assets/voice/**`; Remotion: `build_plan.json`, `public/assets/voice/**`) without clobbering authored frames or `src/**`.
+2. Adapter `emit()` writes framework files and stages real WAVs transactionally (HyperFrames: `index.html`, `compositions/captions.html`, `assets/voice/**`; Remotion: `build_plan.json`, `public/assets/voice/**`) without clobbering authored frames or `src/**`.
 3. Caption regrouping targets ~50–56 characters and re-bakes HyperFrames `var GROUPS` so JSON and HTML stay synchronized.
 
-Do not hand-write emitted `index.html` or `captions.html`. Fix every failed check, then walk `video-generation.md` § Verification checklist manually; machine checks cannot judge source coverage, treatment quality, focal timing, or the expression triad.
+Do not hand-write emitted `index.html` or `compositions/captions.html`. Fix every failed check, then walk `video-generation.md` § Verification checklist manually; machine checks cannot judge source coverage, treatment quality, focal timing, or the expression triad.
 
 ## The three hard gates
 
@@ -262,7 +271,7 @@ Do not hand-write emitted `index.html` or `captions.html`. Fix every failed chec
 | Content under the subtitle line | Reserve caption band (bottom ~14% / ~150–200px @1080). |
 | No intro/recap; frames end on a live reveal | Frame 1 = agenda intro, final = recap; ≥0.5s held landing. |
 | Pasting boilerplate into `CLAUDE.md`/`AGENTS.md` | Single `@import` of the scaffolder's copied-in standard (`.md2vid/standards/<fw>.md`). |
-| Hand-editing emitted `index.html` / `captions.html` | Rebuild via `md2vid build` + `md2vid regroup`. |
+| Hand-editing emitted `index.html` / `compositions/captions.html` | Rebuild via `md2vid build` + `md2vid regroup`. |
 | Building `shared/` as if it were a framework output | Build `…/hyperframes` or `…/remotion`. |
 | Remotion CSS transitions / captions inside Sequence | `interpolate` only; captions at composition root. |
 | Nesting Remotion Audio at root with wrong offsets | Keep `<Audio>` inside each frame `<Sequence>`. |

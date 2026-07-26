@@ -35,6 +35,13 @@ function executableNpxHyperframesLines(body: string): string[] {
     .filter((line) => /^(?:\$\s*)?npx\s+hyperframes\b/.test(line));
 }
 
+function executableMd2vidAudioLines(body: string): string[] {
+  return body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^(?:\$\s*)?(?:npx(?:\s+--yes=false)?\s+)?md2vid\s+audio(?:\s|$)/.test(line));
+}
+
 function assertOrder(body: string, fragments: string[]): void {
   let cursor = -1;
   for (const fragment of fragments) {
@@ -93,9 +100,10 @@ test("mechanical steps invoke the md2vid CLI", () => {
   }
 });
 
-test("skill documents the shipped narration contract without an invented audio command", () => {
+test("skill documents the shipped narration contract without an executable audio command", () => {
   const body = readFileSync(SKILL, "utf8");
-  assert.doesNotMatch(body, /\bmd2vid audio\b/);
+  assert.deepEqual(executableMd2vidAudioLines(body), []);
+  assert.match(body, /There is no `md2vid audio` command\./);
   assert.match(body, /audio_request\.json\.example/);
   assert.match(body, /voice IDs.*meaningful/i);
   assert.match(body, /array order/i);

@@ -16,13 +16,32 @@
 // it is gitignored (shared/build/). Default framework is hyperframes, so existing
 // videos with no `framework` field are unchanged.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
+import { readAudioMeta } from "../engine/audio_meta.ts";
+import {
+  captureVoiceWavSnapshots,
+  validateAudioMetaVoiceSnapshots,
+} from "../engine/voice_assets.ts";
 import { loadConfig } from "../engine/config.ts";
 import { plan as buildPlan } from "../engine/plan.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import {
+  promoteManagedFiles,
+  type ManagedFile,
+  type ManagedFilePromotionResult,
+  type ManagedFileTransactionDependencies,
+} from "./managed_file_transaction.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
 class BuildError extends Error {}
@@ -32,6 +51,63 @@ const MISSING_AUDIO_NEXT_STEP =
 
 function missingAudioMeta(path: string): string {
   return `missing audio_meta.json at ${path}\n${MISSING_AUDIO_NEXT_STEP}`;
+}
+
+export interface BuildDependencies {
+  getAdapter?: typeof getAdapter;
+  transactionDependencies?: ManagedFileTransactionDependencies;
+  cleanupStaging?: (path: string) => void;
+}
+
+function reportCleanupWarnings(promotion: ManagedFilePromotionResult): void {
+  if (!promotion.cleanupErrors.length) return;
+  const retained = promotion.retainedBackups.length
+    ? `; retained backups: ${promotion.retainedBackups.join(", ")}`
+    : "";
+  const uncertain = promotion.uncertainBackups.length
+    ? `; uncertain backups: ${promotion.uncertainBackups.join(", ")}`
+    : "";
+  console.error(
+    `WARN: managed file promotion committed but backup cleanup failed${retained}${uncertain}: `
+      + promotion.cleanupErrors.map((error) => error.message).join("; "),
+  );
+}
+
+function stagedRegularFiles(root: string, current = root): string[] {
+  const files: string[] = [];
+  for (const name of readdirSync(current)) {
+    const path = join(current, name);
+    const status = lstatSync(path);
+    if (status.isSymbolicLink()) {
+      throw new BuildError(`staged output contains a symbolic link: ${path}`);
+    }
+    if (status.isDirectory()) files.push(...stagedRegularFiles(root, path));
+    else if (status.isFile()) files.push(path);
+    else throw new BuildError(`staged output contains a non-regular entry: ${path}`);
+  }
+  return files;
+}
+
+function addMissingRuntimeFiles(
+  managedFiles: ManagedFile[],
+  projectRoot: string,
+  outputDir: string,
+  stagedOutputDir: string,
+  excludedOutputPaths: Set<string>,
+  managedVoicePath: string,
+): void {
+  for (const staged of stagedRegularFiles(stagedOutputDir)) {
+    const outputPath = relative(stagedOutputDir, staged);
+    if (
+      excludedOutputPaths.has(outputPath)
+      || outputPath === managedVoicePath
+      || outputPath.startsWith(`${managedVoicePath}${sep}`)
+    ) continue;
+    const target = join(outputDir, outputPath);
+    if (!existsSync(target)) {
+      managedFiles.push({ target: relative(projectRoot, target), staged });
+    }
+  }
 }
 
 const USAGE = "Usage: md2vid build <output-dir> [--captions-only]";
@@ -46,7 +122,7 @@ function parseBuildArgs(argv: string[]) {
   }, argv);
 }
 
-export function run(argv: string[]): number {
+export function run(argv: string[], dependencies: BuildDependencies = {}): number {
   const parsed = parseBuildArgs(argv);
   if (parsed.kind === "help") {
     console.log(USAGE);
@@ -58,48 +134,184 @@ export function run(argv: string[]): number {
     return 2;
   }
   const captionsOnly = parsed.values["captions-only"] === true;
+  const cleanupStaging = dependencies.cleanupStaging
+    ?? ((path: string) => rmSync(path, { recursive: true, force: true }));
+  let stagingRoot: string | undefined;
+  let committed = false;
 
   try {
-    const { outputDir: OUTPUT, sharedDir: SHARED } = resolveProjectLayout(parsed.positionals[0]);
+    const layout = resolveProjectLayout(parsed.positionals[0]);
+    const { outputDir: OUTPUT, sharedDir: SHARED } = layout;
     if (!existsSync(OUTPUT)) throw new BuildError(`not a directory: ${OUTPUT}`);
 
     const metaPath = join(SHARED, "audio_meta.json");
     if (!existsSync(metaPath)) throw new BuildError(missingAudioMeta(metaPath));
 
-    const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+    const meta = readAudioMeta(metaPath);
+    const voiceSnapshots = captureVoiceWavSnapshots(
+      SHARED,
+      meta.voices.map((voice) => voice.path),
+    );
+    validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
     const config = loadConfig(SHARED, OUTPUT);
     const PLAN = buildPlan(meta, config);
     const { frames, totalDuration: TOTAL, captionGroups: groups } = PLAN;
     const { width: WIDTH, height: HEIGHT } = PLAN.canvas;
 
-    const adapter = getAdapter(config.framework);
+    const adapter = (dependencies.getAdapter ?? getAdapter)(config.framework);
+    const prepared = adapter.preflight(PLAN, SHARED, OUTPUT, config, {
+      captionsOnly,
+      voiceSnapshots,
+    });
 
-    if (!captionsOnly) {
-      // ── cues.json — per-frame word timings for authoring (LOCAL 0-based times) ──
-      const cues = frames.map((f) => ({
-        frame: f.frameNum,
-        slug: f.slug,
-        start: f.start,
-        voiceDur: f.voiceDur,
-        frameDur: f.frameDur,
-        words: f.words.map((w) => ({ text: w.text, start: w.start, end: w.end })),
-      }));
-      writeFileSync(join(SHARED, "cues.json"), JSON.stringify(cues, null, 2) + "\n");
-
-      // ── caption_groups.json — one group per line, GLOBAL times (from the plan) ──
-      writeFileSync(
-        join(SHARED, "caption_groups.json"),
-        JSON.stringify({ total_duration_s: +TOTAL.toFixed(3), width: WIDTH, height: HEIGHT, groups }, null, 2) + "\n"
+    if (captionsOnly) {
+      const projectRoot = layout.flat ? OUTPUT : dirname(OUTPUT);
+      stagingRoot = mkdtempSync(join(projectRoot, ".md2vid-build-captions-"));
+      const stagedOutput = join(stagingRoot, "output");
+      const stagedCaptionPath = join(stagedOutput, adapter.captionArtifactPath);
+      mkdirSync(dirname(stagedCaptionPath), { recursive: true });
+      if (adapter.captionIndexArtifactPath) {
+        mkdirSync(dirname(join(stagedOutput, adapter.captionIndexArtifactPath)), { recursive: true });
+      }
+      adapter.emit(PLAN, SHARED, stagedOutput, config, {
+        captionsOnly: true,
+        runtimeSourceDir: OUTPUT,
+        voiceSnapshots,
+        prepared: prepared ?? undefined,
+      });
+      const captionGroupsPath = join(SHARED, "caption_groups.json");
+      const findings = adapter.verifyCaptionArtifact({
+        sharedDir: SHARED,
+        outputDir: stagedOutput,
+        captionGroupsPath,
+      });
+      const errors = findings.filter((finding) => finding.level === "error");
+      if (errors.length) {
+        throw new BuildError(
+          `staged caption verification failed: ${errors.map((finding) => finding.msg).join("; ")}`,
+        );
+      }
+      const managedFiles = [{
+        target: relative(projectRoot, join(OUTPUT, adapter.captionArtifactPath)),
+        staged: stagedCaptionPath,
+      }];
+      if (adapter.captionIndexArtifactPath) {
+        managedFiles.push({
+          target: relative(projectRoot, join(OUTPUT, adapter.captionIndexArtifactPath)),
+          staged: join(stagedOutput, adapter.captionIndexArtifactPath),
+        });
+      }
+      const promotion = promoteManagedFiles(
+        projectRoot,
+        stagingRoot,
+        managedFiles,
+        dependencies.transactionDependencies,
       );
-
-      // ── build/build_plan.json — the serialized neutral IR contract (gitignored) ──
-      const buildDir = join(SHARED, "build");
-      mkdirSync(buildDir, { recursive: true });
-      writeFileSync(join(buildDir, "build_plan.json"), JSON.stringify(PLAN, null, 2) + "\n");
+      committed = true;
+      reportCleanupWarnings(promotion);
+      console.log(`OK build: ${OUTPUT}  (framework: ${adapter.name})`);
+      return 0;
     }
 
-    // ── Framework emission — the adapter owns all output files. ──────────────────
-    adapter.emit(PLAN, SHARED, OUTPUT, config, { captionsOnly });
+    const projectRoot = layout.flat ? OUTPUT : dirname(OUTPUT);
+    stagingRoot = mkdtempSync(join(projectRoot, ".md2vid-build-"));
+    const stagedShared = join(stagingRoot, "shared");
+    const stagedOutput = join(stagingRoot, "output");
+    const stagedBuildDir = join(stagedShared, "build");
+    mkdirSync(stagedBuildDir, { recursive: true });
+    mkdirSync(stagedOutput, { recursive: true });
+
+    // ── Stage the complete neutral IR before framework emission. ────────────────
+    const cues = frames.map((f) => ({
+      frame: f.frameNum,
+      slug: f.slug,
+      start: f.start,
+      voiceDur: f.voiceDur,
+      frameDur: f.frameDur,
+      words: f.words.map((w) => ({ text: w.text, start: w.start, end: w.end })),
+    }));
+    const stagedCuesPath = join(stagedShared, "cues.json");
+    const stagedCaptionGroupsPath = join(stagedShared, "caption_groups.json");
+    const stagedNeutralPlanPath = join(stagedBuildDir, "build_plan.json");
+    writeFileSync(stagedCuesPath, JSON.stringify(cues, null, 2) + "\n");
+    writeFileSync(
+      stagedCaptionGroupsPath,
+      JSON.stringify({
+        total_duration_s: +TOTAL.toFixed(3),
+        width: WIDTH,
+        height: HEIGHT,
+        groups,
+      }, null, 2) + "\n",
+    );
+    writeFileSync(stagedNeutralPlanPath, JSON.stringify(PLAN, null, 2) + "\n");
+
+    // ── Emit only into staging; authored frames/src remain source inputs. ───────
+    adapter.emit(PLAN, stagedShared, stagedOutput, config, {
+      captionsOnly: false,
+      runtimeSourceDir: OUTPUT,
+      assetSourceDir: SHARED,
+      voiceSnapshots,
+      prepared: prepared ?? undefined,
+    });
+
+    const findings = adapter.verifyCaptionArtifact({
+      sharedDir: stagedShared,
+      outputDir: stagedOutput,
+      captionGroupsPath: stagedCaptionGroupsPath,
+    });
+    const errors = findings.filter((finding) => finding.level === "error");
+    if (errors.length) {
+      throw new BuildError(
+        `staged framework verification failed: ${errors.map((finding) => finding.msg).join("; ")}`,
+      );
+    }
+
+    const stagedFrameworkPath = join(stagedOutput, adapter.captionArtifactPath);
+    const managedFiles: ManagedFile[] = [
+      { target: relative(projectRoot, join(SHARED, "cues.json")), staged: stagedCuesPath },
+      {
+        target: relative(projectRoot, join(SHARED, "caption_groups.json")),
+        staged: stagedCaptionGroupsPath,
+      },
+      {
+        target: relative(projectRoot, join(SHARED, "build", "build_plan.json")),
+        staged: stagedNeutralPlanPath,
+      },
+      {
+        target: relative(projectRoot, join(OUTPUT, adapter.captionArtifactPath)),
+        staged: stagedFrameworkPath,
+      },
+    ];
+    const excludedOutputPaths = new Set([adapter.captionArtifactPath]);
+    if (adapter.captionIndexArtifactPath) {
+      excludedOutputPaths.add(adapter.captionIndexArtifactPath);
+      managedFiles.push({
+        target: relative(projectRoot, join(OUTPUT, adapter.captionIndexArtifactPath)),
+        staged: join(stagedOutput, adapter.captionIndexArtifactPath),
+      });
+    }
+    addMissingRuntimeFiles(
+      managedFiles,
+      projectRoot,
+      OUTPUT,
+      stagedOutput,
+      excludedOutputPaths,
+      adapter.managedVoiceArtifactPath,
+    );
+    managedFiles.push({
+      target: relative(projectRoot, join(OUTPUT, adapter.managedVoiceArtifactPath)),
+      staged: join(stagedOutput, adapter.managedVoiceArtifactPath),
+      kind: "directory",
+    });
+
+    const promotion = promoteManagedFiles(
+      projectRoot,
+      stagingRoot,
+      managedFiles,
+      dependencies.transactionDependencies,
+    );
+    committed = true;
+    reportCleanupWarnings(promotion);
 
     console.log(`OK build: ${OUTPUT}  (framework: ${adapter.name})`);
     if (!captionsOnly) {
@@ -109,6 +321,18 @@ export function run(argv: string[]): number {
   } catch (e: unknown) {
     console.error(`FAIL: ${(e as Error).message}`);
     return 1;
+  } finally {
+    if (stagingRoot) {
+      try {
+        cleanupStaging(stagingRoot);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const state = committed ? "committed but" : "failed before commit and";
+        console.error(
+          `WARN: build ${state} staging cleanup failed; retained staging path: ${stagingRoot}: ${message}`,
+        );
+      }
+    }
   }
 }
 

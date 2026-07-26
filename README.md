@@ -61,6 +61,8 @@ Store voice files under `assets/voice/` and reference them with paths relative t
 }
 ```
 
+The WAV sample extent is authoritative: `duration_s` must exactly equal `dataBytes / blockAlign / sampleRate`, safely floored to 6 decimal places and never rounded upward. On Darwin/Linux, md2vid opens the final path with `O_NOFOLLOW | O_NONBLOCK`, rejects static intermediate symlinks and nonregular files, and checks path/file identities before and after reading. These checks detect ordinary cooperative changes best-effort; they are not race-free against an adversarial swap-and-restore writer because Node core has no descriptor-relative traversal API. Keep the project tree quiescent while inputs are snapshotted. Once captured, immutable snapshot bytes drive timing, transcription, build staging, and emitted-asset SHA-256 verification without a native addon or system helper. Word timings must be finite, ordered, non-overlapping, and within `0 <= start <= end <= duration_s`. `md2vid transcribe` snapshots every WAV before provider calls, uses a private temporary snapshot tree, replaces stale JSON durations, and bounds a provider's final-word overrun without extending the WAV. `md2vid build` and `md2vid verify` reject duration mismatches, out-of-WAV words, and missing/symlinked/stale emitted WAVs before managed output mutation or successful verification, with the metadata path plus voice and word identity.
+
 Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID must be non-empty and unique. Frame order follows the `voices[]` array, not the spelling or numeric value of an ID. Map each voice ID to its authored frame slug in `video.config.json`:
 
 ```json
@@ -91,6 +93,8 @@ md2vid install-skill
 
 `md2vid hyperframes --version` must print the package-owned HyperFrames version `0.7.26`.
 
+The npm `postinstall` normally applies the required caption-loop patch to the pinned HyperFrames Studio bundle. npm policies such as `allowScripts` may block that lifecycle script and print a warning; the warning is nonfatal when commands succeed. Every `md2vid hyperframes <command>` proxy invocation self-heals the caption-loop patch before running HyperFrames, so `check`, preview, snapshot, browser, and render remain safe under a blocked postinstall.
+
 ## Preview and render
 
 HyperFrames projects:
@@ -103,7 +107,9 @@ npm run dev        # review in preview
 npm run render     # only after review
 ```
 
-New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to its project-relative path. Authored frame HTML must reference that same file relative to the frame document—for example, config `runtime/custom-gsap.js` becomes `../../runtime/custom-gsap.js` under `compositions/frames/`. md2vid does not copy GSAP bytes into new projects.
+New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.
+
+During a full build, `index.html` loads the configured GSAP source once and embeds sanitized frame/caption templates with that matching external script removed. Authored frame and source files remain untouched. Hosts backed by those embedded templates omit `data-composition-src`, preventing HyperFrames from mounting a second fallback copy. Standalone authored files under `compositions/frames/` remain available for direct preview and inspection. The generated standalone `compositions/captions.html` is regenerated from staged caption groups and remains available for the same purpose. Legacy or manually authored indexes without embedded templates may continue to use `data-composition-src` source loading. Neutral JSON, generated framework artifacts, and managed voice assets are promoted together only after staged caption verification succeeds. Keep caption style, content, and initialization inside the captions composition root.
 
 Remotion projects:
 

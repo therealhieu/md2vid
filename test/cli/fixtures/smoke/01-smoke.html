@@ -3,18 +3,31 @@
   <head><meta charset="UTF-8" /></head>
   <body>
     <template data-composition-id="01-smoke">
-      <style>
-        #root { position: absolute; inset: 0; background: #faf9f5; color: #141413; }
-        #s01-title { position: absolute; left: 150px; top: 480px; font-size: 96px; }
-      </style>
-      <div id="root" data-composition-id="01-smoke" data-width="1920" data-height="1080" data-duration="3.5">
-        <div id="s01-title" class="clip" data-start="0" data-duration="3.5" data-track-index="0">Smoke test</div>
+      <div id="smoke-root" data-composition-id="01-smoke" data-start="0" data-width="1920" data-height="1080" data-duration="3">
+        <style>
+          #smoke-root { position: absolute; inset: 0; background: #faf9f5; color: #141413; }
+          #s01-title { position: absolute; left: 150px; top: 480px; font-size: 96px; }
+          #s01-future { position: absolute; left: 150px; top: 620px; opacity: 0; }
+          #s01-late { position: absolute; left: 150px; top: 700px; color: rgb(20, 20, 19); }
+        </style>
+        <div id="s01-title" class="clip" data-start="0" data-duration="3" data-track-index="0">Smoke test</div>
+        <div id="s01-future" class="clip" data-start="0" data-duration="3" data-track-index="1">Staged reveal</div>
+        <div id="s01-late" class="clip" data-start="0" data-duration="3" data-track-index="2">Late handoff</div>
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            const tl = gsap.timeline({ paused: true });
+            tl.set("#s01-future", { opacity: 0 }, 0);
+            tl.set("#s01-late", { color: "rgb(20, 20, 19)" }, 0);
+            tl.to("#s01-future", { opacity: 1, duration: 0.2, ease: "none" }, 1.5);
+            tl.set("#s01-late", { color: "rgb(204, 120, 92)" }, 2.7);
+            tl.to("#s01-title", { opacity: 1, duration: 3, ease: "none" }, 0);
+            window.__timelines["01-smoke"] = tl;
+          })();
+        </script>
       </div>
-      <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-      <script>
-        window.__timelines = window.__timelines || {};
-        window.__timelines["01-smoke"] = gsap.timeline({ paused: true });
-      </script>
     </template>
   </body>
 </html>

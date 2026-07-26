@@ -24,7 +24,9 @@ import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { parseCommand } from "../../scripts/cli_args.ts";
+import { resolveHyperframesInstallation } from "../../scripts/hyperframes_cli.ts";
 import { isMainModule } from "../../scripts/main-guard.ts";
+import { ensurePinnedHyperframesPatches } from "./patches.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -90,6 +92,18 @@ export function run(argv: string[]): number {
     console.error(parsed.message);
     console.error(parsed.usage);
     return 2;
+  }
+
+  if (!parsed.positionals[0]) {
+    try {
+      const result = ensurePinnedHyperframesPatches(resolveHyperframesInstallation());
+      console.log(
+        `[patch] ${result.captionLoopChanged ? "applied" : "already applied"} caption-loop fix: ${result.studioBundle}`,
+      );
+      return 0;
+    } catch (e: unknown) {
+      return fail((e as Error).message);
+    }
   }
 
   let bundlePath: string;

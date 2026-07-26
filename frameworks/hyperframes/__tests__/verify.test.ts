@@ -21,9 +21,9 @@ function makeVideo({ index, captionsHtml, groups, claude, gsapSrc = DEFAULT_GSAP
   mkdirSync(shared, { recursive: true });
   mkdirSync(join(output, "compositions", "frames"), { recursive: true });
 
-  if (index !== null) writeFileSync(join(output, "index.html"), index ?? DEFAULT_INDEX);
+  if (index !== null) writeFileSync(join(output, "index.html"), index ?? defaultIndex(gsapSrc));
   if (captionsHtml !== null)
-    writeFileSync(join(output, "compositions", "captions.html"), captionsHtml ?? bakeCaptions(groups ?? DEFAULT_GROUPS));
+    writeFileSync(join(output, "compositions", "captions.html"), captionsHtml ?? bakeCaptions(groups ?? DEFAULT_GROUPS, gsapSrc));
   if (groups !== null)
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: groups ?? DEFAULT_GROUPS }));
   if (claude !== null) writeFileSync(join(output, "CLAUDE.md"), claude ?? "@../../../docs/standards/frameworks/hyperframes.md\n");
@@ -39,9 +39,25 @@ function makeVideo({ index, captionsHtml, groups, claude, gsapSrc = DEFAULT_GSAP
 }
 
 const DEFAULT_GROUPS = [{ id: "caption-group-0", frame: 1, start: 0, end: 1, text: "hi", words: [{ id: "w", text: "hi", start: 0, end: 1 }] }];
-const DEFAULT_INDEX = `<div data-composition-id="main"></div>
-<script>window.__timelines["main"] = 1;</script>`;
-const bakeCaptions = (groups: any) => `  var GROUPS = ${JSON.stringify(groups)};\n  var DURATION = 1;`;
+const embeddedCaptions = (groups: any) => `<template id="captions-template" data-composition-id="captions"><div data-composition-id="captions"><script>
+  var GROUPS = ${JSON.stringify(groups)};
+window.__timelines["captions"] = gsap.timeline({ paused: true });</script></div></template>`;
+const defaultIndex = (gsapSrc = DEFAULT_GSAP_SRC, groups: any = DEFAULT_GROUPS) => `<div data-composition-id="main"></div>
+<script src="${gsapSrc}"></script>
+<script>window.__timelines["main"] = 1;</script>
+${embeddedCaptions(groups)}`;
+const bakeCaptions = (groups: any, gsapSrc = DEFAULT_GSAP_SRC) => `<template id="captions-template" data-composition-id="captions">
+<div data-composition-id="captions">
+<script src="${gsapSrc}"></script>
+<style>.caption-word { opacity: 1; }</style>
+<div id="caption-stage"></div>
+<script>
+  var GROUPS = ${JSON.stringify(groups)};
+  var DURATION = 1;
+  window.__timelines = window.__timelines || {};
+  window.__timelines["captions"] = gsap.timeline({ paused: true });</script>
+</div>
+</template>`;
 
 test("passes a well-formed HF video", () => {
   const { root, output } = makeVideo();
@@ -81,14 +97,64 @@ test("flags a CLAUDE.md missing the HF @import", () => {
   }
 });
 
-test("accepts the configured local GSAP target resolved from an authored frame", () => {
-  const gsapSrc = "runtime/custom-gsap.js";
-  const frameHtml = `<script src="../../runtime/custom-gsap.js"></script>\n<script>gsap.timeline();</script>\n`;
+test("accepts the configured project-root-relative GSAP source unchanged in an authored frame", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const frameHtml = `<script src="assets/gsap/gsap.min.js"></script>\n<script>gsap.timeline();</script>\n`;
   const { root, output } = makeVideo({ gsapSrc, frameHtml });
   try {
-    mkdirSync(join(output, "runtime"), { recursive: true });
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
     writeFileSync(join(output, gsapSrc), "CUSTOM GSAP\n");
     assert.deepEqual(errs(verify(output)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a stale GSAP source in generated index.html", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const { root, output } = makeVideo({
+    gsapSrc,
+    index: defaultIndex("assets/gsap/stale.js"),
+  });
+  try {
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
+    writeFileSync(join(output, gsapSrc), "CUSTOM GSAP\n");
+    const messages = errs(verify(output));
+    assert.ok(messages.some((message) => message.includes("index.html") && message.includes("configured GSAP source")), JSON.stringify(messages));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects caption initialization outside the captions composition root", () => {
+  const captionsHtml = `<template id="captions-template" data-composition-id="captions">
+<div data-composition-id="captions"><script src="${DEFAULT_GSAP_SRC}"></script><div id="caption-stage"></div></div>
+<script>
+  var GROUPS = ${JSON.stringify(DEFAULT_GROUPS)};
+  window.__timelines = window.__timelines || {};
+  window.__timelines["captions"] = gsap.timeline({ paused: true });
+</script>
+</template>`;
+  const { root, output } = makeVideo({ captionsHtml });
+  try {
+    const messages = errs(verify(output));
+    assert.ok(messages.some((message) => message.includes("caption initialization") && message.includes("inside")), JSON.stringify(messages));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a stale GSAP source in generated captions.html", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const { root, output } = makeVideo({
+    gsapSrc,
+    captionsHtml: bakeCaptions(DEFAULT_GROUPS, "assets/gsap/stale.js"),
+  });
+  try {
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
+    writeFileSync(join(output, gsapSrc), "CUSTOM GSAP\n");
+    const messages = errs(verify(output));
+    assert.ok(messages.some((message) => message.includes("compositions/captions.html") && message.includes("configured GSAP source")), JSON.stringify(messages));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -113,8 +179,13 @@ test("requires exactly the configured GSAP source in authored frames", () => {
     },
     {
       name: "local override to different local file",
-      gsapSrc: "runtime/custom-gsap.js",
-      frameHtml: '<script src="../../runtime/other-gsap.js"></script><script>gsap.timeline();</script>',
+      gsapSrc: "assets/gsap/gsap.min.js",
+      frameHtml: '<script src="assets/gsap/other-gsap.js"></script><script>gsap.timeline();</script>',
+    },
+    {
+      name: "local override transformed to parent traversal",
+      gsapSrc: "assets/gsap/gsap.min.js",
+      frameHtml: '<script src="../../assets/gsap/gsap.min.js"></script><script>gsap.timeline();</script>',
     },
     {
       name: "data-src decoy",
@@ -163,9 +234,9 @@ test("requires exactly the configured GSAP source in authored frames", () => {
     const frame = join(output, "compositions", "frames", "01-frame.html");
     try {
       if (entry.gsapSrc !== DEFAULT_GSAP_SRC) {
-        mkdirSync(join(output, "runtime"), { recursive: true });
+        mkdirSync(join(output, "assets", "gsap"), { recursive: true });
         writeFileSync(join(output, entry.gsapSrc), "CUSTOM GSAP\n");
-        writeFileSync(join(output, "runtime", "other-gsap.js"), "OTHER GSAP\n");
+        writeFileSync(join(output, "assets", "gsap", "other-gsap.js"), "OTHER GSAP\n");
       }
       const before = readFileSync(frame, "utf8");
       const messages = errs(verify(output));
@@ -219,13 +290,69 @@ test("flags a JSON<->baked-HTML GROUPS count mismatch", () => {
   }
 });
 
+test("flags embedded captions-template GROUPS that differ from staged JSON", () => {
+  const embeddedGroups = [{ ...DEFAULT_GROUPS[0], text: "stale embedded" }];
+  const index = defaultIndex(DEFAULT_GSAP_SRC, embeddedGroups);
+  const { root, output } = makeVideo({ index });
+  try {
+    const findings = verifyHyperframesCaptionArtifact({
+      sharedDir: join(root, "shared"),
+      outputDir: output,
+      captionGroupsPath: join(root, "shared", "caption_groups.json"),
+    });
+    assert.ok(errs(findings).some((message) => message.includes("embedded captions-template") && message.includes("out of sync")), JSON.stringify(findings));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("duplicate top-level captions templates produce an explicit ambiguity finding", () => {
+  const index = `${embeddedCaptions(DEFAULT_GROUPS)}\n${embeddedCaptions(DEFAULT_GROUPS)}`;
+  const { root, output } = makeVideo({ index });
+  try {
+    const findings = verifyHyperframesCaptionArtifact({
+      sharedDir: join(root, "shared"),
+      outputDir: output,
+      captionGroupsPath: join(root, "shared", "caption_groups.json"),
+    });
+    assert.ok(
+      errs(findings).some((message) => message.includes("multiple top-level") && message.includes("captions-template")),
+      JSON.stringify(findings),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("nested captions-template decoys cannot hide stale top-level runtime captions", () => {
+  const staleGroups = [{ ...DEFAULT_GROUPS[0], text: "stale runtime captions" }];
+  const nestedDecoy = `<template id="frame-template"><div data-composition-id="frame">${embeddedCaptions(DEFAULT_GROUPS)}</div></template>`;
+  const index = `${nestedDecoy}\n${embeddedCaptions(staleGroups)}`;
+  const { root, output } = makeVideo({ index });
+  try {
+    const findings = verifyHyperframesCaptionArtifact({
+      sharedDir: join(root, "shared"),
+      outputDir: output,
+      captionGroupsPath: join(root, "shared", "caption_groups.json"),
+    });
+    assert.ok(
+      errs(findings).some((message) =>
+        message.includes("embedded captions-template") && message.includes("out of sync")
+      ),
+      JSON.stringify(findings),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("flags baked GROUPS whose content differs from the JSON", () => {
   const groups = DEFAULT_GROUPS;
   const drifted = JSON.parse(JSON.stringify(groups));
   drifted[0].text = "changed";
   const { root, output } = makeVideo({ groups, captionsHtml: bakeCaptions(drifted) });
   try {
-    assert.ok(errs(verify(output)).some((m: string) => m.includes("differ in content")));
+    assert.ok(errs(verify(output)).some((m: string) => m.includes("captions.html is out of sync")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -266,6 +393,7 @@ test("focused caption verification compares explicit staged paths", () => {
     const captionGroupsPath = join(sharedDir, "custom-caption-groups.json");
     writeFileSync(captionGroupsPath, JSON.stringify({ groups: DEFAULT_GROUPS }));
     writeFileSync(join(outputDir, "compositions", "captions.html"), bakeCaptions(DEFAULT_GROUPS));
+    writeFileSync(join(outputDir, "index.html"), defaultIndex());
 
     assert.deepEqual(
       errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath })),
@@ -275,7 +403,7 @@ test("focused caption verification compares explicit staged paths", () => {
     const drifted = [{ ...DEFAULT_GROUPS[0], text: "different" }];
     writeFileSync(join(outputDir, "compositions", "captions.html"), bakeCaptions(drifted));
     const messages = errs(verifyHyperframesCaptionArtifact({ sharedDir, outputDir, captionGroupsPath }));
-    assert.ok(messages.some((message) => message.includes("differ in content")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("captions.html is out of sync")), JSON.stringify(messages));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

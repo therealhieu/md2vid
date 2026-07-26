@@ -218,7 +218,7 @@ async function defaultVerifySuppliedArtifact(
   await runStage("skill:home", () => assertInstalledSkill(context, "home"), context);
   console.log("OK [skill:home]: isolated HOME");
   await runStage("smoke:hyperframes", () => frameworkSmoke(context, "hyperframes"), context);
-  console.log(`OK [smoke:hyperframes]: generated build/check + Studio HTTP via ${context.tarball}`);
+  console.log(`OK [smoke:hyperframes]: generated build/check + browser execution + short render via ${context.tarball}`);
   await runStage("smoke:remotion", () => frameworkSmoke(context, "remotion"), context);
   console.log(`OK [smoke:remotion]: generated build/check/still via ${context.tarball}`);
 }

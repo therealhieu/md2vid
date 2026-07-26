@@ -1,24 +1,18 @@
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   mkdtempSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
-import {
-  dirname,
-  extname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-  win32,
-} from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { validateVoiceAsset, validateVoicePath } from "../engine/voice_assets.ts";
+import type { VoiceAssetSnapshot } from "../engine/types.ts";
 
-const VOICE_PREFIX = "assets/voice/";
+export { validateVoicePath } from "../engine/voice_assets.ts";
 
 type Framework = "hyperframes" | "remotion";
 
@@ -31,30 +25,8 @@ export interface StageVoiceAssetsOptions {
   voicePaths: string[];
   sourceRoot: string;
   destinationRoot: string;
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
   fs?: VoiceStageFs;
-}
-
-export function validateVoicePath(input: string): string {
-  if (
-    typeof input !== "string" ||
-    input.length === 0 ||
-    isAbsolute(input) ||
-    win32.isAbsolute(input)
-  ) {
-    throw new Error(`invalid voice asset path: ${input}`);
-  }
-
-  const normalized = input.replaceAll("\\", "/");
-  const parts = normalized.split("/");
-  if (
-    !normalized.startsWith(VOICE_PREFIX) ||
-    extname(normalized).toLowerCase() !== ".wav" ||
-    parts.some((part) => part === "" || part === "." || part === "..")
-  ) {
-    throw new Error(`invalid voice asset path: ${input}`);
-  }
-
-  return normalized;
 }
 
 export function collectVoicePaths(
@@ -86,37 +58,8 @@ function confined(root: string, path: string): string {
   return candidate;
 }
 
-function assertWithin(root: string, candidate: string, path: string): void {
-  const rel = relative(root, candidate);
-  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw new Error(`voice asset path escapes its managed directory: ${path}`);
-  }
-}
-
 function samePath(left: string, right: string): boolean {
   return relative(left, right) === "";
-}
-
-function lstatExisting(path: string): ReturnType<typeof lstatSync> | undefined {
-  try {
-    return lstatSync(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
-}
-
-function assertNoSymlinkComponents(root: string, path: string): void {
-  let current = resolve(root);
-  if (lstatExisting(current)?.isSymbolicLink()) {
-    throw new Error(`voice asset path contains a symlink component: ${path} (${current})`);
-  }
-  for (const part of path.split("/")) {
-    current = join(current, part);
-    if (lstatExisting(current)?.isSymbolicLink()) {
-      throw new Error(`voice asset path contains a symlink component: ${path} (${current})`);
-    }
-  }
 }
 
 function prefixError(framework: Framework, error: unknown): Error {
@@ -132,6 +75,7 @@ export function stageVoiceAssets({
   voicePaths,
   sourceRoot,
   destinationRoot,
+  voiceSnapshots,
   fs = { rename: renameSync },
 }: StageVoiceAssetsOptions): void {
   let paths: string[];
@@ -143,21 +87,19 @@ export function stageVoiceAssets({
 
   const sourceManaged = resolve(sourceRoot, "assets", "voice");
   const destinationManaged = resolve(destinationRoot, "assets", "voice");
+  const snapshotsByPath = new Map(voiceSnapshots?.map((snapshot) => [snapshot.path, snapshot]));
   const files = paths.map((voicePath) => {
     try {
-      const source = confined(sourceRoot, voicePath);
-      const destination = confined(destinationRoot, voicePath);
-      assertWithin(sourceManaged, source, voicePath);
-      assertWithin(destinationManaged, destination, voicePath);
-      assertNoSymlinkComponents(sourceRoot, voicePath);
-      assertNoSymlinkComponents(destinationRoot, voicePath);
-      if (!existsSync(source)) {
-        throw new Error(`missing voice asset ${voicePath} (${source})`);
+      validateVoiceAsset(destinationRoot, voicePath, { allowMissing: true });
+      const snapshot = snapshotsByPath.get(voicePath);
+      if (voiceSnapshots && !snapshot) {
+        throw new Error(`missing immutable voice snapshot for ${voicePath}`);
       }
-      if (!lstatSync(source).isFile()) {
-        throw new Error(`voice asset is not a regular file ${voicePath} (${source})`);
+      if (snapshot) {
+        return { tail: relative(sourceManaged, resolve(sourceRoot, voicePath)), snapshot, source: undefined };
       }
-      return { source };
+      const source = validateVoiceAsset(sourceRoot, voicePath);
+      return { tail: relative(sourceManaged, source), snapshot: undefined, source };
     } catch (error) {
       throw prefixError(framework, error);
     }
@@ -178,10 +120,14 @@ export function stageVoiceAssets({
 
   try {
     for (const file of files) {
-      const tail = relative(sourceManaged, file.source);
-      const stagedFile = confined(staged, tail);
+      const stagedFile = confined(staged, file.tail);
       mkdirSync(dirname(stagedFile), { recursive: true });
-      copyFileSync(file.source, stagedFile);
+      if (file.snapshot) {
+        writeFileSync(stagedFile, file.snapshot.readBytes(), { mode: file.snapshot.mode });
+        chmodSync(stagedFile, file.snapshot.mode);
+      } else {
+        copyFileSync(file.source!, stagedFile);
+      }
     }
     if (existsSync(destinationManaged)) {
       fs.rename(destinationManaged, backup);

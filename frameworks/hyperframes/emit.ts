@@ -17,8 +17,24 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { BuildPlan, CaptionGroup, EmitOptions, VideoConfig } from "../../engine/types.ts";
+import type {
+  BuildPlan,
+  CaptionGroup,
+  EmitOptions,
+  FrameworkPreparation,
+  VideoConfig,
+} from "../../engine/types.ts";
+import {
+  captureVoiceWavSnapshots,
+  validateVoiceAssets,
+} from "../../engine/voice_assets.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
+import {
+  extractCompositionTemplate,
+  moveTopLevelTransportElementsIntoCompositionRoot,
+  removeExternalScriptSource,
+  replaceTemplateById,
+} from "./html.ts";
 import {
   DEFAULT_GSAP_SRC,
   ensureRuntime,
@@ -45,6 +61,22 @@ const DEFAULT_CAPTION_TOKENS = {
   "--cap-band-height": "200px",
   "--font-display": '"EB Garamond"',
 };
+
+export function sanitizeCompositionTemplate(
+  html: string,
+  compositionId: string,
+  gsapSrc: string,
+  documentPath: string,
+): string {
+  const body = extractCompositionTemplate(html, compositionId, documentPath);
+  const withoutGsapSource = removeExternalScriptSource(body, gsapSrc, documentPath);
+  const sanitized = moveTopLevelTransportElementsIntoCompositionRoot(
+    withoutGsapSource,
+    compositionId,
+    documentPath,
+  );
+  return `<template id="${compositionId}-template" data-composition-id="${compositionId}">\n${sanitized.trim()}\n</template>`;
+}
 
 // Fill the canonical caption skin (the ONE source of truth for the caption LOOK) with
 // the regrouped GROUPS (read off disk) + duration/canvas/tokens from the plan. The look
@@ -93,22 +125,35 @@ export function buildCaptionsHtml(plan: BuildPlan, groups: CaptionGroup[], confi
 }
 
 // Build the main index.html: frame mounts + voice audio + crossfade transitions.
-export function buildIndexHtml(plan: BuildPlan, config: VideoConfig): string {
+export function buildIndexHtml(
+  plan: BuildPlan,
+  config: VideoConfig,
+  embeddedTemplates: string[] = [],
+): string {
   const { width, height } = plan.canvas;
   const total = plan.totalDuration;
   const xfade = plan.timing.xfade;
   const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
   const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "index.html");
   const frames = plan.frames;
+  const embeddedCompositionIds = new Set(
+    embeddedTemplates.flatMap((template) => {
+      const match = template.match(/<template\b[^>]*\bid=["']([^"']+)-template["']/i);
+      return match ? [match[1]] : [];
+    }),
+  );
+  const sourceAttribute = (compositionId: string, source: string): string =>
+    embeddedCompositionIds.has(compositionId)
+      ? ""
+      : `\n        data-composition-src="${source}"`;
 
   const mounts = frames
     .map((f) => {
-      const trackIdx = f.frameNum % 2 === 1 ? 0 : 1; // alternate tracks 0/1 like the golden ref
+      const trackIdx = f.frameNum % 2 === 1 ? 20 : 21; // keep hosts above authored tracks 0-9 + voice track 10
       return `      <div
         id="el-${f.slug}"
         class="scene"
-        data-composition-id="${f.slug}"
-        data-composition-src="compositions/frames/${f.slug}.html"
+        data-composition-id="${f.slug}"${sourceAttribute(f.slug, `compositions/frames/${f.slug}.html`)}
         data-start="${f.start.toFixed(3)}"
         data-duration="${f.frameDur.toFixed(3)}"
         data-track-index="${trackIdx}"
@@ -163,11 +208,10 @@ ${mounts}
       <div
         id="el-captions"
         class="scene"
-        data-composition-id="captions"
-        data-composition-src="compositions/captions.html"
+        data-composition-id="captions"${sourceAttribute("captions", "compositions/captions.html")}
         data-start="0"
         data-duration="${total.toFixed(3)}"
-        data-track-index="2"
+        data-track-index="22"
       ></div>
     </div>
 
@@ -179,44 +223,121 @@ ${transitions}
         tl.to({}, { duration: ${total.toFixed(3)} }, 0);
       })();
     <\/script>
+
+${embeddedTemplates.map((template) => template.split("\n").map((line) => line ? `    ${line}` : "").join("\n")).join("\n\n")}
   </body>
 </html>
 `;
 }
 
+export function preflight(
+  plan: BuildPlan,
+  sharedDir: string,
+  outputDir: string,
+  config: VideoConfig,
+  { captionsOnly = false, runtimeSourceDir, assetSourceDir, voiceSnapshots }: EmitOptions = {},
+): FrameworkPreparation {
+  const sourceDir = runtimeSourceDir ?? outputDir;
+  const voiceSourceDir = assetSourceDir ?? sharedDir;
+  const gsapSrc = validateGsapSrc(sourceDir, config.gsapSrc);
+  if (captionsOnly) {
+    const groups = JSON.parse(
+      readFileSync(join(sharedDir, "caption_groups.json"), "utf8"),
+    ).groups;
+    const captionsHtml = buildCaptionsHtml(plan, groups, { ...config, gsapSrc });
+    const embeddedCaptionsTemplate = sanitizeCompositionTemplate(
+      captionsHtml,
+      "captions",
+      gsapSrc,
+      "compositions/captions.html",
+    );
+    const captionIndexHtml = replaceTemplateById(
+      readFileSync(join(sourceDir, "index.html"), "utf8"),
+      "captions-template",
+      embeddedCaptionsTemplate,
+    );
+    return { captionsHtml, captionIndexHtml };
+  }
+
+  const voicePaths = collectVoicePaths(plan.frames);
+  const capturedVoiceSnapshots = voiceSnapshots
+    ? [...voiceSnapshots]
+    : captureVoiceWavSnapshots(voiceSourceDir, voicePaths);
+  validateVoiceAssets(sourceDir, voicePaths, { allowMissing: true });
+  const embeddedFrameTemplates = plan.frames.map((frame) => {
+    const documentPath = `compositions/frames/${frame.slug}.html`;
+    return sanitizeCompositionTemplate(
+      readFileSync(join(outputDir, "compositions", "frames", `${frame.slug}.html`), "utf8"),
+      frame.slug,
+      gsapSrc,
+      documentPath,
+    );
+  });
+  return { embeddedFrameTemplates, voiceSnapshots: capturedVoiceSnapshots };
+}
+
 // The adapter contract: plan in, framework files out. Idempotent.
 // Reads the REGROUPED shared/caption_groups.json off disk for the baked GROUPS (see
-// header). `captionsOnly` skips index.html — used by the mid-chain captions refill.
+// header). `captionsOnly` writes preflight-prepared standalone + embedded captions.
 export function emit(
   plan: BuildPlan,
   sharedDir: string,
   outputDir: string,
   config: VideoConfig,
-  { captionsOnly = false, runtimeSourceDir }: EmitOptions = {},
+  options: EmitOptions = {},
 ): void {
+  const { captionsOnly = false, runtimeSourceDir, assetSourceDir, voiceSnapshots, prepared } = options;
+  const preparation = prepared ?? preflight(
+    plan,
+    sharedDir,
+    outputDir,
+    config,
+    { captionsOnly, runtimeSourceDir, assetSourceDir, voiceSnapshots },
+  );
+  if (captionsOnly) {
+    if (preparation.captionsHtml === undefined || preparation.captionIndexHtml === undefined) {
+      throw new Error("captions-only preflight did not prepare both caption artifacts");
+    }
+    writeFileSync(
+      join(outputDir, "compositions", "captions.html"),
+      preparation.captionsHtml,
+    );
+    writeFileSync(join(outputDir, "index.html"), preparation.captionIndexHtml);
+    return;
+  }
+  if (preparation.embeddedFrameTemplates?.length !== plan.frames.length) {
+    throw new Error("prepared frame template count does not match the build plan");
+  }
   const emittedConfig = {
     ...config,
-    gsapSrc: validateGsapSrc(runtimeSourceDir ?? outputDir, config.gsapSrc),
+    gsapSrc: config.gsapSrc ?? DEFAULT_GSAP_SRC,
   };
   const groupsPath = join(sharedDir, "caption_groups.json");
   const groups = JSON.parse(readFileSync(groupsPath, "utf8")).groups;
-
-  if (!captionsOnly) {
-    ensureRuntime(outputDir, "hyperframes");
-    stageVoiceAssets({
-      framework: "hyperframes",
-      voicePaths: collectVoicePaths(plan.frames),
-      sourceRoot: sharedDir,
-      destinationRoot: outputDir,
-    });
-  }
-
-  writeFileSync(
-    join(outputDir, "compositions", "captions.html"),
-    buildCaptionsHtml(plan, groups, emittedConfig),
+  const captionsHtml = buildCaptionsHtml(plan, groups, emittedConfig);
+  const embeddedCaptionsTemplate = sanitizeCompositionTemplate(
+    captionsHtml,
+    "captions",
+    emittedConfig.gsapSrc,
+    "compositions/captions.html",
   );
+  const embeddedTemplates = [
+    ...(preparation.embeddedFrameTemplates ?? []),
+    embeddedCaptionsTemplate,
+  ];
 
-  if (!captionsOnly) {
-    writeFileSync(join(outputDir, "index.html"), buildIndexHtml(plan, emittedConfig));
-  }
+  ensureRuntime(outputDir, "hyperframes");
+  stageVoiceAssets({
+    framework: "hyperframes",
+    voicePaths: collectVoicePaths(plan.frames),
+    sourceRoot: assetSourceDir ?? sharedDir,
+    destinationRoot: outputDir,
+    voiceSnapshots: preparation.voiceSnapshots ?? voiceSnapshots,
+  });
+
+  writeFileSync(join(outputDir, "compositions", "captions.html"), captionsHtml);
+  writeFileSync(
+    join(outputDir, "index.html"),
+    buildIndexHtml(plan, emittedConfig, embeddedTemplates),
+  );
 }

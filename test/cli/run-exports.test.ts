@@ -8,16 +8,31 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { validateAudioMeta } from "../../engine/audio_meta.ts";
 import { plan } from "../../engine/plan.ts";
+import { transcribeVoices } from "../../engine/transcribe.ts";
+import { run as buildScriptRun } from "../../scripts/build.ts";
+import { makePcmWav, makeWavForSafeDuration } from "../helpers/wav.ts";
+
+const ONE_SECOND_WAV = makePcmWav({ sampleRate: 48_000, sampleFrames: 48_000 });
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const SCRIPTS = join(REPO_ROOT, "scripts");
 const FIXTURES = join(REPO_ROOT, "test", "golden", "fixtures", "hash-table-example", "inputs");
+const PINNED_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+
+function authoredFrame(slug: string): string {
+  return `<template data-composition-id="${slug}">
+<div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1"></div>
+<script src="${PINNED_GSAP}"></script>
+<script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script>
+</template>\n`;
+}
 
 // Seed a temp video (shared/ neutral inputs + hyperframes/ output) from the pinned
 // golden inputs so build/regroup/verify have a real, deterministic target.
@@ -27,10 +42,12 @@ function seedVideo() {
   const output = join(tmp, "hyperframes");
   mkdirSync(join(shared, "assets", "voice"), { recursive: true });
   mkdirSync(join(output, "compositions", "frames"), { recursive: true });
-  for (const id of ["01", "02", "03", "04", "05", "06", "07"]) {
-    writeFileSync(join(shared, "assets", "voice", `${id}.wav`), `VOICE${id}`);
-  }
   copyFileSync(join(FIXTURES, "audio_meta.json"), join(shared, "audio_meta.json"));
+  const metaPath = join(shared, "audio_meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  for (const voice of meta.voices) {
+    writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+  }
   copyFileSync(join(FIXTURES, "video.config.json"), join(shared, "video.config.json"));
   copyFileSync(join(FIXTURES, "output.config.json"), join(output, "output.config.json"));
   for (const slug of [
@@ -42,7 +59,7 @@ function seedVideo() {
     "06-why-matters",
     "07-recap",
   ]) {
-    writeFileSync(join(output, "compositions", "frames", `${slug}.html`), "<html></html>\n");
+    writeFileSync(join(output, "compositions", "frames", `${slug}.html`), authoredFrame(slug));
   }
   return { tmp, shared, output };
 }
@@ -85,7 +102,7 @@ test("build: run() returns 0 on a valid video, non-zero on a missing dir", async
 test("build validation failures leave neutral and framework outputs unchanged", async () => {
   const run = await runOf("build.ts");
 
-  for (const failure of ["duplicate IDs", "missing slug mapping", "string slugs", "array slugs"] as const) {
+  for (const failure of ["duplicate IDs", "missing slug mapping", "string slugs", "array slugs", "invalid timings"] as const) {
     const { tmp, shared, output } = seedVideo();
     try {
       const metaPath = join(shared, "audio_meta.json");
@@ -97,6 +114,10 @@ test("build validation failures leave neutral and framework outputs unchanged", 
         meta.voices[1].id = meta.voices[0].id;
       } else if (failure === "missing slug mapping") {
         delete config.slugs[meta.voices[0].id];
+      } else if (failure === "invalid timings") {
+        const word = meta.voices[0].words.at(-1);
+        word.id = "closing";
+        word.end = meta.voices[0].duration_s + 0.1;
       } else {
         meta.voices.forEach((voice: { id: string }, index: number) => {
           voice.id = String(index);
@@ -120,9 +141,113 @@ test("build validation failures leave neutral and framework outputs unchanged", 
 
       const result = await captureRun(run, [output]);
       assert.equal(result.code, 1, failure);
+      if (failure === "invalid timings") {
+        assert.ok(result.stderr.includes(metaPath), result.stderr);
+        assert.match(result.stderr, /voice "01"/);
+        assert.match(result.stderr, /word "closing"/);
+      }
       for (const [path, contents] of sentinels) {
         assert.equal(readFileSync(path, "utf8"), contents, `${failure}: ${path} was mutated`);
       }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+});
+
+test("build rejects invalid authored frame templates before changing neutral or framework artifacts", async () => {
+  const run = await runOf("build.ts");
+  for (const invalid of ["missing", "malformed", "mismatched"] as const) {
+    const { tmp, shared, output } = seedVideo();
+    try {
+      const frame = join(output, "compositions", "frames", "01-cover.html");
+      if (invalid === "missing") rmSync(frame);
+      else if (invalid === "malformed") writeFileSync(frame, '<template data-composition-id="01-cover"><div data-composition-id="01-cover"></div>');
+      else writeFileSync(frame, authoredFrame("wrong-id"));
+
+      mkdirSync(join(shared, "build"), { recursive: true });
+      const sentinels = [
+        [join(shared, "cues.json"), `cues ${invalid}\n`],
+        [join(shared, "caption_groups.json"), `groups ${invalid}\n`],
+        [join(shared, "build", "build_plan.json"), `plan ${invalid}\n`],
+        [join(output, "index.html"), `index ${invalid}\n`],
+        [join(output, "compositions", "captions.html"), `captions ${invalid}\n`],
+      ] as const;
+      for (const [path, bytes] of sentinels) writeFileSync(path, bytes);
+
+      const result = await captureRun(run, [output]);
+      assert.equal(result.code, 1, invalid);
+      assert.match(result.stderr, invalid === "missing" ? /01-cover\.html/ : /template|composition id/i);
+      for (const [path, bytes] of sentinels) assert.equal(readFileSync(path, "utf8"), bytes, `${invalid}: ${path}`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+});
+
+test("direct build --captions-only atomically updates or preserves standalone and embedded captions", () => {
+  const mutateGroups = (shared: string) => {
+    const path = join(shared, "caption_groups.json");
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    parsed.groups = [{ id: "changed", frame: 1, start: 0, end: 1, text: "Changed captions", words: [{ id: "changed-word", text: "Changed", start: 0, end: 1 }] }];
+    writeFileSync(path, JSON.stringify(parsed, null, 2) + "\n");
+  };
+
+  {
+    const { tmp, shared, output } = seedVideo();
+    try {
+      assert.equal(buildScriptRun([output]), 0);
+      mutateGroups(shared);
+      assert.equal(buildScriptRun([output, "--captions-only"]), 0);
+      assert.match(readFileSync(join(output, "compositions", "captions.html"), "utf8"), /Changed captions/);
+      assert.match(readFileSync(join(output, "index.html"), "utf8"), /<template id="captions-template"[\s\S]*Changed captions/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const { tmp, shared, output } = seedVideo();
+    try {
+      assert.equal(buildScriptRun([output]), 0);
+      const captionsPath = join(output, "compositions", "captions.html");
+      const indexPath = join(output, "index.html");
+      const captionsBefore = readFileSync(captionsPath, "utf8");
+      writeFileSync(indexPath, "MALFORMED INDEX WITHOUT CAPTIONS TEMPLATE\n");
+      const indexBefore = readFileSync(indexPath, "utf8");
+      mutateGroups(shared);
+
+      assert.equal(buildScriptRun([output, "--captions-only"]), 1);
+      assert.equal(readFileSync(captionsPath, "utf8"), captionsBefore);
+      assert.equal(readFileSync(indexPath, "utf8"), indexBefore);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const { tmp, shared, output } = seedVideo();
+    try {
+      assert.equal(buildScriptRun([output]), 0);
+      const captionsPath = join(output, "compositions", "captions.html");
+      const indexPath = join(output, "index.html");
+      const captionsBefore = readFileSync(captionsPath, "utf8");
+      const indexBefore = readFileSync(indexPath, "utf8");
+      mutateGroups(shared);
+      let promotions = 0;
+      const result = (buildScriptRun as any)([output, "--captions-only"], {
+        transactionDependencies: {
+          rename(source: string, destination: string) {
+            if (String(source).includes(".md2vid-build-captions-") && ++promotions === 1) {
+              throw new Error("injected caption promotion failure");
+            }
+            renameSync(source, destination);
+          },
+        },
+      });
+      assert.equal(result, 1);
+      assert.equal(readFileSync(captionsPath, "utf8"), captionsBefore);
+      assert.equal(readFileSync(indexPath, "utf8"), indexBefore);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -192,6 +317,94 @@ test("transcribe: run() returns non-zero when audio_meta.json is missing", async
   }
 });
 
+test("transcribe does not persist partial provider results", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const root = mkdtempSync(join(tmpdir(), "run-exports-transcribe-partial-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  try {
+    mkdirSync(output, { recursive: true });
+    mkdirSync(shared, { recursive: true });
+    const metaPath = join(shared, "audio_meta.json");
+    const original = `${JSON.stringify({
+      voices: [
+        { id: "01", path: "assets/voice/01.wav", duration_s: 1, words: [{ id: "stale-1", text: "late", start: 0.9, end: 1.2 }] },
+        { id: "02", path: "assets/voice/02.wav", duration_s: 1, words: [{ id: "stale-2", text: "inverted", start: 0.8, end: 0.2 }] },
+      ],
+    }, null, 2)}\n`;
+    writeFileSync(metaPath, original);
+
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta) {
+          meta.voices[0].words = [{ id: "w0", text: "partial", start: 0, end: 0.5 }];
+          return { meta, ok: 1, total: 2 };
+        },
+      }),
+      [output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.equal(readFileSync(metaPath, "utf8"), original);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("transcribe replaces invalid existing words and persists normalized provider output", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const root = mkdtempSync(join(tmpdir(), "run-exports-transcribe-repair-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  try {
+    mkdirSync(output, { recursive: true });
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    writeFileSync(
+      join(shared, "assets", "voice", "resolution-path.wav"),
+      makePcmWav({ sampleRate: 48_000, sampleFrames: 837_632 }),
+    );
+    const metaPath = join(shared, "audio_meta.json");
+    writeFileSync(metaPath, `${JSON.stringify({
+      voices: [{
+        id: "resolution-path",
+        path: "assets/voice/resolution-path.wav",
+        duration_s: 17.451,
+        words: [{ id: "stale", text: "stale", start: 17.2, end: 17.451 }],
+      }],
+    }, null, 2)}\n`);
+    let providerCalls = 0;
+
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta, baseDir: string) {
+          return transcribeVoices(meta, baseDir, {
+            run(args) {
+              providerCalls += 1;
+              const transcriptDir = args[args.indexOf("--dir") + 1];
+              writeFileSync(join(transcriptDir, "transcript.json"), JSON.stringify([
+                { text: "repaired", start: 17.44, end: 17.451 },
+              ]));
+              return 0;
+            },
+          });
+        },
+      }),
+      [output],
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(providerCalls, 1);
+    const persisted = JSON.parse(readFileSync(metaPath, "utf8"));
+    assert.equal(persisted.voices[0].duration_s, 17.450666);
+    assert.deepEqual(persisted.voices[0].words, [
+      { id: "w0", text: "repaired", start: 17.44, end: 17.450666 },
+    ]);
+    assert.doesNotThrow(() => validateAudioMeta(persisted, metaPath));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("project commands report neutral artifacts from the resolved shared directory", async () => {
   const build = await runOf("build.ts");
   const regroup = await runOf("regroup.ts");
@@ -225,6 +438,16 @@ test("project commands report neutral artifacts from the resolved shared directo
       assert.ok(regroupResult.stderr.includes(join(shared, "caption_groups.json")), regroupResult.stderr);
 
       writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+      writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
+        voices: [{
+          id: "intro",
+          path: "assets/voice/intro.wav",
+          duration_s: 1,
+          words: [{ id: "w0", text: "Intro", start: 0, end: 1 }],
+        }],
+      }));
+      mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+      writeFileSync(join(shared, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
       if (layout === "canonical") {
         writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
       }
@@ -295,6 +518,16 @@ test("verify keeps canonical shared authoritative over stale flat captions", asy
     mkdirSync(join(output, "compositions"), { recursive: true });
     mkdirSync(shared, { recursive: true });
     writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+    writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
+      voices: [{
+        id: "intro",
+        path: "assets/voice/intro.wav",
+        duration_s: 1,
+        words: [{ id: "w0", text: "Intro", start: 0, end: 1 }],
+      }],
+    }));
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    writeFileSync(join(shared, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
     writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
     writeFileSync(join(output, "caption_groups.json"), JSON.stringify({ groups: [{ words: ["stale"] }] }));
     writeFileSync(join(output, "compositions", "captions.html"), "var GROUPS = [];\n");
@@ -316,11 +549,18 @@ test("transcribe passes the resolved shared directory to its provider", async ()
   try {
     mkdirSync(output, { recursive: true });
     mkdirSync(shared, { recursive: true });
-    writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({ voices: [] }));
+    writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
+      voices: [{
+        id: "intro",
+        path: "assets/voice/intro.wav",
+        duration_s: 1,
+        words: [{ id: "w0", text: "Intro", start: 0, end: 1 }],
+      }],
+    }));
 
     const transcribe: typeof import("../../engine/transcribe.ts").transcribeVoices = (meta, baseDir) => {
       receivedBase = baseDir;
-      return { meta, ok: 0, total: 0 };
+      return { meta, ok: 1, total: 1 };
     };
 
     assert.equal(module.run([output], { transcribeVoices: transcribe }), 0);

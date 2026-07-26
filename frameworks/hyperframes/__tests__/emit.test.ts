@@ -15,7 +15,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { emit } from "../emit.ts";
+import { buildIndexHtml, emit, preflight, sanitizeCompositionTemplate } from "../emit.ts";
+import { extractTemplateById, replaceTemplateById } from "../html.ts";
+import { makePcmWav } from "../../../test/helpers/wav.ts";
+
+const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 });
+const VOICE02 = Buffer.from(VOICE01);
+VOICE02[VOICE02.length - 1] = 1;
 
 // A minimal 2-frame plan (pre-regroup: one group per frame).
 function makePlan() {
@@ -35,14 +41,29 @@ function makePlan() {
   };
 }
 
+function authoredFrame(slug: string, gsapSrc = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js") {
+  return `<!doctype html>
+<html><body>
+  <template data-composition-id="${slug}">
+    <style>#${slug}-root { position: absolute; inset: 0; }</style>
+    <div id="${slug}-root" data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="2"></div>
+    <script src="${gsapSrc}"></script>
+    <script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script>
+  </template>
+</body></html>
+`;
+}
+
 function setup() {
   const tmp = mkdtempSync(join(tmpdir(), "emit-"));
   const shared = join(tmp, "shared");
   const output = join(tmp, "hyperframes");
   mkdirSync(join(shared, "assets", "voice"), { recursive: true });
-  writeFileSync(join(shared, "assets", "voice", "01.wav"), "VOICE01");
-  writeFileSync(join(shared, "assets", "voice", "02.wav"), "VOICE02");
-  mkdirSync(join(output, "compositions"), { recursive: true });
+  writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+  writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
+  mkdirSync(join(output, "compositions", "frames"), { recursive: true });
+  writeFileSync(join(output, "compositions", "frames", "01-a.html"), authoredFrame("01-a"));
+  writeFileSync(join(output, "compositions", "frames", "02-b.html"), authoredFrame("02-b"));
   return { tmp, shared, output };
 }
 
@@ -59,8 +80,8 @@ test("canonical emit stages real voice files under the HyperFrames root", () => 
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
     emit(plan, shared, output, {});
 
-    assert.equal(readFileSync(join(output, "assets", "voice", "01.wav"), "utf8"), "VOICE01");
-    assert.equal(readFileSync(join(output, "assets", "voice", "02.wav"), "utf8"), "VOICE02");
+    assert.equal(readFileSync(join(output, "assets", "voice", "01.wav")).equals(VOICE01), true);
+    assert.equal(readFileSync(join(output, "assets", "voice", "02.wav")).equals(VOICE02), true);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -77,8 +98,9 @@ test("default emit uses the pinned CDN and does not scaffold local GSAP bytes", 
     const index = readFileSync(join(output, "index.html"), "utf8");
     const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
     const pinned = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
-    assert.ok(index.includes(`<script src="${pinned}">`));
+    assert.equal(index.match(new RegExp(pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length, 1);
     assert.ok(captions.includes(`<script src="${pinned}">`));
+    assert.doesNotMatch(index, new RegExp(`<template[^>]*>[\\s\\S]*?<script src="${pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
     assert.equal(existsSync(join(output, "assets", "gsap.min.js")), false);
     assert.ok(existsSync(join(output, "assets")), "assets directory remains available for voice files");
   } finally {
@@ -97,8 +119,8 @@ test("full emit prunes stale voice files while preserving planned WAV bytes", ()
     emit(plan, shared, output, {});
 
     assert.equal(existsSync(join(output, "assets", "voice", "stale.wav")), false);
-    assert.equal(readFileSync(join(output, "assets", "voice", "01.wav"), "utf8"), "VOICE01");
-    assert.equal(readFileSync(join(output, "assets", "voice", "02.wav"), "utf8"), "VOICE02");
+    assert.equal(readFileSync(join(output, "assets", "voice", "01.wav")).equals(VOICE01), true);
+    assert.equal(readFileSync(join(output, "assets", "voice", "02.wav")).equals(VOICE02), true);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -119,7 +141,7 @@ test("missing WAV leaves prior managed voices and emitted references unchanged",
 
     assert.throws(
       () => emit(plan, shared, output, {}),
-      /FAIL \[hyperframes:emit\]: missing voice asset/,
+      /missing voice asset/,
     );
     assert.equal(readFileSync(join(output, "index.html"), "utf8"), "OLD INDEX\n");
     assert.equal(readFileSync(join(output, "compositions", "captions.html"), "utf8"), "OLD CAPTIONS\n");
@@ -130,18 +152,21 @@ test("missing WAV leaves prior managed voices and emitted references unchanged",
   }
 });
 
-test("captionsOnly emits a staged caption artifact with the pinned CDN", () => {
-  const { tmp, shared } = setup();
+test("captionsOnly emits staged standalone and embedded caption artifacts with the pinned CDN", () => {
+  const { tmp, shared, output } = setup();
   const stagedOutput = join(tmp, "stage", "hyperframes");
   try {
     const plan = makePlan();
     mkdirSync(join(stagedOutput, "compositions"), { recursive: true });
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
 
-    emit(plan, shared, stagedOutput, {}, { captionsOnly: true });
+    emit(plan, shared, stagedOutput, {}, { captionsOnly: true, runtimeSourceDir: output });
 
     const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
+    const index = readFileSync(join(stagedOutput, "index.html"), "utf8");
     assert.match(captions, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
+    assert.match(index, /<template id="captions-template"/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -152,38 +177,46 @@ test("captionsOnly validates local GSAP from the runtime source while writing to
   const stagedOutput = join(tmp, "stage", "hyperframes");
   try {
     const plan = makePlan();
-    mkdirSync(join(output, "assets"), { recursive: true });
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
     mkdirSync(join(stagedOutput, "compositions"), { recursive: true });
-    writeFileSync(join(output, "assets", "gsap.min.js"), "CUSTOM GSAP");
+    writeFileSync(join(output, "assets", "gsap", "gsap.min.js"), "CUSTOM GSAP");
+    for (const frame of plan.frames) {
+      writeFileSync(
+        join(output, "compositions", "frames", `${frame.slug}.html`),
+        authoredFrame(frame.slug, "assets/gsap/gsap.min.js"),
+      );
+    }
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, { gsapSrc: "assets/gsap/gsap.min.js" });
 
-    emit(plan, shared, stagedOutput, { gsapSrc: "assets/gsap.min.js" }, {
+    emit(plan, shared, stagedOutput, { gsapSrc: "assets/gsap/gsap.min.js" }, {
       captionsOnly: true,
       runtimeSourceDir: output,
     });
 
     const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
-    assert.match(captions, /<script src="\.\.\/assets\/gsap\.min\.js">/);
-    assert.equal(existsSync(join(stagedOutput, "assets", "gsap.min.js")), false);
+    assert.match(captions, /<script src="assets\/gsap\/gsap\.min\.js">/);
+    assert.equal(existsSync(join(stagedOutput, "assets", "gsap", "gsap.min.js")), false);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("captionsOnly skips runtime and voice staging", () => {
+test("captionsOnly stages index without staging runtime or voices", () => {
   const { tmp, shared, output } = setup();
+  const stagedOutput = join(tmp, "stage", "hyperframes");
   try {
     const plan = makePlan();
-    rmSync(join(shared, "assets"), { recursive: true, force: true });
-    mkdirSync(join(output, "assets", "voice"), { recursive: true });
-    writeFileSync(join(output, "assets", "voice", "sentinel.wav"), "KEEP");
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
+    rmSync(join(shared, "assets"), { recursive: true, force: true });
+    mkdirSync(join(stagedOutput, "compositions"), { recursive: true });
 
-    emit(plan, shared, output, {}, { captionsOnly: true });
+    emit(plan, shared, stagedOutput, {}, { captionsOnly: true, runtimeSourceDir: output });
 
-    assert.equal(readFileSync(join(output, "assets", "voice", "sentinel.wav"), "utf8"), "KEEP");
-    assert.equal(existsSync(join(output, "hyperframes.json")), false);
-    assert.equal(existsSync(join(output, "index.html")), false);
+    assert.equal(existsSync(join(stagedOutput, "assets", "voice")), false);
+    assert.equal(existsSync(join(stagedOutput, "hyperframes.json")), false);
+    assert.equal(existsSync(join(stagedOutput, "index.html")), true);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -194,15 +227,18 @@ test("flat emit preserves voice bytes without transaction residue", () => {
   try {
     const plan = makePlan();
     mkdirSync(join(flat, "assets", "voice"), { recursive: true });
-    writeFileSync(join(flat, "assets", "voice", "01.wav"), "FLAT01");
-    writeFileSync(join(flat, "assets", "voice", "02.wav"), "FLAT02");
+    mkdirSync(join(flat, "compositions", "frames"), { recursive: true });
+    writeFileSync(join(flat, "compositions", "frames", "01-a.html"), authoredFrame("01-a"));
+    writeFileSync(join(flat, "compositions", "frames", "02-b.html"), authoredFrame("02-b"));
+    writeFileSync(join(flat, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(flat, "assets", "voice", "02.wav"), VOICE02);
     writeFileSync(join(flat, "assets", "voice", "sentinel.wav"), "KEEP");
     writeFileSync(join(flat, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
 
     emit(plan, flat, flat, {});
 
-    assert.equal(readFileSync(join(flat, "assets", "voice", "01.wav"), "utf8"), "FLAT01");
-    assert.equal(readFileSync(join(flat, "assets", "voice", "02.wav"), "utf8"), "FLAT02");
+    assert.equal(readFileSync(join(flat, "assets", "voice", "01.wav")).equals(VOICE01), true);
+    assert.equal(readFileSync(join(flat, "assets", "voice", "02.wav")).equals(VOICE02), true);
     assert.equal(readFileSync(join(flat, "assets", "voice", "sentinel.wav"), "utf8"), "KEEP");
     assert.ok(existsSync(join(flat, "index.html")));
     assert.deepEqual(transactionResidue(flat), []);
@@ -217,24 +253,385 @@ test("index.html mounts every frame with alternating tracks + crossfade pairs", 
     const plan = makePlan();
     // caption_groups.json must exist for emit's captions bake.
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
-    mkdirSync(join(output, "assets"), { recursive: true });
-    writeFileSync(join(output, "assets", "gsap.min.js"), "CUSTOM GSAP");
-    emit(plan, shared, output, { gsapSrc: "assets/gsap.min.js" });
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
+    writeFileSync(join(output, "assets", "gsap", "gsap.min.js"), "CUSTOM GSAP");
+    for (const frame of plan.frames) {
+      writeFileSync(
+        join(output, "compositions", "frames", `${frame.slug}.html`),
+        authoredFrame(frame.slug, "assets/gsap/gsap.min.js"),
+      );
+    }
+    emit(plan, shared, output, { gsapSrc: "assets/gsap/gsap.min.js" });
 
     const index = readFileSync(join(output, "index.html"), "utf8");
     const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
-    // both frames mounted
-    assert.match(index, /data-composition-src="compositions\/frames\/01-a\.html"/);
-    assert.match(index, /data-composition-src="compositions\/frames\/02-b\.html"/);
-    // alternating tracks: frame 1 (odd) -> track 0, frame 2 (even) -> track 1
-    assert.match(index, /id="el-01-a"[\s\S]*?data-track-index="0"/);
-    assert.match(index, /id="el-02-b"[\s\S]*?data-track-index="1"/);
+    // Embedded frame/caption templates are the only runtime source in a full emit.
+    assert.doesNotMatch(index, /data-composition-src=/);
+    assert.match(index, /<template id="01-a-template"/);
+    assert.match(index, /<template id="02-b-template"/);
+    assert.match(index, /<template id="captions-template"/);
+    assert.ok(existsSync(join(output, "compositions", "frames", "01-a.html")));
+    assert.ok(existsSync(join(output, "compositions", "frames", "02-b.html")));
+    assert.ok(existsSync(join(output, "compositions", "captions.html")));
+    // alternating host tracks stay above authored content tracks 0-9 + voice track 10
+    assert.match(index, /id="el-01-a"[\s\S]*?data-track-index="20"/);
+    assert.match(index, /id="el-02-b"[\s\S]*?data-track-index="21"/);
+    assert.match(index, /id="el-captions"[\s\S]*?data-track-index="22"/);
     // one crossfade boundary (2 frames -> 1 transition): fade out prev + fade in next
     assert.match(index, /tl\.to\("#el-01-a", \{ opacity: 0/);
     assert.match(index, /tl\.fromTo\("#el-02-b"/);
-    // explicit local gsapSrc override wired through both emitted entry points
-    assert.match(index, /<script src="assets\/gsap\.min\.js">/);
-    assert.match(captions, /<script src="\.\.\/assets\/gsap\.min\.js">/);
+    // explicit local gsapSrc remains project-root-relative in both emitted entry points
+    assert.match(index, /<script src="assets\/gsap\/gsap\.min\.js">/);
+    assert.match(captions, /<script src="assets\/gsap\/gsap\.min\.js">/);
+    assert.doesNotMatch(index, /(?:^|["'])\.\.\//m);
+    assert.doesNotMatch(captions, /(?:^|["'])\.\.\//m);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("legacy index generation without embedded templates retains source loading", () => {
+  const index = buildIndexHtml(makePlan(), {}, []);
+  assert.match(index, /data-composition-src="compositions\/frames\/01-a\.html"/);
+  assert.match(index, /data-composition-src="compositions\/frames\/02-b\.html"/);
+  assert.match(index, /data-composition-src="compositions\/captions\.html"/);
+  assert.doesNotMatch(index, /<template id="01-a-template"/);
+  assert.doesNotMatch(index, /<template id="captions-template"/);
+});
+
+test("full emit embeds sanitized frame and caption templates while preserving authored files", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    const pinned = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+    const firstFrame = join(output, "compositions", "frames", "01-a.html");
+    const authored = authoredFrame("01-a").replace(
+      `<script src="${pinned}"></script>`,
+      `<script src="https://example.test/not-the-configured-gsap.js"></script>\n    <script src="${pinned}"></script>`,
+    );
+    writeFileSync(firstFrame, authored);
+    const authoredBefore = readFileSync(firstFrame, "utf8");
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+
+    emit(plan, shared, output, {});
+
+    const index = readFileSync(join(output, "index.html"), "utf8");
+    assert.doesNotMatch(index, /data-composition-src=/);
+    assert.match(index, /<template id="01-a-template" data-composition-id="01-a">/);
+    assert.match(index, /<template id="captions-template" data-composition-id="captions"/);
+    assert.match(index, /https:\/\/example\.test\/not-the-configured-gsap\.js/);
+    assert.equal(index.match(/https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/g)?.length, 1);
+    assert.equal(readFileSync(firstFrame, "utf8"), authoredBefore, "full emit must not rewrite authored frames");
+    assert.match(readFileSync(join(output, "compositions", "captions.html"), "utf8"), new RegExp(pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("local GSAP is loaded once by the composed index and remains in standalone files", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    const gsapSrc = "assets/gsap/gsap.min.js";
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
+    writeFileSync(join(output, gsapSrc), "CUSTOM GSAP");
+    for (const frame of plan.frames) {
+      writeFileSync(
+        join(output, "compositions", "frames", `${frame.slug}.html`),
+        authoredFrame(frame.slug, gsapSrc),
+      );
+    }
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+
+    emit(plan, shared, output, { gsapSrc });
+
+    const index = readFileSync(join(output, "index.html"), "utf8");
+    const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
+    assert.deepEqual(index.match(/assets\/gsap\/gsap\.min\.js/g), [gsapSrc]);
+    assert.deepEqual(captions.match(/assets\/gsap\/gsap\.min\.js/g), [gsapSrc]);
+    for (const frame of plan.frames) {
+      const standalone = readFileSync(join(output, "compositions", "frames", `${frame.slug}.html`), "utf8");
+      assert.deepEqual(standalone.match(/assets\/gsap\/gsap\.min\.js/g), [gsapSrc]);
+      const embedded = index.match(new RegExp(`<template id="${frame.slug}-template"[\\s\\S]*?<\\/template>`))?.[0] ?? "";
+      assert.doesNotMatch(embedded, /assets\/gsap\/gsap\.min\.js/);
+    }
+    const embeddedCaptions = index.match(/<template id="captions-template"[\s\S]*?<\/template>/)?.[0] ?? "";
+    assert.doesNotMatch(embeddedCaptions, /assets\/gsap\/gsap\.min\.js/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("caption styles, content, and initialization stay inside the captions composition root", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
+
+    const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
+    assert.match(
+      captions,
+      /<div[^>]*data-composition-id="captions"[\s\S]*?<style data-brand-tokens>[\s\S]*?<div class="caption-layer"[\s\S]*?var GROUPS = [\s\S]*?<\/script>[\s\S]*?<\/div>[\s\S]*?<\/template>/,
+    );
+    const rootStart = captions.indexOf('data-composition-id="captions"');
+    const rootEnd = captions.lastIndexOf("</div>");
+    assert.ok(captions.indexOf("<style data-brand-tokens>") > rootStart);
+    assert.ok(captions.indexOf("var GROUPS =") > rootStart);
+    assert.ok(captions.indexOf("var GROUPS =") < rootEnd);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("HTML-aware template sanitization removes only an exact src attribute from the balanced matching template", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const html = `<!doctype html><html><body>
+<!-- <template data-composition-id="target"><script src="${gsapSrc}"></script></template> -->
+<template title="closing > text" data-composition-id='target'>
+  <div title='src="${gsapSrc}"' data-composition-id="target">
+    <template data-composition-id="nested"><div data-composition-id="nested"></div></template>
+  </div>
+  <script data-src="${gsapSrc}"></script>
+  <script x-src='${gsapSrc}'></script>
+  <script :src="${gsapSrc}"></script>
+  <script title='src="${gsapSrc}"'></script>
+  <script defer src='${gsapSrc}' data-note="a > b"></script>
+  <script>window.__timelines["target"] = gsap.timeline({ paused: true });</script>
+</template>
+<template data-composition-id="other"><div data-composition-id="other"></div></template>
+</body></html>`;
+
+  const sanitized = sanitizeCompositionTemplate(html, "target", gsapSrc, "frame.html");
+  assert.match(sanitized, /^<template id="target-template" data-composition-id="target">/);
+  assert.match(sanitized, /data-composition-id="nested"/);
+  assert.match(sanitized, new RegExp(`data-src="${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.match(sanitized, new RegExp(`x-src='${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
+  assert.match(sanitized, new RegExp(`:src="${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  assert.doesNotMatch(sanitized, /<script defer src=/);
+  assert.doesNotMatch(sanitized, /data-composition-id="other"/);
+});
+
+test("raw script and style scanning requires exact mixed-case closing tag boundaries", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const html = `<template data-composition-id="target">
+<div data-composition-id="target"></div>
+<script src="${gsapSrc}">const text = "</scriptx><template data-composition-id='decoy'>"; const other = "</script-foo>";</ScRiPt>
+<style>.x::after { content: "</stylex><template data-composition-id='style-decoy'> </style-foo>"; }</StYlE>
+<script>window.__timelines["target"] = gsap.timeline({ paused: true });</script>
+</template>`;
+
+  const sanitized = sanitizeCompositionTemplate(html, "target", gsapSrc, "frame.html");
+  assert.doesNotMatch(sanitized, new RegExp(gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(sanitized, /style-decoy/);
+  assert.match(sanitized, /window\.__timelines/);
+});
+
+test("template sanitization moves every top-level sibling style into the matching composition root", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const firstStyle = `<style data-order="first">
+/* quoted > and comment stay raw */
+.frame::after { content: "</stylex> >"; }
+</style>`;
+  const secondStyle = `<style data-order='second'>
+/* second block */
+.frame { background: linear-gradient(90deg, #fff, #000); }
+</style>`;
+  const existingStyle = `<style data-order="existing">.existing { position: absolute; }</style>`;
+  const nestedStyle = `<template data-composition-id="nested"><style>.nested { color: red; }</style><div data-composition-id="nested"></div></template>`;
+  const html = `<template data-composition-id="target">
+${firstStyle}
+<!-- keep transport comment -->
+<div id="target-root" title="root > content" data-composition-id="target">
+  ${existingStyle}
+  <div class="frame">Frame</div>
+  ${nestedStyle}
+</div>
+${secondStyle}
+<script data-transport="keep">window.transport = true;</script>
+<script src="${gsapSrc}"></script>
+<script>window.__timelines["target"] = gsap.timeline({ paused: true });</script>
+</template>`;
+
+  const sanitized = sanitizeCompositionTemplate(html, "target", gsapSrc, "frame.html");
+  const rootStart = sanitized.indexOf('data-composition-id="target"', sanitized.indexOf("<div"));
+  const rootOpenEnd = sanitized.indexOf(">", rootStart) + 1;
+  const rootClose = sanitized.lastIndexOf("</div>");
+  const rootInner = sanitized.slice(rootOpenEnd, rootClose);
+  const outsideRoot = sanitized.slice(0, rootOpenEnd) + sanitized.slice(rootClose);
+
+  assert.equal(sanitized.match(/data-order="first"/g)?.length, 1);
+  assert.equal(sanitized.match(/data-order='second'/g)?.length, 1);
+  assert.equal(sanitized.match(/data-order="existing"/g)?.length, 1);
+  assert.ok(rootInner.indexOf(firstStyle) < rootInner.indexOf(existingStyle));
+  assert.ok(rootInner.indexOf(existingStyle) < rootInner.indexOf(secondStyle));
+  assert.doesNotMatch(outsideRoot, /<style\b/i);
+  assert.match(rootInner, /content: "<\/stylex> >"/);
+  assert.match(rootInner, /<template data-composition-id="nested"><style>/);
+  assert.match(sanitized, /<!-- keep transport comment -->/);
+  assert.match(sanitized, /<script data-transport="keep">/);
+  assert.doesNotMatch(sanitized, new RegExp(`<script src="${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
+  assert.equal(html.includes(firstStyle) && html.includes(secondStyle), true, "authored source value remains unchanged");
+});
+
+test("template sanitization transports top-level styles and scripts into the matching root in source order", () => {
+  const gsapSrc = "assets/gsap/gsap.min.js";
+  const preStyle = `<style data-order="pre-style">/* > in comment */ .pre::after { content: ">"; }</style>`;
+  const preScript = `<script data-order="pre-script">const pre = "</scriptx> >";</script>`;
+  const existingStyle = `<style data-order="root-style">.root { color: rgb(20, 20, 19); }</style>`;
+  const existingScript = `<script data-order="root-script">const rootPhase = ">";</script>`;
+  const postScript = `<script src="https://example.test/retained.js" data-order="post-script"></script>`;
+  const postStyle = `<style data-order="post-style">.post { color: rgb(204, 120, 92); }</style>`;
+  const nestedTemplate = `<template data-composition-id="nested"><style data-order="nested-style">.nested { color: red; }</style><script data-order="nested-script">window.nested = true;</script><div data-composition-id="nested"></div></template>`;
+  const authored = `<template data-composition-id="target">
+${preStyle}
+${preScript}
+<!-- transport comment stays outside because arbitrary nodes are not moved -->
+<div id="target-root" title="quoted > attribute" data-composition-id="target">
+  ${existingStyle}
+  <div class="root">Frame</div>
+  ${existingScript}
+  ${nestedTemplate}
+</div>
+<script defer src="${gsapSrc}" data-note="configured > source"></script>
+${postScript}
+${postStyle}
+</template>`;
+
+  const sanitized = sanitizeCompositionTemplate(authored, "target", gsapSrc, "frame.html");
+  const rootStart = sanitized.indexOf('<div id="target-root"');
+  const rootOpenEnd = sanitized.indexOf(">", rootStart) + 1;
+  const rootClose = sanitized.lastIndexOf("</div>");
+  const rootInner = sanitized.slice(rootOpenEnd, rootClose);
+  const outsideRoot = sanitized.slice(0, rootOpenEnd) + sanitized.slice(rootClose);
+
+  const expectedOrder = [preStyle, preScript, existingStyle, existingScript, nestedTemplate, postScript, postStyle];
+  let previous = -1;
+  for (const node of expectedOrder) {
+    const position = rootInner.indexOf(node);
+    assert.ok(position > previous, `transport order for ${node.slice(0, 36)}`);
+    previous = position;
+  }
+  assert.doesNotMatch(outsideRoot, /<(?:style|script)\b/i);
+  assert.doesNotMatch(sanitized, new RegExp(gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(rootInner, /<script src="https:\/\/example\.test\/retained\.js"/);
+  assert.match(rootInner, /const pre = "<\/scriptx> >"/);
+  assert.match(rootInner, /data-order="nested-style"/);
+  assert.match(rootInner, /data-order="nested-script"/);
+  assert.match(sanitized, /transport comment stays outside/);
+  assert.equal(
+    sanitizeCompositionTemplate(sanitized, "target", gsapSrc, "frame.html"),
+    sanitized,
+    "sanitization must be idempotent",
+  );
+  assert.equal(authored.includes(preStyle) && authored.includes(postScript), true, "standalone source bytes remain unchanged");
+});
+
+test("reserved template lookup and replacement ignore nested decoys and reject ambiguous top-level matches", () => {
+  const nestedDecoy = `<template id="frame-template"><div data-composition-id="frame"><template id="captions-template">DECOY</template></div></template>`;
+  const realTemplate = `<template id="captions-template"><div data-composition-id="captions">REAL</div></template>`;
+  const html = `${nestedDecoy}\n${realTemplate}`;
+
+  assert.equal(
+    extractTemplateById(html, "captions-template")?.trim(),
+    `<div data-composition-id="captions">REAL</div>`,
+  );
+  const replaced = replaceTemplateById(
+    html,
+    "captions-template",
+    `<template id="captions-template"><div data-composition-id="captions">UPDATED</div></template>`,
+  );
+  assert.match(replaced, /<template id="captions-template">DECOY<\/template>/);
+  assert.equal(
+    extractTemplateById(replaced, "captions-template")?.trim(),
+    `<div data-composition-id="captions">UPDATED</div>`,
+  );
+
+  const ambiguous = `${realTemplate}\n${realTemplate.replace("REAL", "SECOND")}`;
+  assert.throws(
+    () => extractTemplateById(ambiguous, "captions-template"),
+    /multiple top-level.*captions-template/i,
+  );
+  assert.throws(
+    () => replaceTemplateById(ambiguous, "captions-template", realTemplate),
+    /multiple top-level.*captions-template/i,
+  );
+  assert.equal(extractTemplateById(nestedDecoy, "missing-template"), undefined);
+  assert.throws(
+    () => replaceTemplateById(nestedDecoy, "missing-template", realTemplate),
+    /missing embedded template #missing-template/,
+  );
+});
+
+test("captions-only refresh replaces the real top-level captions template instead of an authored nested decoy", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    const firstFrame = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      firstFrame,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><template id="captions-template">DECOY</template></div>`,
+      ),
+    );
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
+
+    const changedGroups = [{
+      id: "changed",
+      frame: 1,
+      start: 0,
+      end: 2,
+      text: "Changed runtime captions.",
+      words: [{ id: "changed-word", text: "Changed", start: 0, end: 2 }],
+    }];
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: changedGroups }));
+    emit(plan, shared, output, {}, { captionsOnly: true });
+
+    const index = readFileSync(join(output, "index.html"), "utf8");
+    assert.match(index, /<template id="captions-template">DECOY<\/template>/);
+    const runtimeCaptions = extractTemplateById(index, "captions-template") ?? "";
+    assert.match(runtimeCaptions, /Changed runtime captions\./);
+    assert.doesNotMatch(runtimeCaptions, /DECOY/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("template preparation rejects missing, malformed, and mismatched authored templates", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const frame = join(output, "compositions", "frames", "01-a.html");
+    for (const [body, expected] of [
+      ["<html><body></body></html>", /composition <template>/],
+      ["<template data-composition-id='01-a'><div data-composition-id='01-a'></div>", /unclosed.*template/i],
+      ["<template data-composition-id='wrong'><div data-composition-id='01-a'></div></template>", /template.*composition id/i],
+      ["<template data-composition-id='01-a'><div data-composition-id='wrong'></div></template>", /root.*composition id/i],
+    ] as const) {
+      writeFileSync(frame, body);
+      assert.throws(() => preflight(plan, shared, output, {}), expected);
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("emit consumes preflight-prepared frame templates without reparsing authored files", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const prepared = preflight(plan, shared, output, {});
+    writeFileSync(join(output, "compositions", "frames", "01-a.html"), "MALFORMED AFTER PREFLIGHT");
+
+    emit(plan, shared, output, {}, { prepared });
+
+    const index = readFileSync(join(output, "index.html"), "utf8");
+    assert.match(index, /<template id="01-a-template"/);
+    assert.equal(readFileSync(join(output, "compositions", "frames", "01-a.html"), "utf8"), "MALFORMED AFTER PREFLIGHT");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -301,7 +698,7 @@ test("captions.html bakes GROUPS from the on-disk caption_groups.json, NOT plan.
   }
 });
 
-test("captionsOnly skips index.html, refills captions.html only", () => {
+test("captionsOnly refreshes standalone and embedded captions without changing frame templates", () => {
   const { tmp, shared, output } = setup();
   try {
     const plan = makePlan();
@@ -309,14 +706,19 @@ test("captionsOnly skips index.html, refills captions.html only", () => {
     // first a full emit, then mutate the on-disk groups and re-emit captions-only
     emit(plan, shared, output, {});
     const indexBefore = readFileSync(join(output, "index.html"), "utf8");
+    const frameTemplateBefore = indexBefore.match(/<template id="01-a-template"[\s\S]*?<\/template>/)?.[0];
 
     const mutated = { groups: [{ id: "g", frame: 1, start: 0, end: 2, text: "Changed.", words: [{ id: "w", text: "Changed.", start: 0, end: 2 }] }] };
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify(mutated));
     emit(plan, shared, output, {}, { captionsOnly: true });
 
-    // index.html untouched by captions-only pass
-    assert.equal(readFileSync(join(output, "index.html"), "utf8"), indexBefore);
-    // captions.html reflects the mutated groups
+    const indexAfter = readFileSync(join(output, "index.html"), "utf8");
+    assert.notEqual(indexAfter, indexBefore);
+    assert.match(indexAfter, /<template id="captions-template"[\s\S]*?"text":"Changed\."/);
+    assert.equal(
+      indexAfter.match(/<template id="01-a-template"[\s\S]*?<\/template>/)?.[0],
+      frameTemplateBefore,
+    );
     const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
     assert.match(captions, /"text":"Changed\."/);
   } finally {

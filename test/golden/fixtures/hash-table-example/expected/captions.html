@@ -1,4 +1,14 @@
 <template id="captions-template" data-composition-id="captions" data-width="1920" data-height="1080">
+<div
+  id="captions-root"
+  data-composition-id="captions"
+  data-timeline-locked
+  data-start="0"
+  data-duration="100.728"
+  data-fps="30"
+  data-width="1920"
+  data-height="1080"
+>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 
 <!-- caption builder injects the project's :root tokens here -->
@@ -104,20 +114,9 @@
   }
 </style>
 
-<div
-  id="captions-root"
-  data-composition-id="captions"
-  data-timeline-locked
-  data-start="0"
-  data-duration="100.728"
-  data-fps="30"
-  data-width="1920"
-  data-height="1080"
->
   <div class="caption-layer" aria-hidden="true" data-layout-allow-occlusion data-layout-allow-overlap>
     <div id="caption-stage" class="caption-stage" data-layout-allow-occlusion data-layout-allow-overlap></div>
   </div>
-</div>
 
 <script>
   // caption builder injects the engine's scene-aware groups + real duration here.
@@ -187,8 +186,9 @@
     });
 
     // full-span anchor so the sub-comp timeline spans the whole video
-    tl.to({}, { duration: DURATION }, 0);
+    tl.to("#captions-root", { duration: DURATION }, 0);
     window.__timelines["captions"] = tl;
   })();
 </script>
+</div>
 </template>

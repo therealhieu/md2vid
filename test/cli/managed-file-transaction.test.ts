@@ -199,6 +199,35 @@ test("rollback removes a newly created target that had no original", () => {
   }
 });
 
+test("rollback removes target parent directories created by the transaction", () => {
+  const dir = root();
+  try {
+    const stage = join(dir, "stage");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "nested.json"), "new-nested");
+    writeFileSync(join(stage, "after.json"), "new-after");
+    let promotions = 0;
+    const deps: ManagedFileTransactionDependencies = {
+      rename(source, destination) {
+        if (String(source).startsWith(stage) && ++promotions === 2) {
+          throw new Error("injected failure after nested target");
+        }
+        renameSync(source, destination);
+      },
+    };
+
+    assert.throws(() => promoteManagedFiles(dir, stage, [
+      { target: "new/deep/nested.json", staged: join(stage, "nested.json") },
+      { target: "after.json", staged: join(stage, "after.json") },
+    ], deps), /failure after nested target/);
+
+    assert.equal(existsSync(join(dir, "new")), false);
+    assert.equal(existsSync(join(dir, "after.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("unrelated sentinel files remain unchanged", () => {
   const dir = root();
   try {
@@ -317,6 +346,50 @@ test("backup cleanup failure keeps promoted targets and reports retained backups
   }
 });
 
+test("retained-backup inspection failures after commit return success with known and uncertain paths", () => {
+  const dir = root();
+  try {
+    const files = fixture(dir);
+    const knownRetained = join(dir, "a.json.md2vid-backup-0");
+    const uncertain = join(dir, "b.html.md2vid-backup-1");
+    let cleanupStarted = false;
+    let stagedPromotions = 0;
+    const injectedLstat = new Proxy(lstatSync, {
+      apply(target, thisArg, argumentsList) {
+        if (cleanupStarted && argumentsList[0] === uncertain) {
+          throw new Error("injected retained backup inspection failure");
+        }
+        return Reflect.apply(target, thisArg, argumentsList);
+      },
+    });
+    const deps: ManagedFileTransactionDependencies = {
+      rename(source, destination) {
+        if (String(source).startsWith(join(dir, "stage"))) stagedPromotions += 1;
+        renameSync(source, destination);
+      },
+      remove(path, options) {
+        if (String(path).includes("md2vid-backup")) cleanupStarted = true;
+        if (path === knownRetained) throw new Error("injected retained backup cleanup failure");
+        rmSync(path, options);
+      },
+      lstat: injectedLstat,
+    };
+
+    const result = promoteManagedFiles(dir, join(dir, "stage"), files, deps);
+
+    assert.deepEqual(result.retainedBackups, [knownRetained]);
+    assert.deepEqual(result.uncertainBackups, [uncertain]);
+    assert.equal(result.cleanupErrors.length, 2);
+    assert.match(result.cleanupErrors[0].message, /cleanup failure/);
+    assert.match(result.cleanupErrors[1].message, /inspection failure/);
+    assert.equal(stagedPromotions, 2);
+    assert.equal(readFileSync(join(dir, "a.json"), "utf8"), "new-a");
+    assert.equal(readFileSync(join(dir, "b.html"), "utf8"), "new-b");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("rejects aliases between targets and generated backup paths before mutation", () => {
   const dir = root();
   try {
@@ -336,6 +409,27 @@ test("rejects aliases between targets and generated backup paths before mutation
     assert.equal(existsSync(join(dir, "a.md2vid-backup-0")), false);
     assert.equal(readFileSync(join(dir, "stage", "a"), "utf8"), "new-a");
     assert.equal(readFileSync(join(dir, "stage", "alias"), "utf8"), "new-alias");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rejects managed directory operations that overlap another managed target", () => {
+  const dir = root();
+  try {
+    const stage = join(dir, "stage");
+    mkdirSync(join(stage, "voice"), { recursive: true });
+    writeFileSync(join(stage, "voice", "intro.wav"), "voice");
+    writeFileSync(join(stage, "extra.wav"), "extra");
+
+    assert.throws(() => promoteManagedFiles(dir, stage, [
+      { target: "assets/voice", staged: join(stage, "voice"), kind: "directory" },
+      { target: "assets/voice/extra.wav", staged: join(stage, "extra.wav") },
+    ]), /overlap/i);
+
+    assert.equal(existsSync(join(dir, "assets")), false);
+    assert.equal(readFileSync(join(stage, "voice", "intro.wav"), "utf8"), "voice");
+    assert.equal(readFileSync(join(stage, "extra.wav"), "utf8"), "extra");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -609,6 +703,92 @@ test("uses injected lstat without exists guards", () => {
 
     assert.equal(existsCalls, 0);
     assert.ok(lstatCalls > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("promotes a managed directory as one rollback-safe operation and prunes stale files", () => {
+  const dir = root();
+  try {
+    const stage = join(dir, "stage");
+    mkdirSync(join(dir, "assets", "voice"), { recursive: true });
+    mkdirSync(join(stage, "voice"), { recursive: true });
+    writeFileSync(join(dir, "assets", "voice", "keep.wav"), "old-keep");
+    writeFileSync(join(dir, "assets", "voice", "stale.wav"), "stale");
+    writeFileSync(join(stage, "voice", "keep.wav"), "new-keep");
+    writeFileSync(join(stage, "voice", "fresh.wav"), "fresh");
+
+    promoteManagedFiles(dir, stage, [{
+      target: "assets/voice",
+      staged: join(stage, "voice"),
+      kind: "directory",
+    }]);
+
+    assert.equal(readFileSync(join(dir, "assets", "voice", "keep.wav"), "utf8"), "new-keep");
+    assert.equal(readFileSync(join(dir, "assets", "voice", "fresh.wav"), "utf8"), "fresh");
+    assert.equal(existsSync(join(dir, "assets", "voice", "stale.wav")), false);
+    assert.deepEqual(residue(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rejects symlinks anywhere inside a staged managed directory before mutation", () => {
+  const dir = root();
+  const outside = root();
+  try {
+    const stage = join(dir, "stage");
+    mkdirSync(join(dir, "assets", "voice"), { recursive: true });
+    mkdirSync(join(stage, "voice"), { recursive: true });
+    writeFileSync(join(dir, "assets", "voice", "old.wav"), "old-voice");
+    writeFileSync(join(outside, "outside.wav"), "outside");
+    symlinkSync(join(outside, "outside.wav"), join(stage, "voice", "linked.wav"));
+
+    assert.throws(() => promoteManagedFiles(dir, stage, [{
+      target: "assets/voice",
+      staged: join(stage, "voice"),
+      kind: "directory",
+    }]), /staged source.*symbolic link/i);
+
+    assert.deepEqual(readdirSync(join(dir, "assets", "voice")), ["old.wav"]);
+    assert.equal(readFileSync(join(dir, "assets", "voice", "old.wav"), "utf8"), "old-voice");
+    assert.equal(readFileSync(join(outside, "outside.wav"), "utf8"), "outside");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("restores a managed directory byte-for-byte when a later promotion fails", () => {
+  const dir = root();
+  try {
+    const stage = join(dir, "stage");
+    mkdirSync(join(dir, "assets", "voice"), { recursive: true });
+    mkdirSync(join(stage, "voice"), { recursive: true });
+    writeFileSync(join(dir, "assets", "voice", "old.wav"), "old-voice");
+    writeFileSync(join(stage, "voice", "new.wav"), "new-voice");
+    writeFileSync(join(dir, "after.json"), "old-after");
+    writeFileSync(join(stage, "after.json"), "new-after");
+    let promotions = 0;
+    const deps: ManagedFileTransactionDependencies = {
+      rename(source, destination) {
+        if (String(source).startsWith(stage) && ++promotions === 2) {
+          throw new Error("injected post-directory promotion failure");
+        }
+        renameSync(source, destination);
+      },
+    };
+
+    assert.throws(() => promoteManagedFiles(dir, stage, [
+      { target: "assets/voice", staged: join(stage, "voice"), kind: "directory" },
+      { target: "after.json", staged: join(stage, "after.json") },
+    ], deps), /post-directory promotion failure/);
+
+    assert.deepEqual(readdirSync(join(dir, "assets", "voice")), ["old.wav"]);
+    assert.equal(readFileSync(join(dir, "assets", "voice", "old.wav"), "utf8"), "old-voice");
+    assert.equal(readFileSync(join(dir, "after.json"), "utf8"), "old-after");
+    assert.deepEqual(residue(dir), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

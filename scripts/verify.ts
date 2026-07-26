@@ -10,7 +10,12 @@
 
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { readAudioMeta } from "../engine/audio_meta.ts";
 import { verifyNeutral } from "../engine/verify.ts";
+import {
+  captureVoiceWavSnapshots,
+  validateAudioMetaVoiceSnapshots,
+} from "../engine/voice_assets.ts";
 import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
 import type { CaptionGroup } from "../engine/types.ts";
 import { getAdapter } from "../frameworks/index.ts";
@@ -82,6 +87,15 @@ export function run(argv: string[]): number {
     const layout = resolveProjectLayout(parsed.positionals[0]);
     if (!isDir(layout.outputDir)) throw new Error(`not a directory: ${layout.outputDir}`);
 
+    const metaPath = join(layout.sharedDir, "audio_meta.json");
+    if (!isFile(metaPath)) throw new Error(`missing audio_meta.json — ${metaPath}`);
+    const meta = readAudioMeta(metaPath);
+    const voiceSnapshots = captureVoiceWavSnapshots(
+      layout.sharedDir,
+      meta.voices.map((voice) => voice.path),
+    );
+    validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
+
     const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
     const adapter = getAdapter(configuredFramework(loaded, layout.flat, layout.outputDir));
     const problems: string[] = [];
@@ -105,7 +119,7 @@ export function run(argv: string[]): number {
     }
 
     // Framework-specific layout checks — dispatch off validated config.framework.
-    for (const finding of adapter.verify(layout.outputDir, layout.sharedDir)) {
+    for (const finding of adapter.verify(layout.outputDir, layout.sharedDir, { voiceSnapshots })) {
       if (finding.level === "error") problem(finding.msg);
       else warn(finding.msg);
     }

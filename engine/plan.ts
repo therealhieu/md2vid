@@ -2,7 +2,7 @@
 //
 // plan(meta, config) is a PURE function: no fs, no HTML, no framework knowledge.
 // It computes the framework-neutral timeline (each frame's start/duration), the
-// per-frame cue words, and the globalized caption groups with the whisper clamp,
+// per-frame cue words, and the globalized caption groups from validated timings,
 // and returns a versioned build-plan object.
 //
 // IR is deliberately framework-neutral: it carries frames/captionGroups/timing/
@@ -10,16 +10,14 @@
 // — those are HyperFrames layering artifacts the HF emitter derives from
 // frames+timing itself (a Remotion emitter would ignore them entirely).
 
+import { validateAudioMeta } from "./audio_meta.ts";
 import type { AudioMeta, BuildPlan, PlanFrame, CaptionGroup, VideoConfig, Word } from "./types.ts";
 
 // Compute the neutral build plan from audio meta (voices + word timings) and the
 // resolved config (timing/canvas/slugs). Throws on a missing slug or wordless
 // voices — the caller maps the throw to a CLI failure.
 export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
-  const voices = meta.voices;
-  if (!voices || !voices.length || voices.some((v) => !v.words || !v.words.length)) {
-    throw new Error("audio_meta.json has voices with no words — re-run the audio engine / md2vid transcribe.");
-  }
+  const voices = validateAudioMeta(meta, "audio_meta.json").voices;
 
   const rawSlugs: unknown = config.slugs;
   if (
@@ -85,16 +83,11 @@ export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
   const captionGroups: CaptionGroup[] = [];
   let gi = 0;
   for (const f of frames) {
-    // Clamp each word's LOCAL time into [0, voiceDur]. Whisper occasionally pads a
-    // final word past the wav's true length; globalizing that unclamped would push
-    // it past f.start+voiceDur into the next frame's window and make the global
-    // caption timeline non-monotonic (verifier: "timeline goes backwards").
-    const clamp = (t: number) => Math.max(0, Math.min(t, f.voiceDur));
     const words = f.words.map((w, i) => ({
       id: `caption-word-${gi}-${i}`,
       text: w.text,
-      start: +(f.start + clamp(w.start)).toFixed(3),
-      end: +(f.start + clamp(w.end)).toFixed(3),
+      start: +(f.start + w.start).toFixed(3),
+      end: +(f.start + w.end).toFixed(3),
     }));
     captionGroups.push({
       id: `caption-group-${gi}`,

@@ -9,8 +9,16 @@
 // the shared/ resolution; the provider itself lives behind engine/transcribe.mjs so a
 // future swap is a one-file change.
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { validateAudioMeta } from "../engine/audio_meta.ts";
 import { transcribeVoices } from "../engine/transcribe.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -59,11 +67,25 @@ export function run(argv: string[], deps: TranscribeDependencies = {}): number {
       console.error(`FAIL: ${missingAudioMeta(metaPath)}`);
       return 1;
     }
-    const meta = JSON.parse(readFileSync(metaPath, "utf8"));
-    const { ok, total } = transcribe(meta, SHARED);
-    writeFileSync(metaPath, JSON.stringify(meta, null, 2) + "\n");
-    console.log(`\nOK: ${ok}/${total} lines transcribed → audio_meta.json`);
-    return ok !== total ? 1 : 0;
+    const raw = JSON.parse(readFileSync(metaPath, "utf8"));
+    const meta = validateAudioMeta(raw, metaPath, { allowInvalidWords: true });
+    const result = transcribe(meta, SHARED);
+    if (result.ok !== result.total) {
+      console.error(`FAIL: ${result.ok}/${result.total} lines transcribed; audio_meta.json unchanged`);
+      return 1;
+    }
+
+    const normalized = validateAudioMeta(result.meta, metaPath);
+    const transaction = mkdtempSync(join(SHARED, ".md2vid-transcribe-"));
+    try {
+      const staged = join(transaction, "audio_meta.json");
+      writeFileSync(staged, JSON.stringify(normalized, null, 2) + "\n");
+      renameSync(staged, metaPath);
+    } finally {
+      rmSync(transaction, { recursive: true, force: true });
+    }
+    console.log(`\nOK: ${result.ok}/${result.total} lines transcribed → audio_meta.json`);
+    return 0;
   } catch (e: unknown) {
     console.error(`FAIL: ${(e as Error).message}`);
     return 1;

@@ -11,14 +11,47 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BuildPlan, CaptionGroup, EmitOptions, VideoConfig } from "../../engine/types.ts";
+import type {
+  BuildPlan,
+  CaptionGroup,
+  EmitOptions,
+  FrameworkPreparation,
+  VideoConfig,
+} from "../../engine/types.ts";
+import {
+  captureVoiceWavSnapshots,
+  validateVoiceAssets,
+} from "../../engine/voice_assets.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { ensureRuntime } from "./scaffold.ts";
 
+export function preflight(
+  plan: BuildPlan,
+  sharedDir: string,
+  outputDir: string,
+  _config: VideoConfig,
+  { captionsOnly = false, runtimeSourceDir, assetSourceDir, voiceSnapshots }: EmitOptions = {},
+): FrameworkPreparation {
+  if (captionsOnly) return {};
+  const voicePaths = collectVoicePaths(plan.frames);
+  const capturedVoiceSnapshots = voiceSnapshots
+    ? [...voiceSnapshots]
+    : captureVoiceWavSnapshots(assetSourceDir ?? sharedDir, voicePaths);
+  validateVoiceAssets(join(runtimeSourceDir ?? outputDir, "public"), voicePaths, { allowMissing: true });
+  return { voiceSnapshots: capturedVoiceSnapshots };
+}
+
 export function emit(
   plan: BuildPlan, sharedDir: string, outputDir: string,
-  _config: VideoConfig, { captionsOnly = false }: EmitOptions = {}
+  _config: VideoConfig, options: EmitOptions = {}
 ): void {
+  const { captionsOnly = false, runtimeSourceDir, assetSourceDir, voiceSnapshots, prepared } = options;
+  const preparation = prepared ?? preflight(plan, sharedDir, outputDir, _config, {
+    captionsOnly,
+    runtimeSourceDir,
+    assetSourceDir,
+    voiceSnapshots,
+  });
   // Re-read the regrouped caption groups off disk (the source of truth, post-regroup).
   const groupsPath = join(sharedDir, "caption_groups.json");
   const groups: CaptionGroup[] = existsSync(groupsPath)
@@ -31,8 +64,9 @@ export function emit(
     stageVoiceAssets({
       framework: "remotion",
       voicePaths: collectVoicePaths(plan.frames),
-      sourceRoot: sharedDir,
+      sourceRoot: assetSourceDir ?? sharedDir,
       destinationRoot: join(outputDir, "public"),
+      voiceSnapshots: preparation.voiceSnapshots ?? voiceSnapshots,
     });
   }
 

@@ -16,9 +16,10 @@
       unless they intentionally exit.
     · ONE paused GSAP timeline on window.__timelines["NN-slug"]; all fromTo (seek-safe);
       no Math.random / Date.now / network / yoyo / .call().
-    · GSAP uses the pinned CDN by default. Offline projects may set project-relative
-      gsapSrc in output.config.json; this nested frame must use the corresponding
-      document-relative path (for example ../../runtime/custom-gsap.js).
+    · GSAP uses the pinned CDN by default. Offline projects may set a canonical
+      project-root-relative gsapSrc in output.config.json, for example
+      assets/gsap/gsap.min.js. Every authored frame must use that exact unchanged
+      source string; do not transform it relative to this nested document.
 
   Theme atoms (do not remix): ink #141413 · cream #FAF9F5 · tile #EFE9DE ·
   tile-strong #ECE3D4 · coral #CC785C (the ONE scarce voltage per frame) ·
@@ -33,7 +34,8 @@
   <head><meta charset="UTF-8" /></head>
   <body>
     <template>
-      <style>
+      <div id="root" data-composition-id="NN-slug" data-width="1920" data-height="1080" data-duration="VOICEDUR">
+        <style>
         /* ---- ground + type system (shared by every frame) ---- */
         #root {
           position: absolute;
@@ -65,9 +67,8 @@
         }
 
         /* ---- your focal content styles (all ids prefixed fNN-) below ---- */
-      </style>
+        </style>
 
-      <div id="root" data-composition-id="NN-slug" data-width="1920" data-height="1080" data-duration="VOICEDUR">
         <div id="fNN-bg" class="clip" data-start="0" data-duration="VOICEDUR" data-track-index="0"></div>
 
         <div id="fNN-header" class="clip" data-start="0" data-duration="VOICEDUR" data-track-index="1">
@@ -76,20 +77,22 @@
         </div>
 
         <!-- focal content on tracks 2+; reveal each element on its VO cue (cues.json) -->
+
+        <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+        <script>
+          (function () {
+            window.__timelines = window.__timelines || {};
+            const tl = gsap.timeline({ paused: true });
+
+            // Scene 1 (t<=0.5s): anchor headline + first focal.
+            // Scene 2: beat-by-beat reveal — one spoken phrase -> one fromTo reveal, timed to cues.json.
+            //   coral hand-off: fromTo(neutral->coral) on its cue, fromTo(coral->neutral) on the next.
+            // Scene 3: held landing (>=0.5s, no reveal in the final beat).
+
+            window.__timelines["NN-slug"] = tl;
+          })();
+        </script>
       </div>
-
-      <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-      <script>
-        window.__timelines = window.__timelines || {};
-        const tl = gsap.timeline({ paused: true });
-
-        // Scene 1 (t<=0.5s): anchor headline + first focal.
-        // Scene 2: beat-by-beat reveal — one spoken phrase -> one fromTo reveal, timed to cues.json.
-        //   coral hand-off: fromTo(neutral->coral) on its cue, fromTo(coral->neutral) on the next.
-        // Scene 3: held landing (>=0.5s, no reveal in the final beat).
-
-        window.__timelines["NN-slug"] = tl;
-      </script>
     </template>
   </body>
 </html>

@@ -26,6 +26,7 @@ import {
   listTarGzEntries,
   localNpmExecInvocation,
   mergeEnvironment,
+  parseGsapUrls,
   parseVoiceUrls,
   REPO_ROOT,
   runInstalledCli,
@@ -57,9 +58,84 @@ const NPM_VERSION = PACKAGE_METADATA.packageManager.slice("npm@".length);
 
 test("release smoke status reports generated check scripts for both frameworks", () => {
   const source = readFileSync(join(import.meta.dirname, "run.ts"), "utf8");
-  assert.match(source, /smoke:hyperframes[^\n]*generated build\/check/);
+  assert.match(source, /smoke:hyperframes[^\n]*generated build\/check.*browser.*render/i);
   assert.match(source, /smoke:remotion[^\n]*generated build\/check\/still/);
   assert.doesNotMatch(source, /build\/typecheck\/still/);
+});
+
+test("packed HyperFrames smoke starts pristine and relies on proxy self-healing", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  const installBody = source.slice(
+    source.indexOf("export function installArtifact"),
+    source.indexOf("export function installRegistryArtifact"),
+  );
+  assert.match(installBody, /--ignore-scripts/);
+  assert.doesNotMatch(installBody, /--foreground-scripts|assertPostinstallOutput/);
+  assert.match(source, /captionLoopApplied:\s*false/);
+  assert.match(source, /captionLoopApplied:\s*true/);
+  assert.doesNotMatch(source, /embeddedTemplateApplied/);
+  assert.match(source, /must not patch the HyperFrames CLI bundle/);
+  assert.match(source, /runInstalledFromPath\([\s\S]*?\["hyperframes",\s*"--version"\]/);
+});
+
+test("packed HyperFrames smoke uses real GSAP and verifies two composed frame timelines with caption seeking", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /node_modules",\s*"gsap",\s*"dist",\s*"gsap\.min\.js"/);
+  assert.doesNotMatch(source, /window\.gsap = window\.gsap \|\| \{ timeline/);
+  assert.match(source, /gsap\.version/);
+  assert.match(source, /timelineFor\("main"\)/);
+  assert.match(source, /expected exactly one timeline for/);
+  assert.match(source, /duplicate composition timelines/);
+  assert.match(source, /expected exactly one mounted 01-smoke root/);
+  assert.match(source, /getElementById\("s01-title"\)/);
+  assert.match(source, /fontSize/);
+  assert.match(source, /96px/);
+  assert.match(source, /left/);
+  assert.match(source, /150px/);
+  assert.match(source, /backgroundColor/);
+  assert.match(source, /rgb\(250, 249, 245\)/);
+  assert.match(source, /position/);
+  assert.match(source, /absolute/);
+  assert.match(source, /rootRect\.width/);
+  assert.match(source, /rootRect\.height/);
+  assert.match(source, /1920/);
+  assert.match(source, /1080/);
+  assert.match(source, /intersectionWidth/);
+  assert.match(source, /intersectionHeight/);
+  assert.match(source, /titleIntersectsViewport/);
+  assert.match(source, /timelineFor\("captions"\)/);
+  assert.match(source, /timelineFor\("01-smoke"\)/);
+  assert.match(source, /timelineFor\("02-smoke"\)/);
+  assert.match(source, /captureStandaloneFrameStates/);
+  assert.match(source, /derivedLocalPoints/);
+  assert.match(source, /frame2HostStart/);
+  assert.match(source, /frame1LocalTime/);
+  assert.match(source, /frame2LocalTime/);
+  assert.match(source, /s01-future/);
+  assert.match(source, /s01-late/);
+  assert.match(source, /s02-future/);
+  assert.match(source, /s02-late/);
+  assert.match(source, /rgb\(20, 20, 19\)/);
+  assert.match(source, /rgb\(204, 120, 92\)/);
+  assert.match(source, /rgb\(31, 41, 55\)/);
+  assert.match(source, /rgb\(93, 184, 114\)/);
+  assert.match(source, /01-smoke__hf2/);
+  assert.match(source, /02-smoke__hf2/);
+  assert.match(source, /standalone frame state/);
+  assert.doesNotMatch(source, /frame1Timeline\.seek\(time\)/);
+  assert.doesNotMatch(source, /frame2Timeline\.seek\(time\)/);
+  assert.doesNotMatch(source, /captions\.seek\(time\)/);
+  assert.match(source, /frame2HostStart\s*-\s*0\.1/);
+  assert.match(source, /frame2HostStart\s*\+\s*0\.1/);
+  assert.match(source, /frame2HostStart\s*\+\s*2\.4/);
+  assert.match(source, /frame2HostStart\s*\+\s*2\.9/);
+  assert.match(source, /caption-word is-active/);
+  assert.match(source, /caption-word is-spoken/);
+  assert.match(source, /performance\.now/);
+  assert.match(source, /250/);
+  assert.match(source, /--fps",\s*"1"/);
+  assert.match(source, /--workers",\s*"1"/);
+  assert.match(source, /smoke\.mp4/);
 });
 
 test("release harness has no Windows command or process execution path", () => {
@@ -350,17 +426,53 @@ test("extracts every emitted HyperFrames voice URL", () => {
   `), ["assets/voice/01.wav", "assets/voice/chapter/02.wav"]);
 });
 
-test("the meaningful-ID smoke fixture is a real nonempty WAV and remains outside the pack manifest", () => {
+test("extracts canonical local GSAP URLs from generated and authored HTML", () => {
+  assert.deepEqual(parseGsapUrls(`
+    <script src="assets/gsap/gsap.min.js"></script>
+    <script>gsap.timeline();</script>
+  `), ["assets/gsap/gsap.min.js"]);
+});
+
+test("the two-frame meaningful-ID smoke fixture has valid WAVs and root-scoped standalone scripts", () => {
   const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
-  const wav = readFileSync(join(fixtureRoot, "assets", "voice", "intro.wav"));
   const meta = JSON.parse(readFileSync(join(fixtureRoot, "audio_meta.json"), "utf8"));
-  assert.equal(meta.voices[0].id, "intro");
-  assert.equal(meta.voices[0].path, "assets/voice/intro.wav");
-  assert.equal(wav.toString("ascii", 0, 4), "RIFF");
-  assert.equal(wav.toString("ascii", 8, 12), "WAVE");
-  assert.equal(wav.readUInt32LE(24), 8000);
-  assert.equal(wav.readUInt32LE(40), 48_000, "fixture must contain 3.0 seconds of mono 16-bit PCM");
-  assert.equal(wav.length, 48_044);
+  assert.deepEqual(
+    meta.voices.map((voice: { id: string; path: string; duration_s: number }) => ({
+      id: voice.id,
+      path: voice.path,
+      duration_s: voice.duration_s,
+    })),
+    [
+      { id: "intro", path: "assets/voice/intro.wav", duration_s: 3 },
+      { id: "followup", path: "assets/voice/followup.wav", duration_s: 3 },
+    ],
+  );
+
+  for (const [voicePath, frameSlug] of [
+    ["assets/voice/intro.wav", "01-smoke"],
+    ["assets/voice/followup.wav", "02-smoke"],
+  ] as const) {
+    const wavPath = join(fixtureRoot, voicePath);
+    const framePath = join(fixtureRoot, `${frameSlug}.html`);
+    assert.equal(existsSync(wavPath), true, `${voicePath} must exist`);
+    assert.equal(existsSync(framePath), true, `${frameSlug}.html must exist`);
+    const wav = readFileSync(wavPath);
+    assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+    assert.equal(wav.toString("ascii", 8, 12), "WAVE");
+    assert.equal(wav.readUInt32LE(24), 8000);
+    assert.equal(wav.readUInt32LE(40), 48_000, `${voicePath} must contain 3.0 seconds of mono 16-bit PCM`);
+    assert.equal(wav.length, 48_044);
+
+    const frame = readFileSync(framePath, "utf8");
+    const rootStart = frame.indexOf(`data-composition-id="${frameSlug}"`, frame.indexOf("<div"));
+    const rootOpenEnd = frame.indexOf(">", rootStart) + 1;
+    const rootEnd = frame.lastIndexOf("</div>");
+    const rootInner = frame.slice(rootOpenEnd, rootEnd);
+    const outsideRoot = frame.slice(frame.indexOf("<template"), rootOpenEnd) + frame.slice(rootEnd, frame.indexOf("</template>"));
+    assert.match(rootInner, /<style>[\s\S]*?<script src=/);
+    assert.match(rootInner, /\(function \(\) \{[\s\S]*?const tl = gsap\.timeline/);
+    assert.doesNotMatch(outsideRoot, /<(?:style|script)\b/i);
+  }
   assert.equal(REQUIRED_PACKED_FILES.some((path) => path.includes("fixtures/smoke")), false);
 });
 

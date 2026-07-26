@@ -84,7 +84,18 @@ Voice WAV files live under `assets/voice/`. Their `path` values are relative to 
 - Voice `id` values may be meaningful strings and must be non-empty and unique.
 - Frame order follows the `voices[]` array order; IDs do not encode sequence.
 - `video.config.json.slugs` maps every voice ID to its framework visual slug.
-- `duration_s` is the voice duration in seconds; `words` contains word-level `text`, `start`, and `end` timings.
+- The WAV sample extent is authoritative: `sampleFrames = dataBytes / blockAlign`, and `duration_s` must exactly equal `floor(sampleFrames / sampleRate, 6 decimal places)`. Never round this value upward or trust a provider/JSON duration over the WAV.
+- `words` contains word-level `text`, `start`, and `end` timings.
+
+### Word-timing integrity
+
+- Word timings must be finite, ordered, non-overlapping, and satisfy `0 <= start <= end <= duration_s` for every voice.
+- On supported Darwin/Linux hosts, md2vid opens the final source path with `O_NOFOLLOW | O_NONBLOCK`, immediately rejects nonregular files, and reads only after `fstat`. Final-component symlinks are kernel-rejected; static intermediate symlinks are rejected by component checks.
+- md2vid records component and file identities before open and checks them after open and after reading. This detects ordinary cooperative replacements or changes on a best-effort basis, but it is not race-free confinement against an adversarial swap-and-restore writer: Node core exposes no descriptor-relative `openat`/`openat2` traversal on these hosts. Keep the project tree quiescent, or modify it cooperatively, while md2vid snapshots inputs. No native addon or system helper is required.
+- After a snapshot succeeds, its downstream bytes are immutable: the snapshot drives duration validation, transcription input, build staging, and SHA-256 comparison with emitted framework assets. `md2vid transcribe` snapshots every WAV before provider calls, runs providers against a private temporary snapshot tree, replaces stale JSON durations with the safely floored WAV duration, and writes all voice updates together only after every transcription succeeds. The snapshot tree is removed on success or failure.
+- `md2vid verify` requires each emitted HyperFrames `assets/voice/...` or Remotion `public/assets/voice/...` WAV to be a regular no-follow file with the same safe duration and exact bytes as its validated source snapshot.
+- At the transcription boundary only, a provider final-word overrun is bounded to the safe WAV duration: an end past the WAV is clamped, and a final word that starts past the WAV is shifted back into the remaining valid interval. This does not extend `duration_s` or the WAV duration.
+- Negative, non-finite, inverted, overlapping, empty, out-of-duration, or WAV-duration-mismatched metadata is malformed. `md2vid build` and `md2vid verify` fail before emitting output, identifying the `audio_meta.json` path, voice ID, expected safe WAV duration, and actual metadata duration; word failures also identify the word ID or index.
 
 ## Captions
 
@@ -94,7 +105,7 @@ Captions are a designed layer, not raw transcript output. The default word-level
 - **Split only at sentence or clause boundaries.** Never break mid-clause or orphan a 1–2 word tail onto its own line. Balance long sentences into even lines.
 - **Never merge across frame boundaries.** A caption line belongs to exactly one frame.
 - **Preserve every word's original timing.** Regrouping changes only which words share a line — never the timestamps.
-- **Keep the two caption files in sync.** `caption_groups.json` (the sidecar) and the baked `var GROUPS` array in `compositions/captions.html` must match — the renderer reads the HTML, not the JSON. Rebuild both with `md2vid regroup <dir> --max-chars 54`.
+- **Keep all caption artifacts in sync.** `caption_groups.json`, the baked `var GROUPS` in standalone `compositions/captions.html`, and the embedded `captions-template` in `index.html` must match. The composed renderer uses the embedded template. `md2vid regroup <dir> --max-chars 54` stages, verifies, and atomically promotes all three.
 
 ### Caption visual style
 
@@ -168,7 +179,7 @@ Before rendering, verify:
 - [ ] Every frame has one focal and at most one coral moment.
 - [ ] Every visual is explained by narration, captions, or callouts.
 - [ ] Captions are enabled for narrated videos, ~50–56 chars/line, split on clause boundaries, timing preserved.
-- [ ] `caption_groups.json` and the baked `var GROUPS` in `captions.html` are in sync.
+- [ ] `caption_groups.json`, standalone `compositions/captions.html`, and the embedded `captions-template` in `index.html` have identical `GROUPS`.
 - [ ] Captions use the plain bottom-subtitle style (transparent, one flat ink color, smaller, bottom-anchored) — no cream card / coral karaoke unless the user asked for it.
 - [ ] No content sits under the reserved caption band (bottom ~14% / ~150px @1080).
 - [ ] Frame 1 is an intro with an agenda; the final frame is a recap.
