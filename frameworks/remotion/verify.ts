@@ -87,11 +87,20 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
     warn("build_plan.json has no frames — the video will be empty");
   }
 
-  if (sharedDir) {
-    const captionGroupsPath = join(sharedDir, "caption_groups.json");
-    if (existsSync(captionGroupsPath)) {
-      findings.push(...verifyRemotionCaptionArtifact({ sharedDir, outputDir: videoDir, captionGroupsPath }));
-    }
+  const effectiveSharedDir = sharedDir ?? videoDir;
+  const captionGroupsPath = join(
+    effectiveSharedDir,
+    "caption_groups.json",
+  );
+
+  if (existsSync(captionGroupsPath)) {
+    findings.push(
+      ...verifyRemotionCaptionArtifact({
+        sharedDir: effectiveSharedDir,
+        outputDir: videoDir,
+        captionGroupsPath,
+      }),
+    );
   }
   if (options.voiceSnapshots) {
     findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), options.voiceSnapshots));

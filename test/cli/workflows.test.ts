@@ -421,6 +421,52 @@ function assertFullBuildOriginals(project: FullBuildProject): void {
   assert.deepEqual(findTransactionResidue(project.root), []);
 }
 
+const invalidSlugCases = [
+  {
+    name: "path traversal",
+    slugs: {
+      intro: "../outside",
+      details: "02-details",
+      recap: "03-recap",
+    },
+    expected: /field "slugs\.intro".*safe single path segment/i,
+  },
+  {
+    name: "duplicate ownership",
+    slugs: {
+      intro: "01-intro",
+      details: "01-intro",
+      recap: "03-recap",
+    },
+    expected: /field "slugs\.details".*unique.*voice id "intro"/i,
+  },
+] as const;
+
+for (const framework of ["hyperframes", "remotion"] as const) {
+  for (const { name, slugs, expected } of invalidSlugCases) {
+    test(`full ${framework} build rejects ${name} before managed output mutation`, () => {
+      const project = fullBuildProject(framework);
+
+      try {
+        const configPath = join(project.sharedDir, "video.config.json");
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          slugs: Record<string, string>;
+        };
+        config.slugs = slugs;
+        writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+        const result = captureConsole(() => buildRun([project.outputDir]));
+
+        assert.equal(result.code, 1, result.stderr);
+        assert.match(result.stderr, expected);
+        assertFullBuildOriginals(project);
+      } finally {
+        rmSync(project.root, { recursive: true, force: true });
+      }
+    });
+  }
+}
+
 function failingBuildDependencies(
   framework: "hyperframes" | "remotion",
   point: "emit" | "verify" | number,

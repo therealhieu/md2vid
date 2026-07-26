@@ -99,6 +99,29 @@ test("build: run() returns 0 on a valid video, non-zero on a missing dir", async
   }
 });
 
+test("build rejects a regular-file project path before layout lookup", async () => {
+  const run = await runOf("build.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-build-file-"));
+  const projectFile = join(root, "project.md");
+
+  try {
+    writeFileSync(
+      projectFile,
+      "# This is a file, not a project directory\n",
+    );
+
+    const result = await captureRun(run, [projectFile]);
+
+    assert.equal(result.code, 1);
+    assert.equal(
+      result.stderr,
+      `FAIL: not a directory: ${resolve(projectFile)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("build validation failures leave neutral and framework outputs unchanged", async () => {
   const run = await runOf("build.ts");
 

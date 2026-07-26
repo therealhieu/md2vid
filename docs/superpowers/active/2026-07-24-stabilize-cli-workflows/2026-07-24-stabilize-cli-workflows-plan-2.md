@@ -10,7 +10,7 @@
 
 ---
 
-### Task 5: Failure-atomic caption regroup transaction [Tester: yes]
+## Task 5: Failure-atomic caption regroup transaction [Tester: yes]
 
 **Tester:** `yes` — this changes a mutation-heavy shared command and both adapter contracts.
 

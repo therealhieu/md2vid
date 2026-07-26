@@ -11,6 +11,7 @@
 // frames+timing itself (a Remotion emitter would ignore them entirely).
 
 import { validateAudioMeta } from "./audio_meta.ts";
+import { validateSlugMappings } from "./config.ts";
 import type { AudioMeta, BuildPlan, PlanFrame, CaptionGroup, VideoConfig, Word } from "./types.ts";
 
 // Compute the neutral build plan from audio meta (voices + word timings) and the
@@ -19,37 +20,36 @@ import type { AudioMeta, BuildPlan, PlanFrame, CaptionGroup, VideoConfig, Word }
 export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
   const voices = validateAudioMeta(meta, "audio_meta.json").voices;
 
-  const rawSlugs: unknown = config.slugs;
-  if (
-    rawSlugs !== undefined
-    && (rawSlugs === null || typeof rawSlugs !== "object" || Array.isArray(rawSlugs))
-  ) {
-    throw new Error('video.config.json "slugs" must be a non-null, non-array object');
+  // Voice identity is stable metadata; sequence order comes from array position.
+  // Validate the complete identity-to-slug contract before constructing the timeline.
+  const seen = new Set<string>();
+  const voiceIds: string[] = [];
+
+  for (const [index, voice] of voices.entries()) {
+    if (typeof voice.id !== "string" || voice.id.trim().length === 0) {
+      throw new Error(
+        `voice at index ${index} has invalid id — expected a non-empty string`,
+      );
+    }
+
+    if (seen.has(voice.id)) {
+      throw new Error(`duplicate voice id "${voice.id}"`);
+    }
+
+    seen.add(voice.id);
+    voiceIds.push(voice.id);
   }
-  const SLUGS = (rawSlugs ?? {}) as Record<string, string>;
+
+  const SLUGS = validateSlugMappings(
+    config.slugs === undefined ? {} : config.slugs,
+    "video.config.json",
+    voiceIds,
+  );
   const TAIL = config.timing?.tail ?? 0.5; // held-landing tail after the voice ends
   const XFADE = config.timing?.xfade ?? 0.5; // crossfade duration between frames
   const GAP = config.timing?.gap ?? 0; // silent stop between frames (0 => back-to-back)
   const WIDTH = config.canvas?.width ?? 1920;
   const HEIGHT = config.canvas?.height ?? 1080;
-
-  // Voice identity is stable metadata; sequence order comes from array position.
-  // Validate the complete identity-to-slug contract before constructing the timeline.
-  const seen = new Set<string>();
-  for (const [index, voice] of voices.entries()) {
-    if (typeof voice.id !== "string" || voice.id.trim().length === 0) {
-      throw new Error(`voice at index ${index} has invalid id — expected a non-empty string`);
-    }
-    if (seen.has(voice.id)) throw new Error(`duplicate voice id "${voice.id}"`);
-    seen.add(voice.id);
-    if (
-      !Object.hasOwn(SLUGS, voice.id)
-      || typeof SLUGS[voice.id] !== "string"
-      || SLUGS[voice.id].trim() === ""
-    ) {
-      throw new Error(`missing slug mapping for voice id "${voice.id}"`);
-    }
-  }
 
   // ── Timeline layout: each frame's start/duration ───────────────────────────
   //   - each frame's VOICE plays from its start for voiceDur, then the frame HOLDS

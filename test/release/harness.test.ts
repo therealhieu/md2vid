@@ -433,7 +433,7 @@ test("extracts canonical local GSAP URLs from generated and authored HTML", () =
   `), ["assets/gsap/gsap.min.js"]);
 });
 
-test("the two-frame meaningful-ID smoke fixture has valid WAVs and root-scoped standalone scripts", () => {
+test("the two-frame meaningful-ID smoke fixture transports authored style and controllers as top-level siblings", () => {
   const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
   const meta = JSON.parse(readFileSync(join(fixtureRoot, "audio_meta.json"), "utf8"));
   assert.deepEqual(
@@ -468,10 +468,12 @@ test("the two-frame meaningful-ID smoke fixture has valid WAVs and root-scoped s
     const rootOpenEnd = frame.indexOf(">", rootStart) + 1;
     const rootEnd = frame.lastIndexOf("</div>");
     const rootInner = frame.slice(rootOpenEnd, rootEnd);
-    const outsideRoot = frame.slice(frame.indexOf("<template"), rootOpenEnd) + frame.slice(rootEnd, frame.indexOf("</template>"));
-    assert.match(rootInner, /<style>[\s\S]*?<script src=/);
-    assert.match(rootInner, /\(function \(\) \{[\s\S]*?const tl = gsap\.timeline/);
-    assert.doesNotMatch(outsideRoot, /<(?:style|script)\b/i);
+    const afterRoot = frame.slice(rootEnd + "</div>".length, frame.indexOf("</template>"));
+    assert.doesNotMatch(rootInner, /<(?:style|script)\b/i);
+    assert.match(afterRoot, /<style>[\s\S]*?<script src=[\s\S]*?<script>/);
+    assert.match(afterRoot, /\(function \(\) \{[\s\S]*?const tl = gsap\.timeline/);
+    assert.ok(afterRoot.indexOf("<style>") < afterRoot.indexOf("<script src="));
+    assert.ok(afterRoot.indexOf("<script src=") < afterRoot.indexOf("(function ()"));
   }
   assert.equal(REQUIRED_PACKED_FILES.some((path) => path.includes("fixtures/smoke")), false);
 });

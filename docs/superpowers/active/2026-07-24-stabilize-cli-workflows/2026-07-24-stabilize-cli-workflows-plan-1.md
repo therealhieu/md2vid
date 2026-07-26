@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Shared strict command parser [Tester: yes] `[Group: cli-foundation]`
+## Task 1: Shared strict command parser [Tester: yes] `[Group: cli-foundation]`
 
 **Tester:** `yes` — this changes argument behavior across every public command.
 
@@ -288,7 +288,7 @@ git add \
 git commit -m "refactor(cli): add strict command parsing"
 ```
 
-### Task 2: Shared flat/canonical layout resolver [Tester: yes] `[Group: cli-foundation]` `[S after Task 1]`
+## Task 2: Shared flat/canonical layout resolver [Tester: yes] `[Group: cli-foundation]` `[S after Task 1]`
 
 **Tester:** `yes` — this changes path selection for four public commands.
 
@@ -436,7 +436,7 @@ git add \
 git commit -m "refactor(cli): centralize project layout resolution"
 ```
 
-### Task 3: Stable voice identity and numeric sequence order [Tester: yes] `[Group: project-contract]` `[S after Task 2]`
+## Task 3: Stable voice identity and numeric sequence order [Tester: yes] `[Group: project-contract]` `[S after Task 2]`
 
 **Tester:** `yes` — this changes neutral planning semantics used by both adapters.
 
@@ -544,7 +544,7 @@ git add engine/plan.ts engine/__tests__/plan.test.ts test/cli/run-exports.test.t
 git commit -m "fix(engine): separate voice identity from frame order"
 ```
 
-### Task 4: Strict configuration-driven verification [Tester: yes] `[Group: project-contract]` `[S after Task 2]`
+## Task 4: Strict configuration-driven verification [Tester: yes] `[Group: project-contract]` `[S after Task 2]`
 
 **Tester:** `yes` — verifier behavior is a release gate for both frameworks.
 

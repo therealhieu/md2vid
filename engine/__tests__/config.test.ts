@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { loadConfig, validateVideoConfig } from "../config.ts";
+import {
+  loadConfig,
+  validateSlugMappings,
+  validateVideoConfig,
+} from "../config.ts";
 
 test("accepts optional defaults and null-prototype config records", () => {
   const slugs = Object.create(null) as Record<string, string>;
@@ -17,6 +21,92 @@ test("accepts optional defaults and null-prototype config records", () => {
 
   assert.equal(validateVideoConfig(config, "video.config.json"), config);
   assert.deepEqual(validateVideoConfig({}, "video.config.json"), {});
+});
+
+test("rejects unsafe slug grammar without echoing the unsafe value", () => {
+  const unsafeSlugs = [
+    "../outside",
+    "nested/frame",
+    String.raw`nested\frame`,
+    "two words",
+    'x" data-start="999',
+    ".",
+    "..",
+    String.fromCharCode(0) + "intro",
+    "intro&tag",
+  ];
+
+  for (const slug of unsafeSlugs) {
+    assert.throws(
+      () =>
+        validateVideoConfig(
+          { slugs: { intro: slug } },
+          "video.config.json",
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(
+          error.message,
+          'invalid configuration at video.config.json: field "slugs.intro" must be a safe single path segment matching ^[A-Za-z0-9][A-Za-z0-9._-]*$',
+        );
+        return true;
+      },
+      slug,
+    );
+  }
+});
+
+test("rejects duplicate slug values and identifies the second mapping", () => {
+  assert.throws(
+    () =>
+      validateVideoConfig(
+        {
+          slugs: {
+            intro: "01-intro",
+            recap: "01-intro",
+          },
+        },
+        "video.config.json",
+      ),
+    /invalid configuration at video\.config\.json: field "slugs\.recap" must be unique; already mapped by voice id "intro"/,
+  );
+});
+
+test("preserves valid existing slug forms", () => {
+  const config = {
+    slugs: {
+      intro: "01-intro",
+      loadFactor: "05-load-factor",
+      revision: "intro.v2_main",
+    },
+  };
+
+  assert.equal(validateVideoConfig(config, "video.config.json"), config);
+});
+
+test("requires one slug mapping for every supplied voice ID", () => {
+  assert.throws(
+    () =>
+      validateSlugMappings(
+        { intro: "01-intro" },
+        "video.config.json",
+        ["intro", "recap"],
+      ),
+    /missing slug mapping for voice id "recap"/,
+  );
+
+  assert.throws(
+    () =>
+      validateSlugMappings(
+        {
+          intro: "01-intro",
+          extra: "02-extra",
+        },
+        "video.config.json",
+        ["intro"],
+      ),
+    /unknown slug mapping for voice id "extra"/,
+  );
 });
 
 test("rejects malformed nested and framework-local config fields", () => {

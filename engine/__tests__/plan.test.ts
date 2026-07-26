@@ -58,6 +58,55 @@ test("rejects empty voice IDs and missing slug mappings", () => {
   );
 });
 
+test("direct plan callers reject unsafe slug mappings", () => {
+  for (const slug of ["../outside", "nested/frame", 'x" data-start="999']) {
+    assert.throws(
+      () =>
+        plan(
+          meta([V("intro", 5, [{ text: "Intro", start: 0, end: 1 }])]),
+          CFG({ slugs: { intro: slug } }),
+        ),
+      /field "slugs\.intro".*safe single path segment/i,
+      slug,
+    );
+  }
+});
+
+test("direct plan callers reject duplicate slug ownership", () => {
+  assert.throws(
+    () =>
+      plan(
+        meta([
+          V("intro", 5, [{ text: "Intro", start: 0, end: 1 }]),
+          V("recap", 5, [{ text: "Recap", start: 0, end: 1 }]),
+        ]),
+        CFG({
+          slugs: {
+            intro: "01-intro",
+            recap: "01-intro",
+          },
+        }),
+      ),
+    /field "slugs\.recap".*unique.*voice id "intro"/i,
+  );
+});
+
+test("direct plan callers reject unknown slug mappings", () => {
+  assert.throws(
+    () =>
+      plan(
+        meta([V("intro", 5, [{ text: "Intro", start: 0, end: 1 }])]),
+        CFG({
+          slugs: {
+            intro: "01-intro",
+            extra: "02-extra",
+          },
+        }),
+      ),
+    /unknown slug mapping for voice id "extra"/,
+  );
+});
+
 function assertMalformedSlugs(slugs: unknown) {
   const malformedConfig = CFG();
   malformedConfig.slugs = slugs;

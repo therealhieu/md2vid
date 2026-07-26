@@ -10,7 +10,7 @@
 
 ---
 
-### Task 6: Truthful narration-to-preview scaffolds [Tester: yes] `[Group: scaffolds]`
+## Task 6: Truthful narration-to-preview scaffolds [Tester: yes] `[Group: scaffolds]`
 
 **Tester:** `yes` — generated package scripts and onboarding files are public API.
 
@@ -222,7 +222,7 @@ git add \
 git commit -m "feat(scaffold): add verified narration workflow"
 ```
 
-### Task 7: Neutral Remotion default with opt-in hash-table example [Tester: yes] `[Group: scaffolds]` `[S after Task 6]`
+## Task 7: Neutral Remotion default with opt-in hash-table example [Tester: yes] `[Group: scaffolds]` `[S after Task 6]`
 
 **Tester:** `yes` — this changes every newly generated Remotion project's visual source tree.
 

@@ -23,9 +23,10 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { readAudioMeta } from "../engine/audio_meta.ts";
 import {
   captureVoiceWavSnapshots,
@@ -140,9 +141,16 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
   let committed = false;
 
   try {
-    const layout = resolveProjectLayout(parsed.positionals[0]);
+    const requestedOutput = resolve(parsed.positionals[0]);
+    if (
+      !existsSync(requestedOutput)
+      || !statSync(requestedOutput).isDirectory()
+    ) {
+      throw new BuildError(`not a directory: ${requestedOutput}`);
+    }
+
+    const layout = resolveProjectLayout(requestedOutput);
     const { outputDir: OUTPUT, sharedDir: SHARED } = layout;
-    if (!existsSync(OUTPUT)) throw new BuildError(`not a directory: ${OUTPUT}`);
 
     const metaPath = join(SHARED, "audio_meta.json");
     if (!existsSync(metaPath)) throw new BuildError(missingAudioMeta(metaPath));

@@ -10,7 +10,7 @@
 
 ---
 
-### Task 8: Source and packed first-run workflow matrix [Tester: yes] `[Group: completion]`
+## Task 8: Source and packed first-run workflow matrix [Tester: yes] `[Group: completion]`
 
 **Tester:** `yes` — this validates package installation and both framework workflows.
 
@@ -192,7 +192,7 @@ git add \
 git commit -m "test: cover installed first-run workflows"
 ```
 
-### Task 9: Documentation synchronization and completion gates [Tester: yes] `[Group: completion]` `[S after Task 8]`
+## Task 9: Documentation synchronization and completion gates [Tester: yes] `[Group: completion]` `[S after Task 8]`
 
 **Tester:** `yes` — public docs and installed skill behavior are part of the shipped interface.
 

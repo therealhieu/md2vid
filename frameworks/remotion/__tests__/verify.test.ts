@@ -25,6 +25,44 @@ test("verify passes a well-formed remotion project", () => {
   }
 });
 
+test("verify uses videoDir for caption verification when sharedDir is omitted", () => {
+  const dir = goodProject();
+
+  try {
+    writeFileSync(
+      join(dir, "caption_groups.json"),
+      JSON.stringify({
+        groups: [
+          {
+            id: "mismatch",
+            frame: 1,
+            start: 0,
+            end: 1,
+            text: "different",
+            words: [],
+          },
+        ],
+      }),
+    );
+
+    const errors = verify(dir).filter(
+      (finding) => finding.level === "error",
+    );
+    const messages = errors.map((finding) => finding.msg);
+
+    assert.ok(
+      messages.some((message) =>
+        message.includes(
+          "caption_groups.json and staged build_plan.json captionGroups differ in content",
+        ),
+      ),
+      JSON.stringify(messages),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("verify flags a missing build_plan.json", () => {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-verify-bad-"));
   mkdirSync(join(tmp, "src"), { recursive: true });

@@ -52,39 +52,46 @@ Unexpected running processes:
 Run in this exact order from the active repository:
 
 ```bash
+corepack npm --version
 corepack npm run typecheck
 corepack npm run typecheck:remotion
 corepack npm test
 corepack npm run check:skill-references
 corepack npm run public:snapshot:check
 corepack npm run release:check
+git diff --check main...HEAD
 git diff --check
 ```
 
+- [ ] `corepack npm --version` exits `0` and reports exactly `11.15.0`.
 - [ ] `typecheck` exits `0`.
 - [ ] `typecheck:remotion` exits `0`.
 - [ ] Full tests exit `0`.
 - [ ] Record the exact test count.
-- [ ] No test is skipped unexpectedly.
+- [ ] Record the exact unexpected skip count and require `0`.
 - [ ] Skill-reference verification exits `0`.
 - [ ] Public-snapshot verification exits `0`.
 - [ ] Release verification exits `0`.
 - [ ] Packed HyperFrames smoke passes.
 - [ ] Packed Remotion smoke passes.
 - [ ] Real-GSAP browser smoke passes.
+- [ ] `git diff --check main...HEAD` exits `0`.
 - [ ] `git diff --check` exits `0`.
 - [ ] Record warnings separately from failures.
 
 Record:
 
 ```text
+npm version: 11.15.0
 typecheck:
 typecheck:remotion:
 test count:
+unexpected skips: 0
 skill references:
 public snapshot:
 release check:
-diff check:
+committed diff check:
+working-tree diff check:
 warnings:
 ```
 
@@ -107,7 +114,8 @@ The active branch must remain uncommitted. Create the validation commit only in 
 - [ ] Exclude ignored evidence, dependencies, build products, credentials, and unrelated temporary files.
 - [ ] Confirm the temporary checkout diff matches the intentional active remediation diff.
 - [ ] Create a temporary local validation commit.
-- [ ] Record its full SHA.
+- [ ] Record its full commit SHA and full validation tree SHA.
+- [ ] Confirm the validation commit tree exactly matches the reviewed active candidate tree.
 - [ ] Confirm the temporary validation checkout is clean after committing.
 - [ ] Confirm the active branch and working tree were not committed or changed by this step.
 
@@ -115,7 +123,9 @@ Record:
 
 ```text
 Temporary validation directory:
-Validation commit:
+Validation commit SHA:
+Validation tree SHA:
+Reviewed candidate tree SHA:
 Validation checkout status:
 Active checkout status after snapshot:
 ```
@@ -130,22 +140,35 @@ corepack npm run release:pack -- --output "$artifact_dir"
 ```
 
 - [ ] Packing exits `0`.
-- [ ] `artifact.json` exists.
+- [ ] `artifact.json` exists and records the complete artifact identity.
 - [ ] The tarball exists and is non-empty.
-- [ ] The artifact metadata commit equals the temporary validation commit.
-- [ ] The package version is the expected unreleased version.
+- [ ] `artifact.json.packageName` is exactly `md2vid`.
+- [ ] `artifact.json.version` is exactly `0.1.2` and `artifact.json.tag` is exactly `v0.1.2`.
+- [ ] `artifact.json.commit` equals the temporary validation commit SHA, whose tree equals the recorded validation tree SHA.
+- [ ] `artifact.json.nodeVersion` records the validation runtime and `artifact.json.npmVersion` is exactly `11.15.0`.
+- [ ] `artifact.json.tarball` equals the retained tarball filename.
+- [ ] `artifact.json.sha256` equals the retained tarball SHA-256.
+- [ ] `artifact.json.integrity` equals the retained tarball SRI (`sha512-...`).
 - [ ] No published or registry package is substituted for the tarball.
-- [ ] Compute and record the tarball SHA-256.
+- [ ] Compute and record the tarball SHA-256 and SRI from the retained bytes.
 - [ ] Save the complete packing log and exit code.
 
 Record:
 
 ```text
 Artifact directory:
+Artifact package name: md2vid
+Artifact package version: 0.1.2
+Artifact tag: v0.1.2
 Artifact metadata commit:
+Artifact validation tree:
+Artifact node version:
+Artifact npm version: 11.15.0
+Artifact tarball filename:
 Tarball path:
 Tarball size:
 Tarball SHA-256:
+Tarball SRI:
 Pack exit code:
 ```
 
@@ -287,10 +310,16 @@ Start the isolated project preview in the background and record its PID and URL.
 - [ ] Preview starts successfully.
 - [ ] Browser console contains no relevant runtime error.
 - [ ] Local GSAP loads successfully from the project-root asset path.
-- [ ] Exactly one timeline exists for each frame composition.
+- [ ] Derive global sample times from each DNS host's actual `data-start` and frame duration; do not reuse packed fixture timestamps.
+- [ ] At every sampled global time, record DNS-derived local time using `local = clamp(global - hostStart, 0, frameDuration)`.
+- [ ] Exactly one scoped controller/timeline exists per frame.
 - [ ] Exactly one captions timeline exists.
-- [ ] No duplicate `__hf2` timeline identities appear.
+- [ ] Confirm zero `__hf2` mounts.
+- [ ] Confirm zero duplicate IDs, including normalized timeline and mounted-root identities.
+- [ ] Confirm zero `const tl` redeclaration collisions when authored controllers are composed.
+- [ ] Prove standalone/composed parity for every sampled frame state.
 - [ ] Seek forward and backward across multiple frame boundaries.
+- [ ] Prove late → early → late nonmonotonic restoration for frame visuals and captions.
 - [ ] After each nonmonotonic seek, confirm the main/player and captions timelines report the same logical time.
 - [ ] Confirm the visible caption group matches the expected neutral caption group at each sampled time.
 - [ ] Confirm active-word styling matches the expected word.
@@ -318,7 +347,15 @@ Record:
 Preview PID:
 Preview URL:
 Console errors:
-Timeline identities:
+DNS-derived global sample times:
+DNS-derived local-time conversions:
+Scoped frame controller/timeline count:
+Captions timeline count:
+__hf2 mount count:
+Duplicate ID count:
+const tl redeclaration collisions:
+Standalone/composed parity:
+Late → early → late restoration:
 Seek samples and main/caption times:
 Caption semantic checks:
 Visual review result:
@@ -328,9 +365,9 @@ Render approval:
 Failure rule:
 
 ```text
-Duplicate mount, caption drift, incorrect visible group, or browser error
+DNS-derived local-time conversion, standalone/composed mismatch, nonmonotonic restoration failure, controller/timeline count mismatch, `__hf2` mount, duplicate ID, or `const tl` redeclaration collision
   → FAIL
-  → save browser state and screenshots
+  → save machine-readable browser state and screenshots
   → do not render for release approval
 ```
 
@@ -417,9 +454,11 @@ Synchronization findings:
 Before deleting any temporary directory, copy these items under the ignored project evidence directory:
 
 - [ ] Temporary validation commit SHA record.
+- [ ] Validation tree SHA record and reviewed candidate tree SHA record.
 - [ ] Packed tarball.
-- [ ] `artifact.json`.
+- [ ] `artifact.json` with complete package, version, tag, commit, Node, npm, tarball, SHA-256, and SRI identity.
 - [ ] Tarball SHA-256 record.
+- [ ] Tarball SRI record.
 - [ ] Source Markdown.
 - [ ] Source Markdown SHA-256 record.
 - [ ] Generated project configuration and authored frame sources needed to reproduce the run.
@@ -436,13 +475,30 @@ Before deleting any temporary directory, copy these items under the ignored proj
 - [ ] Build, check, preview, and render logs and exit codes.
 - [ ] Browser console and timeline synchronization record.
 - [ ] Warning and workaround record.
+- [ ] `manifest.json` containing path, byte count, and SHA-256 for every preserved evidence file except the manifest and checksum file while they are being generated.
+- [ ] `SHA256SUMS` containing every preserved evidence-file hash plus the completed `manifest.json` hash.
+- [ ] Credential-scan log and result.
+- [ ] Git-ignore and public/package evidence-confinement result.
 
 Evidence integrity:
 
-- [ ] Hash every release-significant binary artifact after copying it into evidence.
+- [ ] Hash every preserved evidence file, not only release-significant binaries.
+- [ ] Regenerate `manifest.json` and `SHA256SUMS` after the final evidence-writing step.
+- [ ] Confirm `SHA256SUMS` contains the completed manifest hash and every other preserved file hash; record the manifest hash in `SHA256SUMS`.
 - [ ] Confirm copied hashes match the originals.
-- [ ] Confirm no credential, token, cookie, or private environment value is present in evidence.
-- [ ] Confirm evidence paths are ignored by Git.
+- [ ] Run the credential scan across the complete evidence tree and confirm no credential, token, cookie, private key, or private environment value is present.
+- [ ] Confirm evidence paths are ignored by Git and excluded from the public snapshot and package allowlist.
+
+Record:
+
+```text
+Evidence manifest: manifest.json
+Evidence checksums: SHA256SUMS
+Every-file hashing result:
+Manifest hash in SHA256SUMS:
+Credential scan result:
+Evidence confinement result:
+```
 
 ## 14. Clean temporary resources
 
@@ -498,9 +554,17 @@ Decision:
 ```text
 Result: PASS | FAIL
 Active checkout HEAD:
-Temporary validation commit:
+Reviewed candidate tree SHA:
+Temporary validation commit SHA:
+Validation tree SHA:
+Complete artifact identity:
 Tarball:
 Tarball SHA-256:
+Tarball SRI:
+Evidence manifest: manifest.json
+Evidence checksums: SHA256SUMS
+Credential scan result:
+Evidence confinement result:
 Source Markdown:
 Source Markdown SHA-256:
 MP4:

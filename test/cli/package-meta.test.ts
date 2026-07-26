@@ -17,6 +17,21 @@ const hyperframesStandard = readFileSync(
 );
 const releaseRunbook = readFileSync(join(REPO_ROOT, "docs", "release.md"), "utf8");
 const releaseWorkflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "release.yml"), "utf8");
+const gitignore = readFileSync(join(REPO_ROOT, ".gitignore"), "utf8");
+const publicSnapshot = JSON.parse(
+  readFileSync(join(REPO_ROOT, "public-snapshot.json"), "utf8"),
+) as { paths: Array<{ path: string }> };
+const finalGateChecklist = readFileSync(
+  join(
+    REPO_ROOT,
+    "docs",
+    "superpowers",
+    "active",
+    "2026-07-24-md-to-video-e2e",
+    "2026-07-24-md-to-video-e2e-final-gate-checklist.md",
+  ),
+  "utf8",
+);
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -156,6 +171,123 @@ test("release runbook binds recovery to the publication-capable workflow contrac
   assert.match(releaseRunbook, /npm version absent[\s\S]*rebuild[\s\S]*publish once/i);
   assert.match(releaseRunbook, /npm version (?:already )?(?:present|exists)[\s\S]*retained original artifact[\s\S]*exact registry SRI[\s\S]*skip publication/i);
   assert.match(releaseRunbook, /implementation agents[\s\S]*must not[\s\S]*dispatch hosted workflows/i);
+});
+
+test("final gate matrix begins with the pinned npm version preflight", () => {
+  assert.match(
+    finalGateChecklist,
+    /corepack npm --version\ncorepack npm run typecheck\ncorepack npm run typecheck:remotion\ncorepack npm test\ncorepack npm run check:skill-references\ncorepack npm run public:snapshot:check\ncorepack npm run release:check\ngit diff --check main\.\.\.HEAD\ngit diff --check\n/,
+  );
+  assert.match(finalGateChecklist, /npm version:\s*11\.15\.0/);
+  assert.match(finalGateChecklist, /`corepack npm --version`[^\n]*exactly `11\.15\.0`/i);
+});
+
+test("final gate preview records DNS-derived local-time and runtime uniqueness evidence", () => {
+  const freshDnsGate = finalGateChecklist.slice(
+    finalGateChecklist.indexOf("## 6. Create a fresh DNS Markdown-to-video project"),
+    finalGateChecklist.indexOf("## 10. Render the final MP4"),
+  );
+  for (const pattern of [
+    /local = clamp\(global - hostStart, 0, frameDuration\)/,
+    /derive global sample times from each DNS host[^\n]*actual `data-start`/i,
+    /standalone\/composed parity/i,
+    /late → early → late[^\n]*restoration/i,
+    /exactly one scoped controller\/timeline[^\n]*per frame/i,
+    /exactly one captions timeline/i,
+    /zero `__hf2` mounts/i,
+    /zero duplicate IDs/i,
+    /zero `const tl` redeclaration collisions/i,
+  ]) {
+    assert.match(freshDnsGate, pattern);
+  }
+  assert.doesNotMatch(freshDnsGate, /(?:3\.6|5\.9|6\.4)/);
+  assert.match(
+    freshDnsGate,
+    /DNS-derived local-time conversion, standalone\/composed mismatch, nonmonotonic restoration failure, controller\/timeline count mismatch, `__hf2` mount, duplicate ID, or `const tl` redeclaration collision[\s\S]*→ FAIL/,
+  );
+});
+
+test("final gate records complete artifact identity and evidence integrity", () => {
+  for (const pattern of [
+    /Validation tree SHA:/,
+    /Artifact package name: md2vid/,
+    new RegExp(`Artifact package version: ${escapeRegex(pkg.version)}`),
+    new RegExp(`Artifact tag: v${escapeRegex(pkg.version)}`),
+    /Artifact metadata commit:/,
+    /Artifact node version:/,
+    /Artifact npm version: 11\.15\.0/,
+    /Artifact tarball filename:/,
+    /Tarball SHA-256:/,
+    /Tarball SRI:/,
+    /`manifest\.json`/,
+    /`SHA256SUMS`/,
+    /hash every preserved evidence file/i,
+    /manifest hash[^\n]*`SHA256SUMS`/i,
+    /credential scan result:/i,
+    /evidence confinement result:/i,
+    /evidence paths are ignored by Git/i,
+  ]) {
+    assert.match(finalGateChecklist, pattern);
+  }
+});
+
+test("final gate protects the complete ordered repository matrix and result fields", () => {
+  const matrixSection = finalGateChecklist.slice(
+    finalGateChecklist.indexOf("## 2. Run the exact repository gate matrix"),
+    finalGateChecklist.indexOf("## 3. Create a clean temporary validation commit"),
+  );
+  const commandBlock = matrixSection.match(/```bash\n([\s\S]*?)```/)?.[1]
+    .trim()
+    .split("\n");
+  assert.deepEqual(commandBlock, [
+    "corepack npm --version",
+    "corepack npm run typecheck",
+    "corepack npm run typecheck:remotion",
+    "corepack npm test",
+    "corepack npm run check:skill-references",
+    "corepack npm run public:snapshot:check",
+    "corepack npm run release:check",
+    "git diff --check main...HEAD",
+    "git diff --check",
+  ]);
+  assert.match(matrixSection, /npm version: 11\.15\.0/);
+  assert.match(matrixSection, /test count:/);
+  assert.match(matrixSection, /unexpected skips: 0/);
+  assert.match(matrixSection, /Record the exact test count/);
+  assert.match(matrixSection, /Record the exact unexpected skip count and require `0`/);
+});
+
+test("completion evidence stays ignored and excluded from public and package payloads", () => {
+  assert.match(gitignore, /^\/docs\/superpowers\/\*\*\/evidence\/$/m);
+  for (const entry of publicSnapshot.paths) {
+    assert.equal(
+      entry.path.includes("evidence/"),
+      false,
+      `public snapshot must exclude evidence path ${entry.path}`,
+    );
+  }
+  for (const entry of pkg.files ?? []) {
+    assert.equal(
+      String(entry).includes("evidence"),
+      false,
+      `package allowlist must exclude evidence entry ${entry}`,
+    );
+  }
+});
+
+test("final gate checks committed and working-tree whitespace", () => {
+  assert.match(
+    finalGateChecklist,
+    /corepack npm run release:check\ngit diff --check main\.\.\.HEAD\ngit diff --check\n/,
+  );
+  assert.match(
+    finalGateChecklist,
+    /`git diff --check main\.\.\.HEAD` exits `0`\./,
+  );
+  assert.match(
+    finalGateChecklist,
+    /`git diff --check` exits `0`\./,
+  );
 });
 
 test("LICENSE is the exact MIT license approved for v0.1", () => {

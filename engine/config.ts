@@ -20,6 +20,63 @@ function invalid(path: string, field: string, expectation: string): never {
   throw new Error(`invalid configuration at ${path}: field "${field}" ${expectation}`);
 }
 
+const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function validateSlugMappings(
+  value: unknown,
+  path: string,
+  voiceIds?: readonly string[],
+): Record<string, string> {
+  if (!isRecord(value)) {
+    invalid(path, "slugs", "must be a non-null, non-array object");
+  }
+
+  const owners = new Map<string, string>();
+
+  for (const [id, slug] of Object.entries(value)) {
+    if (typeof slug !== "string" || !SAFE_SLUG.test(slug)) {
+      invalid(
+        path,
+        `slugs.${id}`,
+        "must be a safe single path segment matching ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      );
+    }
+
+    const previousOwner = owners.get(slug);
+    if (previousOwner !== undefined) {
+      invalid(
+        path,
+        `slugs.${id}`,
+        `must be unique; already mapped by voice id "${previousOwner}"`,
+      );
+    }
+
+    owners.set(slug, id);
+  }
+
+  if (voiceIds !== undefined) {
+    const expectedVoiceIds = new Set(voiceIds);
+
+    for (const voiceId of voiceIds) {
+      if (!Object.hasOwn(value, voiceId)) {
+        throw new Error(
+          `invalid configuration at ${path}: missing slug mapping for voice id "${voiceId}"`,
+        );
+      }
+    }
+
+    for (const voiceId of Object.keys(value)) {
+      if (!expectedVoiceIds.has(voiceId)) {
+        throw new Error(
+          `invalid configuration at ${path}: unknown slug mapping for voice id "${voiceId}"`,
+        );
+      }
+    }
+  }
+
+  return value as Record<string, string>;
+}
+
 function optionalRecord(config: ConfigRecord, field: string, path: string): ConfigRecord | undefined {
   const value = config[field];
   if (value === undefined) return undefined;
@@ -38,13 +95,9 @@ function optionalNonEmptyString(config: ConfigRecord, field: string, path: strin
 export function validateVideoConfig(value: unknown, path: string): VideoConfig {
   if (!isRecord(value)) throw new Error(`invalid configuration at ${path}: expected a JSON object`);
 
-  const slugs = optionalRecord(value, "slugs", path);
-  if (slugs) {
-    for (const [id, slug] of Object.entries(slugs)) {
-      if (typeof slug !== "string" || slug.trim().length === 0) {
-        invalid(path, `slugs.${id}`, "must be a non-empty string");
-      }
-    }
+  const slugs = value.slugs;
+  if (slugs !== undefined) {
+    validateSlugMappings(slugs, path);
   }
 
   const timing = optionalRecord(value, "timing", path);
