@@ -12,7 +12,7 @@
 - Modify: `engine/config.ts:1-127`
 - Test: `engine/__tests__/config.test.ts`
 
-- [ ] **Step 1: Extend the config test import and add unsafe-slug tests**
+- [x] **Step 1: Extend the config test import and add unsafe-slug tests**
 
 Update the import from `../config.ts`:
 
@@ -115,7 +115,7 @@ test("requires one slug mapping for every supplied voice ID", () => {
 });
 ```
 
-- [ ] **Step 2: Run the config tests and verify RED**
+- [x] **Step 2: Run the config tests and verify RED**
 
 Run:
 
@@ -125,7 +125,7 @@ node --test engine/__tests__/config.test.ts
 
 Expected: non-zero exit because `validateSlugMappings` is not exported yet, or because unsafe and duplicate values do not throw. The failure must be feature-missing, not a syntax or fixture error.
 
-- [ ] **Step 3: Add the shared slug validator**
+- [x] **Step 3: Add the shared slug validator**
 
 In `engine/config.ts`, near the existing record/string validation helpers, add:
 
@@ -199,7 +199,7 @@ if (slugs !== undefined) {
 
 Do not change `VideoConfig`; runtime validation is required even though `slugs` is statically typed as `Record<string, string>`.
 
-- [ ] **Step 4: Run the config tests and verify GREEN**
+- [x] **Step 4: Run the config tests and verify GREEN**
 
 Run:
 
@@ -209,7 +209,7 @@ node --test engine/__tests__/config.test.ts
 
 Expected: exit `0`; unsafe values, duplicate values, missing mappings, and unknown mappings are rejected while `01-intro`, `05-load-factor`, and `intro.v2_main` remain accepted.
 
-- [ ] **Step 5: Checkpoint without committing**
+- [x] **Step 5: Checkpoint without committing**
 
 Run:
 
@@ -229,7 +229,7 @@ Expected: only intentional candidate files are modified/untracked; whitespace ch
 - Test: `engine/__tests__/plan.test.ts`
 - Test: `test/cli/workflows.test.ts`
 
-- [ ] **Step 1: Add direct planner regression tests**
+- [x] **Step 1: Add direct planner regression tests**
 
 Add to `engine/__tests__/plan.test.ts`:
 
@@ -284,7 +284,7 @@ test("direct plan callers reject unknown slug mappings", () => {
 });
 ```
 
-- [ ] **Step 2: Add full-build pre-mutation regressions for both frameworks**
+- [x] **Step 2: Add full-build pre-mutation regressions for both frameworks**
 
 Near the existing `fullBuildProject()` and `assertFullBuildOriginals()` tests in `test/cli/workflows.test.ts`, add:
 
@@ -338,7 +338,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
 
 `assertFullBuildOriginals()` must continue to prove neutral files, framework files, voice files, authored source, and staging residue are unchanged.
 
-- [ ] **Step 3: Run planner and workflow tests and verify RED**
+- [x] **Step 3: Run planner and workflow tests and verify RED**
 
 Run:
 
@@ -349,7 +349,7 @@ node --test test/cli/workflows.test.ts
 
 Expected: non-zero exits because direct planning and full builds currently accept at least the unsafe and duplicate mappings.
 
-- [ ] **Step 4: Call the shared validator before timeline construction**
+- [x] **Step 4: Call the shared validator before timeline construction**
 
 In `engine/plan.ts`, add:
 
@@ -419,7 +419,7 @@ validate audio metadata
 → compute captions
 ```
 
-- [ ] **Step 5: Run planner and workflow tests and verify GREEN**
+- [x] **Step 5: Run planner and workflow tests and verify GREEN**
 
 Run:
 
@@ -431,7 +431,7 @@ corepack npm run typecheck
 
 Expected: exit `0` for all commands. Existing timing, caption globalization, prototype-like ID, flat/canonical, and atomic full-build tests remain green.
 
-- [ ] **Step 6: Checkpoint without committing**
+- [x] **Step 6: Checkpoint without committing**
 
 Run:
 
@@ -450,7 +450,7 @@ Expected: only intentional candidate files are changed. Do not commit.
 - Modify: `scripts/build.ts:19-27,142-160`
 - Test: `test/cli/run-exports.test.ts:91-110`
 
-- [ ] **Step 1: Add the regular-file regression test**
+- [x] **Step 1: Add the regular-file regression test**
 
 Add after the existing build valid/missing-directory tests:
 
@@ -481,7 +481,7 @@ test("build rejects a regular-file project path before layout lookup", async () 
 
 The current test imports already provide `resolve`, `mkdtempSync`, `writeFileSync`, and `rmSync`; do not duplicate imports.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -493,7 +493,7 @@ node --test \
 
 Expected: assertion failure because stderr reports missing `audio_meta.json` under the regular-file path.
 
-- [ ] **Step 3: Validate the resolved project before layout resolution**
+- [x] **Step 3: Validate the resolved project before layout resolution**
 
 In `scripts/build.ts`, add `statSync` to the `node:fs` import and `resolve` to the `node:path` import while retaining `lstatSync`.
 
@@ -523,7 +523,7 @@ if (!existsSync(metaPath)) {
 
 This intentionally accepts a symlink resolving to a directory, matching `scripts/verify.ts`.
 
-- [ ] **Step 4: Run focused and build-related tests and verify GREEN**
+- [x] **Step 4: Run focused and build-related tests and verify GREEN**
 
 Run:
 
@@ -537,7 +537,7 @@ corepack npm run typecheck
 
 Expected: exit `0`; missing directories and regular files report `not a directory`, while valid builds and atomic-output cases remain green.
 
-- [ ] **Step 5: Checkpoint without committing**
+- [x] **Step 5: Checkpoint without committing**
 
 Run:
 
@@ -556,7 +556,7 @@ Expected: intentional changes only. Do not commit.
 - Modify: `frameworks/remotion/verify.ts:52-100`
 - Test: `frameworks/remotion/__tests__/verify.test.ts`
 
-- [ ] **Step 1: Add an omitted-sharedDir mismatch test**
+- [x] **Step 1: Add an omitted-sharedDir mismatch test**
 
 Add:
 
@@ -600,7 +600,7 @@ test("verify uses videoDir for caption verification when sharedDir is omitted", 
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -612,7 +612,7 @@ node --test \
 
 Expected: assertion failure with an empty error list because the current implementation skips caption verification without `sharedDir`.
 
-- [ ] **Step 3: Resolve one effective shared directory**
+- [x] **Step 3: Resolve one effective shared directory**
 
 Replace the conditional `if (sharedDir)` block in `frameworks/remotion/verify.ts` with:
 
@@ -646,7 +646,7 @@ export function verify(
 
 Do not add sibling-directory detection and do not modify Remotion emission.
 
-- [ ] **Step 4: Run focused and full verifier tests and verify GREEN**
+- [x] **Step 4: Run focused and full verifier tests and verify GREEN**
 
 Run:
 
@@ -660,7 +660,7 @@ corepack npm run typecheck
 
 Expected: exit `0`; explicit `sharedDir` behavior and all existing verifier cases remain unchanged.
 
-- [ ] **Step 5: Checkpoint without committing**
+- [x] **Step 5: Checkpoint without committing**
 
 Run:
 
@@ -683,7 +683,7 @@ Expected: intentional changes only. Do not commit.
 - Modify: `docs/superpowers/active/2026-07-24-md-to-video-e2e/2026-07-24-md-to-video-e2e-final-gate-checklist.md:50-90`
 - Test: `test/cli/package-meta.test.ts`
 
-- [ ] **Step 1: Add the final-gate document loader**
+- [x] **Step 1: Add the final-gate document loader**
 
 Near the existing document constants in `test/cli/package-meta.test.ts`, add:
 
@@ -701,7 +701,7 @@ const finalGateChecklist = readFileSync(
 );
 ```
 
-- [ ] **Step 2: Add the whitespace-gate contract test**
+- [x] **Step 2: Add the whitespace-gate contract test**
 
 Add:
 
@@ -722,7 +722,7 @@ test("final gate checks committed and working-tree whitespace", () => {
 });
 ```
 
-- [ ] **Step 3: Run the focused contract test and verify RED**
+- [x] **Step 3: Run the focused contract test and verify RED**
 
 Run:
 
@@ -734,7 +734,7 @@ node --test \
 
 Expected: non-zero exit because the checklist currently has only bare `git diff --check`.
 
-- [ ] **Step 4: Update the final-gate matrix and record fields**
+- [x] **Step 4: Update the final-gate matrix and record fields**
 
 In `2026-07-24-md-to-video-e2e-final-gate-checklist.md`, make the matrix end with:
 
@@ -764,7 +764,7 @@ committed diff check:
 working-tree diff check:
 ```
 
-- [ ] **Step 5: Correct all nine task headings**
+- [x] **Step 5: Correct all nine task headings**
 
 Change only these task heading prefixes from `###` to `##`:
 
@@ -785,7 +785,7 @@ Resulting form:
 
 Do not alter shell comments inside fenced code blocks.
 
-- [ ] **Step 6: Verify the document fixes**
+- [x] **Step 6: Verify the document fixes**
 
 Run:
 
@@ -810,7 +810,7 @@ Expected:
 - the H3 check produces no matches;
 - the H2 command prints nine task headings.
 
-- [ ] **Step 7: Run the combined focused suite**
+- [x] **Step 7: Run the combined focused suite**
 
 Run:
 
@@ -830,7 +830,7 @@ git diff --check
 
 Expected: every command exits `0`.
 
-- [ ] **Step 8: Freeze Part 1 without committing**
+- [x] **Step 8: Freeze Part 1 without committing**
 
 Run:
 

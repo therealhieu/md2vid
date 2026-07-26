@@ -13,7 +13,7 @@
 - Create ignored evidence under: `docs/superpowers/active/2026-07-26-md2vid-pr-completion/evidence/$RUN_ID/01-independent-reviews/`
 - Later modify after PASS only: `docs/superpowers/active/2026-07-24-md-to-video-e2e/2026-07-24-md-to-video-e2e-checkpoint.md`
 
-- [ ] **Step 1: Record the starting repository and toolchain state**
+- [x] **Step 1: Record the starting repository and toolchain state**
 
 Run from the repository root:
 
@@ -48,7 +48,7 @@ Expected:
 
 If `git status --short` shows an unknown file, stop. Do not add it automatically.
 
-- [ ] **Step 2: Record the intentional untracked allowlist**
+- [x] **Step 2: Record the intentional untracked allowlist**
 
 Run:
 
@@ -65,7 +65,7 @@ docs/superpowers/active/2026-07-26-md2vid-pr-completion/
 
 Ignored `evidence/` content must not appear in the list.
 
-- [ ] **Step 3: Build a virtual candidate tree without changing the active index**
+- [x] **Step 3: Build a virtual candidate tree without changing the active index**
 
 Run:
 
@@ -89,7 +89,7 @@ git diff --binary HEAD \
 
 Expected: `CANDIDATE_TREE` is a full Git tree SHA; the active branch, active index, and working tree remain unchanged.
 
-- [ ] **Step 4: Capture the pre-sync PR state**
+- [x] **Step 4: Capture the pre-sync PR state**
 
 Run:
 
@@ -101,7 +101,7 @@ gh pr view 12 --repo therealhieu/md2vid \
 
 Expected: remote head remains the older PR commit until post-PASS authorization.
 
-- [ ] **Step 5: Dispatch the three read-only reviews in parallel**
+- [x] **Step 5: Dispatch the three read-only reviews in parallel**
 
 Dispatch one `spec-reviewer`, one `code-quality-reviewer`, and one `tester`. Every prompt must include:
 
@@ -130,7 +130,7 @@ node --test \
   test/release/harness.test.ts
 ```
 
-- [ ] **Step 6: Preserve the three review reports**
+- [x] **Step 6: Preserve the three review reports**
 
 Write the exact final reports to:
 
@@ -142,7 +142,7 @@ $RUN_EVIDENCE/01-independent-reviews/tester-review.md
 
 Each report must state the same `CANDIDATE_TREE`.
 
-- [ ] **Step 7: Create the finding disposition**
+- [x] **Step 7: Create the finding disposition**
 
 Create `disposition.md` with this concrete table structure:
 
@@ -162,7 +162,7 @@ Final review gate: PASS
 
 If a report contains a finding, replace that review's `none` row with one row per actual finding and its verified disposition. Do not retain a PASS row for a reviewer that reported an unresolved Must fix.
 
-- [ ] **Step 8: Enforce the review stop condition**
+- [x] **Step 8: Enforce the review stop condition**
 
 If any Must fix finding remains:
 
