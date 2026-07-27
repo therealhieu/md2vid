@@ -44,6 +44,14 @@ jobs:
           test "$expected" = "11.15.0"
       - name: Install dependencies
         run: npm ci
+      - name: Install Linux media tools
+        if: runner.os == 'Linux' && (inputs.mode == 'full' || inputs.mode == 'public-snapshot')
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
       - name: Run requested validation
         shell: bash
         env:
