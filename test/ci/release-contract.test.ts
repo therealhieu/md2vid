@@ -120,7 +120,7 @@ test("package docs and release workflow declare macOS and Linux only", () => {
 });
 
 test("one package version drives tag artifact and registry commands", () => {
-  assert.equal(pkg.version, "0.1.9");
+  assert.equal(pkg.version, "0.1.10");
   assert.deepEqual(pkg.os, ["darwin", "linux"]);
   assert.equal(Object.hasOwn(pkg, "cpu"), false);
   assert.equal(lock.version, pkg.version);

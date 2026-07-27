@@ -1232,6 +1232,7 @@ test("release publication uses OIDC only and publishes the verified tarball", ()
   const body = releaseJob(yaml, "publish-npm");
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
   assert.match(body, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(stepBody(body, "Install publication verification dependencies"), /^\s+run:\s*npm ci --ignore-scripts\s*$/m);
   assert.match(body, /--metadata-only/);
   assert.match(body, /node scripts\/release_preflight\.ts publish-check/);
   assert.match(body, /--tag "\$TAG"[\s\S]*--version "\$VERSION"[\s\S]*--commit "\$COMMIT"[\s\S]*--repository "\$GITHUB_REPOSITORY"[\s\S]*--artifact release-artifact\/artifact\.json/);
