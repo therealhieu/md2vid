@@ -1103,6 +1103,7 @@ test("release obtains a new or retained immutable artifact before upload", () =>
   const yaml = workflow("release.yml");
   const body = releaseJob(yaml, "obtain-artifact");
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
+  assert.match(body, /fetch-depth:\s*0/);
   const lookup = stepBody(body, "Find reusable current-run artifact");
   assert.match(lookup, /id:\s*current-artifact/);
   assert.match(lookup, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/);

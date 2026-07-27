@@ -107,7 +107,7 @@ test("checker module import has no CLI side effects", (t) => {
 test("fresh snapshot package metadata pins supported hosts and implementation version", async () => {
   const checker = await import("../../scripts/check_public_snapshot.ts");
   const validMetadata = {
-    version: "0.1.6",
+    version: "0.1.7",
     packageManager: "npm@11.15.0",
     repository: {
       url: "git+https://github.com/therealhieu/md2vid.git",
