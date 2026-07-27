@@ -5,7 +5,7 @@ import {
   type SpawnSyncOptions,
   type SpawnSyncReturns,
 } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseCommand } from "./cli_args.ts";
@@ -20,6 +20,7 @@ export type UpgradeSpawn = (
 
 export interface GlobalInstallation {
   globalRoot: string;
+  packageEntry: string;
   packageRoot: string;
   cliEntry: string;
 }
@@ -27,6 +28,7 @@ export interface GlobalInstallation {
 export interface GlobalInstallationOperations {
   spawn?: UpgradeSpawn;
   realpath?: (path: string) => string;
+  isSymbolicLink?: (path: string) => boolean;
   npmCommand?: string;
 }
 
@@ -65,6 +67,8 @@ export function resolveGlobalInstallation(
 ): GlobalInstallation {
   const spawn = operations.spawn ?? spawnSync;
   const realpath = operations.realpath ?? realpathSync;
+  const isSymbolicLink = operations.isSymbolicLink
+    ?? ((path: string) => lstatSync(path).isSymbolicLink());
   const npmCommand = operations.npmCommand ?? "npm";
   let child: SpawnSyncReturns<Buffer>;
   try {
@@ -81,11 +85,29 @@ export function resolveGlobalInstallation(
   const reportedRoot = child.stdout.toString("utf8").trim();
   if (!reportedRoot) throw validationFail("npm root --global returned an empty path");
   let globalRoot: string;
+  try {
+    globalRoot = realpath(reportedRoot);
+  } catch (error) {
+    throw validationFail(
+      `could not resolve global npm installation: ${errorMessage(error)}`,
+    );
+  }
+  const packageEntry = join(globalRoot, metadata.name);
+  let linkedPackageEntry: boolean;
+  try {
+    linkedPackageEntry = isSymbolicLink(packageEntry);
+  } catch (error) {
+    throw validationFail(
+      `could not resolve global npm installation: ${errorMessage(error)}`,
+    );
+  }
+  if (linkedPackageEntry) {
+    throw validationFail("linked global package entry is unsupported");
+  }
   let packageRoot: string;
   let runningRoot: string;
   try {
-    globalRoot = realpath(reportedRoot);
-    packageRoot = realpath(join(globalRoot, metadata.name));
+    packageRoot = realpath(packageEntry);
     runningRoot = realpath(metadata.root);
   } catch (error) {
     throw validationFail(
@@ -97,6 +119,7 @@ export function resolveGlobalInstallation(
   }
   return {
     globalRoot,
+    packageEntry,
     packageRoot,
     cliEntry: join(packageRoot, "dist", "bin", "md2vid.js"),
   };
@@ -107,6 +130,7 @@ export interface UpgradeRunDependencies {
   metaUrl?: string;
   spawn?: UpgradeSpawn;
   realpath?: (path: string) => string;
+  isSymbolicLink?: (path: string) => boolean;
   exists?: (path: string) => boolean;
   npmCommand?: string;
   nodeCommand?: string;
@@ -158,6 +182,8 @@ export function run(
   const env = dependencies.env ?? process.env;
   const spawn = dependencies.spawn ?? spawnSync;
   const realpath = dependencies.realpath ?? realpathSync;
+  const isSymbolicLink = dependencies.isSymbolicLink
+    ?? ((path: string) => lstatSync(path).isSymbolicLink());
   const exists = dependencies.exists ?? existsSync;
   const npmCommand = dependencies.npmCommand ?? "npm";
   const nodeCommand = dependencies.nodeCommand ?? process.execPath;
@@ -166,6 +192,7 @@ export function run(
     const installation = resolveGlobalInstallation(before, env, {
       spawn,
       realpath,
+      isSymbolicLink,
       npmCommand,
     });
     runInheritedChild(
@@ -175,12 +202,19 @@ export function run(
       env,
       spawn,
     );
-    if (!exists(installation.cliEntry)) {
-      throw fail(`invalid updated package: missing CLI at ${installation.cliEntry}`);
+    let freshPackageRoot: string;
+    try {
+      freshPackageRoot = realpath(installation.packageEntry);
+    } catch (error) {
+      throw fail(`invalid updated package: ${errorMessage(error)}`);
+    }
+    const freshCliEntry = join(freshPackageRoot, "dist", "bin", "md2vid.js");
+    if (!exists(freshCliEntry)) {
+      throw fail(`invalid updated package: missing CLI at ${freshCliEntry}`);
     }
     let after: PackageMetadata;
     try {
-      after = readPackageMetadata(pathToFileURL(installation.cliEntry).href);
+      after = readPackageMetadata(pathToFileURL(freshCliEntry).href);
     } catch (error) {
       throw fail(`invalid updated package: ${errorMessage(error)}`);
     }
@@ -188,7 +222,7 @@ export function run(
       runInheritedChild(
         "md2vid install-skill",
         nodeCommand,
-        [installation.cliEntry, "install-skill"],
+        [freshCliEntry, "install-skill"],
         env,
         spawn,
       );
