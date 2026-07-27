@@ -280,3 +280,115 @@ test("already-current upgrade still runs npm install and skill refresh", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+const npmFailures = [
+  {
+    name: "start",
+    invoke: (): SpawnSyncReturns<Buffer> => {
+      throw new Error("spawn npm EACCES");
+    },
+    expected: /failed to start npm install --global md2vid@latest: spawn npm EACCES/,
+  },
+  {
+    name: "signal",
+    invoke: () => result(null, "", { signal: "SIGTERM" }),
+    expected: /npm install --global md2vid@latest terminated by SIGTERM/,
+  },
+  {
+    name: "status missing",
+    invoke: () => result(null),
+    expected: /npm install --global md2vid@latest exited without a status/,
+  },
+  {
+    name: "nonzero",
+    invoke: () => result(1),
+    expected: /npm install --global md2vid@latest exited with status 1/,
+  },
+];
+
+for (const testCase of npmFailures) {
+  test(`npm install failure: ${testCase.name} stops before skill refresh`, () => {
+    const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-npm-fail-"));
+    try {
+      const globalRoot = join(root, "lib", "node_modules");
+      const packageRoot = join(globalRoot, "md2vid");
+      const cliEntry = createPackage(packageRoot, "0.1.11");
+      let calls = 0;
+      const spawn: UpgradeSpawn = () => {
+        calls += 1;
+        if (calls === 1) return result(0, `${globalRoot}\n`);
+        return testCase.invoke();
+      };
+      const output = captureLines();
+      const code = run([], {
+        metaUrl: pathToFileURL(cliEntry).href,
+        spawn,
+        log: output.log,
+        error: output.error,
+      });
+      assert.equal(code, 1);
+      assert.equal(calls, 2, "skill refresh must not start");
+      assert.match(output.stderr.join("\n"), testCase.expected);
+      assert.doesNotMatch(output.stderr.join("\n"), /CLI upgrade completed/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("invalid updated package: missing fresh CLI stops before skill refresh", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-missing-cli-"));
+  try {
+    const globalRoot = join(root, "lib", "node_modules");
+    const packageRoot = join(globalRoot, "md2vid");
+    const cliEntry = createPackage(packageRoot, "0.1.11");
+    let calls = 0;
+    const spawn: UpgradeSpawn = () => {
+      calls += 1;
+      if (calls === 1) return result(0, `${globalRoot}\n`);
+      rmSync(cliEntry, { force: true });
+      return result(0);
+    };
+    const output = captureLines();
+    assert.equal(run([], {
+      metaUrl: pathToFileURL(cliEntry).href,
+      spawn,
+      log: output.log,
+      error: output.error,
+    }), 1);
+    assert.equal(calls, 2);
+    assert.match(output.stderr.join("\n"), /invalid updated package: missing CLI/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("invalid updated package: malformed metadata stops before skill refresh", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-bad-metadata-"));
+  try {
+    const globalRoot = join(root, "lib", "node_modules");
+    const packageRoot = join(globalRoot, "md2vid");
+    const cliEntry = createPackage(packageRoot, "0.1.11");
+    let calls = 0;
+    const spawn: UpgradeSpawn = () => {
+      calls += 1;
+      if (calls === 1) return result(0, `${globalRoot}\n`);
+      writeFileSync(
+        join(packageRoot, "package.json"),
+        `${JSON.stringify({ name: "wrong", version: "0.1.12" })}\n`,
+      );
+      return result(0);
+    };
+    const output = captureLines();
+    assert.equal(run([], {
+      metaUrl: pathToFileURL(cliEntry).href,
+      spawn,
+      log: output.log,
+      error: output.error,
+    }), 1);
+    assert.equal(calls, 2);
+    assert.match(output.stderr.join("\n"), /FAIL \[upgrade\]: invalid updated package/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

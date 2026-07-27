@@ -128,7 +128,8 @@ function runInheritedChild(
   } catch (error) {
     throw fail(`failed to start ${label}: ${errorMessage(error)}`);
   }
-  if (child.status !== 0) throw fail(`${label} failed`);
+  const problem = childFailure(label, child);
+  if (problem) throw fail(problem);
 }
 
 export function run(
@@ -176,7 +177,12 @@ export function run(
     if (!exists(installation.cliEntry)) {
       throw fail(`invalid updated package: missing CLI at ${installation.cliEntry}`);
     }
-    const after = readPackageMetadata(pathToFileURL(installation.cliEntry).href);
+    let after: PackageMetadata;
+    try {
+      after = readPackageMetadata(pathToFileURL(installation.cliEntry).href);
+    } catch (error) {
+      throw fail(`invalid updated package: ${errorMessage(error)}`);
+    }
     runInheritedChild(
       "md2vid install-skill",
       nodeCommand,
