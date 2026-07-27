@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs"
 import { dirname, join, resolve } from "node:path";
 import type { FrameworkAdapter } from "../engine/types.ts";
 import { getAdapter } from "../frameworks/index.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 import {
   validateCommonScaffold,
@@ -11,19 +12,16 @@ import {
   writeCommonScaffold,
 } from "./scaffold_project.ts";
 
-function parseArgs(argv: string[]) {
-  let slug: string | null = null;
-  let framework = "hyperframes";
-  for (let i = 0; i < argv.length; i++) {
-    const argument = argv[i];
-    if (argument === "--framework") {
-      framework = argv[++i];
-      if (!framework) return { slug: null, framework: null };
-    } else if (!argument.startsWith("--") && slug === null) {
-      slug = argument;
-    }
-  }
-  return { slug, framework };
+const USAGE = "Usage: md2vid new <slug> [--framework <name>]";
+
+function parseNewArgs(argv: string[]) {
+  return parseCommand({
+    command: "new",
+    usage: USAGE,
+    options: { framework: { type: "string" } },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
 }
 
 export interface CreateProjectDependencies {
@@ -67,25 +65,38 @@ export function createProject(
 }
 
 export function run(argv: string[]): number {
-  const { slug, framework } = parseArgs(argv);
-  if (framework === null) {
-    console.error("FAIL: --framework requires a value");
+  const parsed = parseNewArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
     return 2;
   }
-  if (!slug) {
-    console.error("Usage: md2vid new <slug> [--framework <name>]");
-    return 2;
-  }
+
+  const slug = parsed.positionals[0];
+  const framework = typeof parsed.values.framework === "string" ? parsed.values.framework : "hyperframes";
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
     console.error(`FAIL: slug must be kebab-case (got "${slug}")`);
-    return 1;
+    console.error(USAGE);
+    return 2;
+  }
+
+  let adapter: FrameworkAdapter;
+  try {
+    adapter = getAdapter(framework);
+  } catch (error) {
+    console.error(`FAIL: ${(error as Error).message}`);
+    console.error(USAGE);
+    return 2;
   }
 
   const outputsRoot = process.env.MD2VID_OUTPUTS_ROOT ?? process.cwd();
   const destination = resolve(outputsRoot, slug);
 
   try {
-    const adapter = getAdapter(framework);
     const nextSteps = createProject(destination, slug, adapter);
     console.log(`OK scaffolded ${destination}`);
     console.log("Next:");

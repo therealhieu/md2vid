@@ -26,6 +26,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+import { makeWavForSafeDuration } from "../helpers/wav.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -54,13 +55,24 @@ function buildChainIntoTemp(slug: string) {
   const shared = join(tmp, "shared");
   const output = join(tmp, "hyperframes");
   mkdirSync(join(shared, "assets", "voice"), { recursive: true });
-  mkdirSync(join(output, "compositions"), { recursive: true });
-  for (const id of ["01", "02", "03", "04", "05", "06", "07"]) {
-    writeFileSync(join(shared, "assets", "voice", `${id}.wav`), `VOICE${id}`);
+  mkdirSync(join(output, "compositions", "frames"), { recursive: true });
+  for (const frameSlug of [
+    "01-cover", "02-core-idea", "03-lookup-flow", "04-collisions",
+    "05-load-factor", "06-why-matters", "07-recap",
+  ]) {
+    writeFileSync(
+      join(output, "compositions", "frames", `${frameSlug}.html`),
+      `<template data-composition-id="${frameSlug}"><div data-composition-id="${frameSlug}" data-width="1920" data-height="1080" data-duration="1"></div><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>window.__timelines = window.__timelines || {}; window.__timelines["${frameSlug}"] = gsap.timeline({ paused: true });</script></template>\n`,
+    );
   }
 
   const inputs = join(FIXTURES, slug, "inputs");
-  copyFileSync(join(inputs, "audio_meta.json"), join(shared, "audio_meta.json"));
+  const metaPath = join(shared, "audio_meta.json");
+  copyFileSync(join(inputs, "audio_meta.json"), metaPath);
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  for (const voice of meta.voices) {
+    writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+  }
   copyFileSync(join(inputs, "video.config.json"), join(shared, "video.config.json"));
   copyFileSync(join(inputs, "output.config.json"), join(output, "output.config.json"));
 

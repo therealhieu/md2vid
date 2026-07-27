@@ -5,9 +5,9 @@
 // emit serializes build plans and stages narration through the adapter; verify checks
 // the resulting Remotion inputs without entering the heavy render path.
 
-import { emit } from "./emit.ts";
+import { emit, preflight } from "./emit.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
-import { verify } from "./verify.ts";
+import { verify, verifyRemotionCaptionArtifact } from "./verify.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
 const adapter: FrameworkAdapter = {
@@ -15,7 +15,11 @@ const adapter: FrameworkAdapter = {
   scaffoldSpec,
   writeScaffoldRuntime,
   ensureRuntime,
+  preflight,
   emit,
+  captionArtifactPath: "build_plan.json",
+  managedVoiceArtifactPath: "public/assets/voice",
+  verifyCaptionArtifact: verifyRemotionCaptionArtifact,
   verify,
 };
 export default adapter;

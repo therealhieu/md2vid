@@ -1,0 +1,6 @@
+{"groups":[
+{"id":"g-missing","frame":1,"start":0.1,"end":0.9,"words":[{"id":"word-missing-state","text":"Missing","start":0.1,"end":0.8}]},
+{"id":"g-hidden","frame":1,"start":1.1,"end":1.9,"words":[{"id":"word-hidden-state","text":"Hidden","start":1.1,"end":1.8}]},
+{"id":"g-stale","frame":1,"start":2.1,"end":2.9,"words":[{"id":"word-stale-state","text":"Stale","start":2.1,"end":2.8}]},
+{"id":"g-empty","frame":1,"start":3.1,"end":3.8,"words":[]}
+]}

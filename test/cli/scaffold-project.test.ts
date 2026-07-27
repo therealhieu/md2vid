@@ -17,8 +17,8 @@ const spec: FrameworkScaffoldSpec = {
     framework: "hyperframes",
     gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
   },
+  frameworkCheck: "md2vid hyperframes lint",
   packageScripts: {
-    check: "md2vid hyperframes lint",
     dev: "md2vid hyperframes preview --no-open",
   },
   dependencies: { hyperframes: "0.7.26" },
@@ -34,7 +34,8 @@ test("mergePackageManifest merges common and adapter package fields deterministi
     scripts: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
       transcribe: "md2vid transcribe .",
-      check: "md2vid hyperframes lint",
+      verify: "md2vid verify .",
+      check: "md2vid verify . && md2vid hyperframes lint",
       dev: "md2vid hyperframes preview --no-open",
     },
     dependencies: { hyperframes: "0.7.26" },
@@ -43,10 +44,12 @@ test("mergePackageManifest merges common and adapter package fields deterministi
 });
 
 test("mergePackageManifest rejects adapter conflicts with common script names", () => {
-  assert.throws(
-    () => mergePackageManifest("demo-video", { ...spec, packageScripts: { build: "other" } }),
-    /common package script "build"/,
-  );
+  for (const name of ["build", "transcribe", "verify", "check"]) {
+    assert.throws(
+      () => mergePackageManifest("demo-video", { ...spec, packageScripts: { [name]: "other" } }),
+      new RegExp(`common package script "${name}"`),
+    );
+  }
 });
 
 test("writeCommonScaffold writes neutral common files and packaged framework guidance", () => {
@@ -60,11 +63,18 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
     assert.match(meta.createdAt, /^\d{4}-\d{2}-\d{2}T/);
 
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "video.config.json"), "utf8")), {
-      $comment: "Per-project build config for `md2vid build .`. Fill slugs with every voice id -> frame slug. gap=0 => back-to-back narration; gap>0 => a silent held-landing stop between frames.",
+      $comment: "Map every audio_meta voices[].id to its frame slug. Voice IDs may be meaningful strings; frame order follows the voices[] array. gap=0 is back-to-back; gap>0 adds a held landing.",
       timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
       canvas: { width: 1920, height: 1080 },
       slugs: {},
     });
+    assert.deepEqual(JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8")), {
+      lines: [
+        { id: "intro", text: "Introduce the topic." },
+        { id: "recap", text: "Recap the key idea." },
+      ],
+    });
+    assert.equal(existsSync(join(stage, "audio_meta.json")), false);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "output.config.json"), "utf8")), spec.outputConfig);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "package.json"), "utf8")), mergePackageManifest("demo-video", spec));
     assert.equal(readFileSync(join(stage, "CLAUDE.md"), "utf8"), "@.md2vid/standards/hyperframes.md\n");
@@ -76,15 +86,31 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
   }
 });
 
-test("validateFrameworkRuntime accepts the pinned CDN and an existing local gsapSrc", () => {
-  for (const gsapSrc of [DEFAULT_GSAP_SRC, "runtime/custom-gsap.js"]) {
+test("validateCommonScaffold requires the narration request example", () => {
+  const stage = mkdtempSync(join(tmpdir(), "common-scaffold-missing-audio-request-"));
+  try {
+    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+    const requestPath = join(stage, "audio_request.json.example");
+    writeFileSync(requestPath, "{}\n");
+    rmSync(requestPath);
+    assert.throws(
+      () => validateCommonScaffold(stage, "demo-video"),
+      new RegExp(`missing required scaffold file ${requestPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+});
+
+test("validateFrameworkRuntime accepts the pinned CDN and canonical local gsapSrc", () => {
+  for (const gsapSrc of [DEFAULT_GSAP_SRC, "assets/gsap/gsap.min.js"]) {
     const stage = mkdtempSync(join(tmpdir(), "hyperframes-runtime-valid-"));
     try {
       ensureRuntime(stage, "demo-video");
       if (gsapSrc !== DEFAULT_GSAP_SRC) {
-        const runtimeDir = join(stage, "runtime");
+        const runtimeDir = join(stage, "assets", "gsap");
         mkdirSync(runtimeDir, { recursive: true });
-        writeFileSync(join(runtimeDir, "custom-gsap.js"), "CUSTOM GSAP\n");
+        writeFileSync(join(runtimeDir, "gsap.min.js"), "CUSTOM GSAP\n");
       }
       writeFileSync(
         join(stage, "output.config.json"),
@@ -132,15 +158,23 @@ test("validateFrameworkRuntime rejects unsafe or missing local gsapSrc", () => {
 });
 
 test("validateCommonScaffold rejects framework-local keys in neutral config", () => {
-  const stage = mkdtempSync(join(tmpdir(), "common-scaffold-invalid-"));
-  try {
-    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
-    const configPath = join(stage, "video.config.json");
-    const config = JSON.parse(readFileSync(configPath, "utf8"));
-    config.framework = "hyperframes";
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    assert.throws(() => validateCommonScaffold(stage, "demo-video"), /framework-local key "framework"/);
-  } finally {
-    rmSync(stage, { recursive: true, force: true });
+  for (const [key, value] of [
+    ["framework", "hyperframes"],
+    ["visualContract", { version: 1, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false }],
+  ] as const) {
+    const stage = mkdtempSync(join(tmpdir(), "common-scaffold-invalid-"));
+    try {
+      writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+      const configPath = join(stage, "video.config.json");
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+      config[key] = value;
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      assert.throws(
+        () => validateCommonScaffold(stage, "demo-video"),
+        new RegExp(`framework-local key "${key}"`),
+      );
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
   }
 });

@@ -6,6 +6,7 @@
 import { cpSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
 import { readPackageMetadata, type PackageMetadata } from "./package_root.ts";
 import { validateSkillTree } from "./skill_references.ts";
@@ -86,9 +87,28 @@ export interface InstallSkillRunDependencies {
   error?: (line: string) => void;
 }
 
-export function run(_argv: string[], dependencies: InstallSkillRunDependencies = {}): number {
+const USAGE = "Usage: md2vid install-skill";
+
+export function run(argv: string[], dependencies: InstallSkillRunDependencies = {}): number {
   const log = dependencies.log ?? console.log;
   const reportError = dependencies.error ?? console.error;
+  const parsed = parseCommand({
+    command: "install-skill",
+    usage: USAGE,
+    options: {},
+    minPositionals: 0,
+    maxPositionals: 0,
+  }, argv);
+  if (parsed.kind === "help") {
+    log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    reportError(parsed.message);
+    reportError(parsed.usage);
+    return 2;
+  }
+
   try {
     const { source, metadata } = resolvePackagedSkill(dependencies.metaUrl);
     const configRoot = resolveClaudeConfigRoot(dependencies.env, dependencies.home);

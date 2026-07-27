@@ -23,7 +23,9 @@ import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import puppeteer from "puppeteer-core";
 import { readPackageMetadata } from "../../scripts/package_root.ts";
+import { readPinnedHyperframesPatchState } from "../../frameworks/hyperframes/patches.ts";
 import { isNpmVersionNotFound } from "../../scripts/release_preflight.ts";
 import { isStrictSha512Integrity } from "../../scripts/release_contract.ts";
 import {
@@ -554,6 +556,11 @@ export function parseVoiceUrls(indexHtml: string): string[] {
     .map((match) => match[1]);
 }
 
+export function parseGsapUrls(html: string): string[] {
+  return [...html.matchAll(/<script\b[^>]*\bsrc="([^"]*gsap[^"]*)"/gi)]
+    .map((match) => match[1]);
+}
+
 interface ProcessLifecycle {
   readonly pid?: number;
   readonly exitCode: number | null;
@@ -859,11 +866,10 @@ export function installArtifact(context: ReleaseContext): string {
     "--dry-run=false",
     "--prefix",
     context.prefix,
-    "--foreground-scripts",
+    "--ignore-scripts",
     context.tarball,
   ], context);
   const output = run(npm.command, npm.args, {}, context);
-  assertPostinstallOutput(output);
   const hyperframes = JSON.parse(
     readFileSync(join(context.prefix, "node_modules", "hyperframes", "package.json"), "utf8"),
   ) as { version: string };
@@ -1036,18 +1042,15 @@ export function assertInstalledSkill(
   }
 }
 
-function stageCanonicalAuthoredInputs(outputDir: string, sharedDir: string): void {
-  mkdirSync(sharedDir, { recursive: true });
-  const scaffoldedConfig = join(outputDir, "video.config.json");
-  const sharedConfig = join(sharedDir, "video.config.json");
-  renameSync(scaffoldedConfig, sharedConfig);
-  cpSync(join(FIXTURES, "audio_meta.json"), join(sharedDir, "audio_meta.json"));
-  cpSync(join(FIXTURES, "assets", "voice"), join(sharedDir, "assets", "voice"), {
+function stageFlatAuthoredInputs(project: string): void {
+  cpSync(join(FIXTURES, "audio_meta.json"), join(project, "audio_meta.json"));
+  cpSync(join(FIXTURES, "assets", "voice"), join(project, "assets", "voice"), {
     recursive: true,
   });
-  const config = JSON.parse(readFileSync(sharedConfig, "utf8"));
-  config.slugs = { "01": "01-smoke" };
-  writeFileSync(sharedConfig, JSON.stringify(config, null, 2) + "\n");
+  const configPath = join(project, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.slugs = { intro: "01-smoke", followup: "02-smoke" };
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
 function assertCompleteScaffold(
@@ -1057,6 +1060,7 @@ function assertCompleteScaffold(
   const common = [
     "meta.json",
     "video.config.json",
+    "audio_request.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",
@@ -1085,6 +1089,31 @@ function assertCompleteScaffold(
   }
   if (framework === "hyperframes") {
     assert.equal(existsSync(join(project, "assets", "gsap.min.js")), false);
+  }
+}
+
+function assertGeneratedPackageScripts(
+  project: string,
+  framework: "hyperframes" | "remotion",
+): void {
+  const { scripts } = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  assert.equal(scripts.build, "md2vid build . && md2vid regroup . --max-chars 54");
+  assert.equal(scripts.transcribe, "md2vid transcribe .");
+  assert.equal(scripts.verify, "md2vid verify .");
+  assert.equal(
+    scripts.check,
+    framework === "hyperframes"
+      ? "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect"
+      : "md2vid verify . && tsc --noEmit -p tsconfig.json",
+  );
+  assert.equal(
+    framework === "hyperframes" ? scripts.dev : scripts.still,
+    framework === "hyperframes" ? "md2vid hyperframes preview --no-open" : "node render.ts --still",
+  );
+  for (const command of Object.values(scripts)) {
+    assert.doesNotMatch(command, /(?:^|\s)(?:\.\.\/|\/Users\/|\/home\/)/);
   }
 }
 
@@ -1147,6 +1176,555 @@ async function withHyperframesStudio(
   }
 }
 
+interface SmokeCaptionGroup {
+  start: number;
+  end: number;
+  words: Array<{ start: number; end: number }>;
+}
+
+interface SmokeFrameState {
+  localTime: number;
+  futureOpacity: number;
+  lateColor: string;
+}
+
+interface SmokeFrameProbe {
+  compositionId: "01-smoke" | "02-smoke";
+  futureId: "s01-future" | "s02-future";
+  lateId: "s01-late" | "s02-late";
+}
+
+const SMOKE_FRAME_PROBES: SmokeFrameProbe[] = [
+  { compositionId: "01-smoke", futureId: "s01-future", lateId: "s01-late" },
+  { compositionId: "02-smoke", futureId: "s02-future", lateId: "s02-late" },
+];
+function smokeSeekPoints(frame2HostStart: number): number[] {
+  return [
+    0.5,
+    frame2HostStart - 0.1,
+    frame2HostStart,
+    frame2HostStart + 2.4,
+    2.4,
+    frame2HostStart + 0.1,
+    frame2HostStart + 2.9,
+    0.2,
+  ];
+}
+
+function derivedLocalPoints(
+  globalPoints: readonly number[],
+  hostStart: number,
+  duration: number,
+): number[] {
+  return globalPoints.map((globalTime) => Math.max(0, Math.min(globalTime - hostStart, duration)));
+}
+
+function captionBrowserExpectations(
+  groups: SmokeCaptionGroup[],
+  duration: number,
+  seekPoints: number[],
+) {
+  return seekPoints.map((time) => {
+    const visibleGroups: number[] = [];
+    const classes: string[] = [];
+    groups.forEach((group, groupIndex) => {
+      const nextGroup = groups[groupIndex + 1];
+      const end = groupIndex === groups.length - 1
+        ? duration
+        : Math.min(nextGroup.start, group.end + 0.3);
+      if (time >= group.start && time < end) visibleGroups.push(groupIndex);
+      group.words.forEach((word, wordIndex) => {
+        const nextWord = group.words[wordIndex + 1];
+        let className = "caption-word";
+        if (time >= group.start) {
+          if (nextWord && time >= nextWord.start) className = "caption-word is-spoken";
+          else if (!nextWord && time >= Math.min(end, word.end + 0.1)) className = "caption-word is-spoken";
+          else if (time >= word.start) className = "caption-word is-active";
+        }
+        classes.push(className);
+      });
+    });
+    return { time, visibleGroups, classes };
+  });
+}
+
+async function captureStandaloneFrameStates(
+  browser: Awaited<ReturnType<typeof puppeteer.launch>>,
+  baseUrl: string,
+  probe: SmokeFrameProbe,
+  localTimes: number[],
+): Promise<SmokeFrameState[]> {
+  const sourceUrl = new URL(`compositions/frames/${probe.compositionId}.html`, baseUrl);
+  const response = await fetch(sourceUrl);
+  assert.equal(response.status, 200, `Studio must serve standalone ${probe.compositionId}`);
+  const source = await response.text();
+  const template = source.match(/<template\b[^>]*>([\s\S]*)<\/template>/i)?.[1];
+  assert.ok(template, `standalone ${probe.compositionId} must contain a transport template`);
+  const page = await browser.newPage();
+  try {
+    await page.setContent(
+      `<!doctype html><html><head><base href="${baseUrl}"></head><body>${template}</body></html>`,
+      { waitUntil: "load", timeout: 30_000 },
+    );
+    return await page.evaluate(({ frameProbe, times }) => {
+      interface Timeline {
+        seek(time: number): Timeline;
+        time(): number;
+      }
+      const runtime = globalThis as unknown as {
+        __timelines?: Record<string, Timeline>;
+      };
+      const timeline = runtime.__timelines?.[frameProbe.compositionId];
+      const standaloneDocument = (globalThis as any).document;
+      const standaloneGetComputedStyle = (globalThis as any).getComputedStyle;
+      const future = standaloneDocument.getElementById(frameProbe.futureId);
+      const late = standaloneDocument.getElementById(frameProbe.lateId);
+      if (!timeline || !future || !late) {
+        throw new Error(`standalone frame state probe is missing ${frameProbe.compositionId} runtime state`);
+      }
+      return times.map((localTime) => {
+        timeline.seek(localTime);
+        return {
+          localTime: timeline.time(),
+          futureOpacity: Number.parseFloat(standaloneGetComputedStyle(future).opacity),
+          lateColor: standaloneGetComputedStyle(late).color,
+        };
+      });
+    }, { frameProbe: probe, times: localTimes });
+  } finally {
+    await page.close();
+  }
+}
+
+async function assertHyperframesBrowserExecution(
+  executablePath: string,
+  baseUrl: string,
+  expectedGroups: SmokeCaptionGroup[],
+  duration: number,
+  expectedFrames: Array<{ slug: string; start: number; frameDur: number }>,
+): Promise<void> {
+  const expectedFrameBySlug = new Map(expectedFrames.map((frame) => [frame.slug, frame]));
+  const frame1 = expectedFrameBySlug.get("01-smoke");
+  const frame2 = expectedFrameBySlug.get("02-smoke");
+  assert.ok(frame1 && frame2, "packed smoke plan must contain both frame timings");
+  const frame2HostStart = frame2.start;
+  assert.ok(frame2HostStart > 0, "second smoke frame must start at a nonzero global time");
+  const globalSeekPoints = smokeSeekPoints(frame2HostStart);
+  const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+  const resourceErrors: string[] = [];
+  try {
+    const standaloneFrameStates: Record<string, SmokeFrameState[]> = {};
+    for (const probe of SMOKE_FRAME_PROBES) {
+      const expectedFrame = expectedFrameBySlug.get(probe.compositionId)!;
+      const localPoints = derivedLocalPoints(
+        globalSeekPoints,
+        expectedFrame.start,
+        expectedFrame.frameDur,
+      );
+      standaloneFrameStates[probe.compositionId] = await captureStandaloneFrameStates(
+        browser,
+        baseUrl,
+        probe,
+        localPoints,
+      );
+    }
+    const page = await browser.newPage();
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => pageErrors.push(error instanceof Error ? error.message : String(error)));
+    page.on("requestfailed", (request) => {
+      const errorText = request.failure()?.errorText ?? "request failed";
+      if (errorText === "net::ERR_ABORTED" && /\.wav(?:$|[?#])/.test(request.url())) return;
+      resourceErrors.push(`${request.url()}: ${errorText}`);
+    });
+    page.on("response", (response) => {
+      if (response.status() >= 400) resourceErrors.push(`${response.status()} ${response.url()}`);
+    });
+
+    await page.goto(baseUrl.replace(/\/$/, ""), { waitUntil: "networkidle0", timeout: 30_000 });
+    const deadline = Date.now() + 15_000;
+    let execution: {
+      gsapVersion: string;
+      frameTimelineIds: [string, string];
+      samples: Array<{
+        time: number;
+        playerTime: number;
+        mainTime: number;
+        captionTime: number;
+        frame1LocalTime: number;
+        frame2LocalTime: number;
+        frame1FutureOpacity: number;
+        frame1LateColor: string;
+        frame2FutureOpacity: number;
+        frame2LateColor: string;
+        visibleGroups: number;
+        classes: string[];
+      }>;
+      wallClockElapsed: number;
+      playerDrift: number;
+      mainDrift: number;
+      captionDrift: number;
+      frame1Drift: number;
+      frame2Drift: number;
+    } | undefined;
+    while (!execution && Date.now() < deadline) {
+      for (const frame of page.frames()) {
+        try {
+          const candidate = await frame.evaluate(async (input) => {
+            const expectations = input.captionExpectations;
+            const standaloneStates = input.standaloneFrameStates;
+            const frameTimings = input.frameTimings;
+            interface Timeline {
+              pause(): Timeline;
+              seek(time: number): Timeline;
+              time(): number;
+              duration(): number;
+              paused(): boolean;
+            }
+            const runtime = globalThis as unknown as {
+              gsap?: { version?: string };
+              __timelines?: Record<string, Timeline>;
+              __player?: {
+                pause(): void;
+                seek(time: number): void;
+                getTime(): number;
+                isPlaying(): boolean;
+              };
+            };
+            const pageDocument = (globalThis as any).document;
+            const captionHost = pageDocument.getElementById("el-captions");
+            const timelines = runtime.__timelines;
+            const player = runtime.__player;
+            if (!runtime.gsap?.version || !timelines || !player || !captionHost) return undefined;
+            const timelineFor = (compositionId: string): { id: string; timeline: Timeline } => {
+              const matches = Object.keys(timelines).filter((key) =>
+                key === compositionId || key.startsWith(`${compositionId}__hf`)
+              );
+              if (matches.length !== 1) {
+                throw new Error(
+                  `expected exactly one timeline for ${compositionId}, found ${JSON.stringify(matches)} in ${JSON.stringify(Object.keys(timelines))}`,
+                );
+              }
+              return { id: matches[0], timeline: timelines[matches[0]] };
+            };
+            const normalizedTimelineIds = Object.keys(timelines).map((key) =>
+              key.replace(/__hf\d+$/, "")
+            );
+            if (new Set(normalizedTimelineIds).size !== normalizedTimelineIds.length) {
+              throw new Error(`duplicate composition timelines: ${JSON.stringify(Object.keys(timelines))}`);
+            }
+            const frame1Host = pageDocument.getElementById("el-01-smoke");
+            const frame2Host = pageDocument.getElementById("el-02-smoke");
+            const mountedFrame1Roots = frame1Host?.querySelectorAll('[data-hf-inner-root="true"]') ?? [];
+            const mountedFrame2Roots = frame2Host?.querySelectorAll('[data-hf-inner-root="true"]') ?? [];
+            if (mountedFrame1Roots.length !== 1) {
+              throw new Error(`expected exactly one mounted 01-smoke root, found ${mountedFrame1Roots.length}`);
+            }
+            if (mountedFrame2Roots.length !== 1) {
+              throw new Error(`expected exactly one mounted 02-smoke root, found ${mountedFrame2Roots.length}`);
+            }
+            const mountedFrameRoot = mountedFrame1Roots[0] as any;
+            const mountedFrame2Root = mountedFrame2Roots[0] as any;
+            const smokeTitle = pageDocument.getElementById("s01-title") as any;
+            const smoke2Title = pageDocument.getElementById("s02-title") as any;
+            if (!smokeTitle || !mountedFrameRoot.contains(smokeTitle)) {
+              throw new Error("mounted 01-smoke frame is missing #s01-title");
+            }
+            if (!smoke2Title || !mountedFrame2Root.contains(smoke2Title)) {
+              throw new Error("mounted 02-smoke frame is missing #s02-title");
+            }
+            const pageGetComputedStyle = (globalThis as any).getComputedStyle;
+            const captionHostStyle = pageGetComputedStyle(captionHost);
+            if (captionHostStyle.pointerEvents !== "none") {
+              throw new Error(`caption host must not intercept hit testing: ${captionHostStyle.pointerEvents}`);
+            }
+            const rootStyle = pageGetComputedStyle(mountedFrameRoot);
+            const titleStyle = pageGetComputedStyle(smokeTitle);
+            const hostRect = frame1Host.getBoundingClientRect();
+            const rootRect = mountedFrameRoot.getBoundingClientRect();
+            const titleRect = smokeTitle.getBoundingClientRect();
+            const titleLeft = titleRect.left - rootRect.left;
+            const titleTop = titleRect.top - rootRect.top;
+            const viewportWidth = (globalThis as any).innerWidth;
+            const viewportHeight = (globalThis as any).innerHeight;
+            const intersectionWidth = Math.max(
+              0,
+              Math.min(rootRect.right, viewportWidth) - Math.max(rootRect.left, 0),
+            );
+            const intersectionHeight = Math.max(
+              0,
+              Math.min(rootRect.bottom, viewportHeight) - Math.max(rootRect.top, 0),
+            );
+            const titleIntersectsViewport =
+              titleRect.right > 0 &&
+              titleRect.bottom > 0 &&
+              titleRect.left < viewportWidth &&
+              titleRect.top < viewportHeight;
+            const dimensionTolerance = 0.5;
+            if (
+              rootStyle.position !== "absolute" ||
+              rootStyle.backgroundColor !== "rgb(250, 249, 245)" ||
+              titleStyle.position !== "absolute" ||
+              titleStyle.fontSize !== "96px" ||
+              titleStyle.left !== "150px" ||
+              titleStyle.top !== "480px" ||
+              Math.abs(titleLeft - 150) > 0.01 ||
+              Math.abs(titleTop - 480) > 0.01 ||
+              Math.abs(hostRect.width - 1920) > dimensionTolerance ||
+              Math.abs(hostRect.height - 1080) > dimensionTolerance ||
+              Math.abs(rootRect.width - 1920) > dimensionTolerance ||
+              Math.abs(rootRect.height - 1080) > dimensionTolerance ||
+              Math.abs(hostRect.width - rootRect.width) > dimensionTolerance ||
+              Math.abs(hostRect.height - rootRect.height) > dimensionTolerance ||
+              intersectionWidth < Math.min(rootRect.width, viewportWidth) * 0.5 ||
+              intersectionHeight < Math.min(rootRect.height, viewportHeight) * 0.5 ||
+              !titleIntersectsViewport
+            ) {
+              throw new Error(`mounted frame styles or geometry were not applied: ${JSON.stringify({
+                rootPosition: rootStyle.position,
+                backgroundColor: rootStyle.backgroundColor,
+                titlePosition: titleStyle.position,
+                fontSize: titleStyle.fontSize,
+                left: titleStyle.left,
+                top: titleStyle.top,
+                titleLeft,
+                titleTop,
+                hostWidth: hostRect.width,
+                hostHeight: hostRect.height,
+                rootWidth: rootRect.width,
+                rootHeight: rootRect.height,
+                intersectionWidth,
+                intersectionHeight,
+                titleIntersectsViewport,
+              })}`);
+            }
+            const { timeline: main } = timelineFor("main");
+            const { timeline: captions } = timelineFor("captions");
+            const frame1TimelineMatch = timelineFor("01-smoke");
+            const frame2TimelineMatch = timelineFor("02-smoke");
+            const frame1Timeline = frame1TimelineMatch.timeline;
+            const frame2Timeline = frame2TimelineMatch.timeline;
+            for (const forbidden of ["01-smoke__hf2", "02-smoke__hf2"]) {
+              if (Object.keys(timelines).includes(forbidden)) {
+                throw new Error(`unexpected duplicate frame timeline ${forbidden} in ${JSON.stringify(Object.keys(timelines))}`);
+              }
+            }
+            if (!/^01-smoke(?:__hf1)?$/.test(frame1TimelineMatch.id)) {
+              throw new Error(`unexpected scoped frame timeline id ${frame1TimelineMatch.id}`);
+            }
+            if (!/^02-smoke(?:__hf1)?$/.test(frame2TimelineMatch.id)) {
+              throw new Error(`unexpected scoped frame timeline id ${frame2TimelineMatch.id}`);
+            }
+            const frame1HostStart = Number.parseFloat(frame1Host.getAttribute("data-start") ?? "0");
+            const frame2HostStart = Number.parseFloat(frame2Host.getAttribute("data-start") ?? "0");
+            if (
+              Math.abs(frame1HostStart - frameTimings["01-smoke"].start) >= 0.001 ||
+              Math.abs(frame2HostStart - frameTimings["02-smoke"].start) >= 0.001 ||
+              frame2HostStart <= 0
+            ) {
+              throw new Error(`unexpected frame host starts: ${frame1HostStart}, ${frame2HostStart}`);
+            }
+            const frame1Future = pageDocument.getElementById("s01-future") as any;
+            const frame1Late = pageDocument.getElementById("s01-late") as any;
+            const frame2Future = pageDocument.getElementById("s02-future") as any;
+            const frame2Late = pageDocument.getElementById("s02-late") as any;
+            if (!frame1Future || !frame1Late || !frame2Future || !frame2Late) {
+              throw new Error("composed frame state probe is missing visual elements");
+            }
+            player.pause();
+            player.seek(expectations[0]?.time ?? 0);
+            const hitStack = pageDocument.elementsFromPoint(viewportWidth / 2, viewportHeight / 2);
+            if (hitStack.includes(captionHost)) {
+              throw new Error("caption host must be absent from elementFromPoint hits");
+            }
+            const visualSceneExposed = hitStack.some((element: any) =>
+              element === frame1Host ||
+              element === frame2Host ||
+              frame1Host.contains(element) ||
+              frame2Host.contains(element)
+            );
+            if (!visualSceneExposed) {
+              throw new Error("visual scene beneath caption host must remain exposed to hit testing");
+            }
+
+            const samples = expectations.map(({ time, visibleGroups: expectedVisibleGroups, classes }, sampleIndex) => {
+              player.seek(time);
+              const expectedFrame1LocalTime = Math.max(
+                0,
+                Math.min(time - frame1HostStart, frame1Timeline.duration()),
+              );
+              const expectedFrame2LocalTime = Math.max(
+                0,
+                Math.min(time - frame2HostStart, frame2Timeline.duration()),
+              );
+              const frame1LocalTime = frame1Timeline.time();
+              const frame2LocalTime = frame2Timeline.time();
+              if (
+                Math.abs(frame1LocalTime - expectedFrame1LocalTime) >= 0.001 ||
+                Math.abs(frame2LocalTime - expectedFrame2LocalTime) >= 0.001
+              ) {
+                throw new Error(`frame local times at global ${time}: ${JSON.stringify({
+                  frame1: { start: frame1HostStart, expected: expectedFrame1LocalTime, actual: frame1LocalTime },
+                  frame2: { start: frame2HostStart, expected: expectedFrame2LocalTime, actual: frame2LocalTime },
+                })}`);
+              }
+              const standaloneFrame1 = standaloneStates["01-smoke"][sampleIndex];
+              const standaloneFrame2 = standaloneStates["02-smoke"][sampleIndex];
+              const frame1FutureOpacity = Number.parseFloat(pageGetComputedStyle(frame1Future).opacity);
+              const frame1LateColor = pageGetComputedStyle(frame1Late).color;
+              const frame2FutureOpacity = Number.parseFloat(pageGetComputedStyle(frame2Future).opacity);
+              const frame2LateColor = pageGetComputedStyle(frame2Late).color;
+              if (
+                Math.abs(frame1FutureOpacity - standaloneFrame1.futureOpacity) >= 0.001 ||
+                frame1LateColor !== standaloneFrame1.lateColor ||
+                Math.abs(frame1LocalTime - standaloneFrame1.localTime) >= 0.001 ||
+                Math.abs(frame2FutureOpacity - standaloneFrame2.futureOpacity) >= 0.001 ||
+                frame2LateColor !== standaloneFrame2.lateColor ||
+                Math.abs(frame2LocalTime - standaloneFrame2.localTime) >= 0.001
+              ) {
+                throw new Error(`standalone frame state mismatch at ${time}: ${JSON.stringify({
+                  composed: {
+                    frame1: { frame1LocalTime, frame1FutureOpacity, frame1LateColor },
+                    frame2: { frame2LocalTime, frame2FutureOpacity, frame2LateColor },
+                  },
+                  standalone: { frame1: standaloneFrame1, frame2: standaloneFrame2 },
+                })}`);
+              }
+              const actualClasses = Array.from(captionHost.querySelectorAll(".caption-word") as any[])
+                .map((element: any) => String(element.className));
+              const captionBoundaryIsExact = Math.abs(time - frame2HostStart) < 0.001;
+              if (!captionBoundaryIsExact && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
+                throw new Error(
+                  `caption classes at ${time} (player=${player.getTime()}, main=${main.time()}/${main.duration()} paused=${main.paused()}, captions=${captions.time()}/${captions.duration()} paused=${captions.paused()}): ${JSON.stringify(actualClasses)}`,
+                );
+              }
+              const visibleGroupIndexes = Array.from(captionHost.querySelectorAll(".caption-group") as any[])
+                .map((element: any, index: number) => ({
+                  index,
+                  visible: Number.parseFloat(pageGetComputedStyle(element).opacity) > 0.5,
+                }))
+                .filter((entry) => entry.visible)
+                .map((entry) => entry.index);
+              if (
+                !captionBoundaryIsExact &&
+                JSON.stringify(visibleGroupIndexes) !== JSON.stringify(expectedVisibleGroups)
+              ) {
+                throw new Error(`visible caption groups at ${time}: ${JSON.stringify(visibleGroupIndexes)}`);
+              }
+              const visibleGroups = visibleGroupIndexes.length;
+              return {
+                time,
+                playerTime: player.getTime(),
+                mainTime: main.time(),
+                captionTime: captions.time(),
+                frame1LocalTime,
+                frame2LocalTime,
+                frame1FutureOpacity,
+                frame1LateColor,
+                frame2FutureOpacity,
+                frame2LateColor,
+                visibleGroups,
+                classes: actualClasses,
+              };
+            });
+
+            player.seek(frameTimings["02-smoke"].start + 0.1);
+            const playerBefore = player.getTime();
+            const mainBefore = main.time();
+            const captionBefore = captions.time();
+            const frame1Before = frame1Timeline.time();
+            const frame2Before = frame2Timeline.time();
+            const wallStart = performance.now();
+            await new Promise((resolveWait) => setTimeout(resolveWait, 275));
+            const wallClockElapsed = performance.now() - wallStart;
+            return {
+              gsapVersion: runtime.gsap.version,
+              frameTimelineIds: [frame1TimelineMatch.id, frame2TimelineMatch.id] as [string, string],
+              samples,
+              wallClockElapsed,
+              playerDrift: Math.abs(player.getTime() - playerBefore),
+              mainDrift: Math.abs(main.time() - mainBefore),
+              captionDrift: Math.abs(captions.time() - captionBefore),
+              frame1Drift: Math.abs(frame1Timeline.time() - frame1Before),
+              frame2Drift: Math.abs(frame2Timeline.time() - frame2Before),
+            };
+          }, {
+            captionExpectations: browserExpectations,
+            standaloneFrameStates,
+            frameTimings: {
+              "01-smoke": { start: frame1.start, frameDur: frame1.frameDur },
+              "02-smoke": { start: frame2.start, frameDur: frame2.frameDur },
+            },
+          });
+          if (candidate) {
+            execution = candidate;
+            break;
+          }
+        } catch (error) {
+          if (!String(error).includes("Execution context was destroyed")) throw error;
+        }
+      }
+      if (!execution) await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+
+    assert.ok(execution, "timed out waiting for main and captions timelines");
+    assert.equal(execution.gsapVersion, "3.14.2", "browser must execute real pinned GSAP");
+    assert.match(execution.frameTimelineIds[0], /^01-smoke(?:__hf1)?$/);
+    assert.match(execution.frameTimelineIds[1], /^02-smoke(?:__hf1)?$/);
+    const sampleAt = (time: number) => {
+      const sample = execution!.samples.find((candidate) => candidate.time === time);
+      assert.ok(sample, `missing frame sample at ${time}`);
+      return sample;
+    };
+    const beforeFrame2 = frame2HostStart - 0.1;
+    const afterFrame2 = frame2HostStart + 0.1;
+    const frame2RevealGlobal = frame2HostStart + 2.4;
+    const frame2HandoffGlobal = frame2HostStart + 2.9;
+    assert.ok(sampleAt(0.5).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
+    assert.ok(sampleAt(2.4).frame1FutureOpacity > 0.99, "frame 1 future element must reveal on its cue");
+    assert.equal(sampleAt(2.4).frame1LateColor, "rgb(20, 20, 19)", "frame 1 late handoff must remain neutral");
+    assert.equal(sampleAt(frame2HostStart).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
+
+    assert.equal(sampleAt(beforeFrame2).frame2LocalTime, 0, "frame 2 local time must clamp before host start");
+    assert.equal(sampleAt(frame2HostStart).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
+    assert.ok(Math.abs(sampleAt(afterFrame2).frame2LocalTime - 0.1) < 0.001, "frame 2 local time must offset after host start");
+    assert.ok(sampleAt(frame2RevealGlobal).frame2FutureOpacity > 0.99, "frame 2 future element must reveal at local 2.4");
+    assert.equal(sampleAt(frame2RevealGlobal).frame2LateColor, "rgb(31, 41, 55)", "frame 2 must remain neutral at local 2.4");
+    assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off at local 2.9");
+    for (const sample of execution.samples) {
+      assert.ok(Math.abs(sample.playerTime - sample.time) < 0.001, `player time mismatch at ${sample.time}`);
+      assert.ok(Math.abs(sample.mainTime - sample.time) < 0.001, `main timeline mismatch at ${sample.time}`);
+      assert.ok(Math.abs(sample.captionTime - sample.time) < 0.001, `caption timeline mismatch at ${sample.time}`);
+      if (Math.abs(sample.time - frame2HostStart) >= 0.001) {
+        assert.equal(
+          sample.visibleGroups,
+          Math.abs(sample.time - beforeFrame2) < 0.001 ? 0 : 1,
+          `caption group visibility at ${sample.time}`,
+        );
+      }
+    }
+    assert.ok(execution.wallClockElapsed >= 250, "wall-clock drift probe must span at least 250ms");
+    assert.ok(execution.playerDrift < 0.001, `paused player drifted ${execution.playerDrift}s`);
+    assert.ok(execution.mainDrift < 0.001, `paused main timeline drifted ${execution.mainDrift}s`);
+    assert.ok(execution.captionDrift < 0.001, `paused caption timeline drifted ${execution.captionDrift}s`);
+    assert.ok(execution.frame1Drift < 0.001, `paused frame 1 timeline drifted ${execution.frame1Drift}s`);
+    assert.ok(execution.frame2Drift < 0.001, `paused frame 2 timeline drifted ${execution.frame2Drift}s`);
+    assert.deepEqual(consoleErrors, [], `browser console errors: ${consoleErrors.join("\n")}`);
+    assert.deepEqual(pageErrors, [], `browser page errors: ${pageErrors.join("\n")}`);
+    assert.deepEqual(resourceErrors, [], `browser resource errors: ${resourceErrors.join("\n")}`);
+  } finally {
+    await browser.close();
+  }
+}
+
 export async function runFrameworkSmoke(
   context: ReleaseContext,
   framework: "hyperframes" | "remotion",
@@ -1155,25 +1733,77 @@ export async function runFrameworkSmoke(
     runInstalledFromPath(context, ["--version"]).trim(),
     PACKAGE_METADATA.version,
   );
-  assert.equal(
-    runInstalledFromPath(context, ["hyperframes", "--version"]).trim(),
-    REQUIRED_HYPERFRAMES_VERSION,
-  );
+  if (framework === "hyperframes") {
+    const packageRoot = join(context.prefix, "node_modules", "hyperframes");
+    const installation = {
+      packageRoot,
+      cliEntry: join(packageRoot, "dist", "cli.js"),
+      version: REQUIRED_HYPERFRAMES_VERSION,
+    };
+    const cliBeforeProxy = readFileSync(installation.cliEntry);
+    const beforeProxy = readPinnedHyperframesPatchState(installation);
+    assert.deepEqual(
+      { captionLoopApplied: beforeProxy.captionLoopApplied },
+      { captionLoopApplied: false },
+      "blocked postinstall must leave the packed-install HyperFrames bundle pristine",
+    );
+    assert.equal(
+      runInstalledFromPath(context, ["hyperframes", "--version"]).trim(),
+      REQUIRED_HYPERFRAMES_VERSION,
+    );
+    assert.deepEqual(
+      readFileSync(installation.cliEntry),
+      cliBeforeProxy,
+      "proxy self-healing must not patch the HyperFrames CLI bundle",
+    );
+    const afterProxy = readPinnedHyperframesPatchState(installation);
+    assert.deepEqual(
+      { captionLoopApplied: afterProxy.captionLoopApplied },
+      { captionLoopApplied: true },
+      "the first HyperFrames proxy invocation must apply the required pinned patch",
+    );
+  } else {
+    assert.equal(
+      runInstalledFromPath(context, ["hyperframes", "--version"]).trim(),
+      REQUIRED_HYPERFRAMES_VERSION,
+    );
+  }
 
   const caseRoot = join(context.work, `smoke-${framework}-case`);
   mkdirSync(caseRoot, { recursive: true });
-  runInstalledCli(context, ["new", framework, "--framework", framework], caseRoot);
+  const scaffoldArgs = framework === "hyperframes"
+    ? ["new", framework]
+    : ["new", framework, "--framework", framework];
+  runInstalledCli(context, scaffoldArgs, caseRoot);
   const project = join(caseRoot, framework);
-  const shared = join(caseRoot, "shared");
+  const shared = project;
   assertCompleteScaffold(project, framework);
+  assertGeneratedPackageScripts(project, framework);
   assertNoRepoRelativePaths(project);
-  stageCanonicalAuthoredInputs(project, shared);
+  stageFlatAuthoredInputs(project);
 
   if (framework === "hyperframes") {
+    const gsapSrc = "assets/gsap/gsap.min.js";
+    mkdirSync(join(project, "assets", "gsap"), { recursive: true });
     cpSync(
-      join(FIXTURES, "01-smoke.html"),
-      join(project, "compositions", "frames", "01-smoke.html"),
+      join(REPO_ROOT, "node_modules", "gsap", "dist", "gsap.min.js"),
+      join(project, gsapSrc),
     );
+    writeFileSync(
+      join(project, "output.config.json"),
+      `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
+    );
+    for (const frameSlug of ["01-smoke", "02-smoke"]) {
+      const framePath = join(project, "compositions", "frames", `${frameSlug}.html`);
+      cpSync(join(FIXTURES, `${frameSlug}.html`), framePath);
+      writeFileSync(
+        framePath,
+        readFileSync(framePath, "utf8").replace(
+          "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+          gsapSrc,
+        ),
+      );
+    }
     const previewHelp = runInstalledFromPath(
       context,
       ["hyperframes", "preview", "--help"],
@@ -1183,15 +1813,65 @@ export async function runFrameworkSmoke(
     runProjectNpm(context, project, ["run", "build"]);
     runProjectNpm(context, project, ["run", "check"]);
 
-    const sourceWav = join(shared, "assets", "voice", "01.wav");
-    const staged = join(project, "assets", "voice", "01.wav");
-    assert.ok(statSync(staged).isFile(), "HyperFrames staged WAV must be a regular file");
-    assert.equal(lstatSync(staged).isSymbolicLink(), false);
-    assert.ok(statSync(staged).size > 44, "HyperFrames staged WAV must be nonempty");
-    assert.deepEqual(readFileSync(staged), readFileSync(sourceWav));
+    const generatedGsapDocuments = [
+      join(project, "index.html"),
+      join(project, "compositions", "captions.html"),
+      join(project, "compositions", "frames", "01-smoke.html"),
+      join(project, "compositions", "frames", "02-smoke.html"),
+    ];
+    for (const document of generatedGsapDocuments) {
+      const sources = parseGsapUrls(readFileSync(document, "utf8"));
+      assert.deepEqual(sources, [gsapSrc], `local GSAP source in ${relative(project, document)}`);
+    }
+    const generatedIndex = readFileSync(join(project, "index.html"), "utf8");
+    assert.equal(
+      generatedIndex.match(/\.caption-host\s*\{\s*pointer-events:\s*none;\s*\}/g)?.length,
+      1,
+      "packed build must emit the caption host pointer rule exactly once",
+    );
+    const captionHostTag = generatedIndex.match(/<div(?=[^>]*\bid="el-captions")[^>]*>/)?.[0] ?? "";
+    assert.match(captionHostTag, /class="scene caption-host"/);
+
+    for (const voiceName of ["intro.wav", "followup.wav"]) {
+      const staged = join(project, "assets", "voice", voiceName);
+      assert.ok(statSync(staged).isFile(), `HyperFrames staged ${voiceName} must be a regular file`);
+      assert.equal(lstatSync(staged).isSymbolicLink(), false);
+      assert.ok(statSync(staged).size > 44, `HyperFrames staged ${voiceName} must be nonempty`);
+    }
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    const browserPath = runInstalledFromPath(
+      context,
+      ["hyperframes", "browser", "path"],
+      project,
+    ).trim();
+    assert.ok(browserPath, "HyperFrames browser path must be available");
+    const captionArtifact = JSON.parse(
+      readFileSync(join(project, "caption_groups.json"), "utf8"),
+    ) as { groups: SmokeCaptionGroup[] };
+    const buildArtifact = JSON.parse(
+      readFileSync(join(project, "build", "build_plan.json"), "utf8"),
+    ) as {
+      totalDuration: number;
+      frames: Array<{ slug: string; start: number; frameDur: number }>;
+    };
+    assert.ok(captionArtifact.groups.length > 1, "smoke regroup must materially split captions");
+
+    // Render before starting the long-running Studio preview. On macOS, a just-
+    // terminated Studio Chrome tree can transiently leave the next headless
+    // capture without a ready runtime even after the process group is reaped.
+    const smokeRender = join(project, "renders", "smoke.mp4");
+    runProjectNpm(context, project, [
+      "run", "render", "--",
+      "--output", smokeRender,
+      "--fps", "1",
+      "--quality", "draft",
+      "--workers", "1",
+      "--quiet",
+    ]);
+    assert.ok(statSync(smokeRender).size > 0, "HyperFrames smoke render must be nonempty");
+
     await withHyperframesStudio(context, project, async (baseUrl) => {
       const index = readFileSync(join(project, "index.html"), "utf8");
       const voiceUrls = parseVoiceUrls(index);
@@ -1201,18 +1881,28 @@ export async function runFrameworkSmoke(
         assert.equal(response.status, 200, `Studio must serve ${voiceUrl}`);
         await response.body?.cancel();
       }
+      const gsapResponse = await fetch(new URL(gsapSrc, baseUrl));
+      assert.equal(gsapResponse.status, 200, `Studio must serve ${gsapSrc}`);
+      assert.match(await gsapResponse.text(), /3\.14\.2/);
+      await assertHyperframesBrowserExecution(
+        browserPath,
+        baseUrl,
+        captionArtifact.groups,
+        buildArtifact.totalDuration,
+        buildArtifact.frames,
+      );
     });
   } else {
     runProjectNpm(context, project, ["install"]);
     runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "typecheck"]);
+    runProjectNpm(context, project, ["run", "check"]);
     runProjectNpm(context, project, ["run", "still"]);
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
     const still = join(project, "out", "still.jpeg");
-    const sourceWav = join(shared, "assets", "voice", "01.wav");
-    const staged = join(project, "public", "assets", "voice", "01.wav");
+    const sourceWav = join(shared, "assets", "voice", "intro.wav");
+    const staged = join(project, "public", "assets", "voice", "intro.wav");
     assert.ok(statSync(still).size > 0, "Remotion still must be nonempty");
     assert.ok(statSync(staged).isFile(), "Remotion public WAV must be a regular file");
     assert.equal(lstatSync(staged).isSymbolicLink(), false);

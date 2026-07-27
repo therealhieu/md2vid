@@ -532,6 +532,42 @@ test("reusable validation installs and verifies the packageManager npm pin in or
   assert.match(stepBody(yaml, "Install dependencies"), /run:\s*npm ci/);
 });
 
+test("reusable validation provisions Linux media tools before render-capable modes", () => {
+  const assertMediaToolsPolicy = (yaml: string) => {
+    const { value } = parseWorkflow(yaml);
+    const steps = parsedSteps(parsedJob(value, "validate"), "validate");
+    const mediaIndex = steps.findIndex((step) => step.name === "Install Linux media tools");
+    const validationIndex = steps.findIndex((step) => step.name === "Run requested validation");
+    assert.notEqual(mediaIndex, -1, "missing Linux media-tools step");
+    assert.notEqual(validationIndex, -1, "missing requested-validation step");
+    assert.ok(mediaIndex < validationIndex, "media tools must precede render-capable validation");
+
+    const mediaTools = steps[mediaIndex];
+    assert.equal(
+      mediaTools.if,
+      "runner.os == 'Linux' && (inputs.mode == 'full' || inputs.mode == 'public-snapshot')",
+    );
+    assert.equal(mediaTools.shell, "bash");
+    assert.equal(typeof mediaTools.run, "string");
+    assert.match(mediaTools.run as string, /sudo apt-get update/);
+    assert.match(mediaTools.run as string, /sudo apt-get install --yes ffmpeg/);
+    assert.match(mediaTools.run as string, /command -v ffmpeg/);
+    assert.match(mediaTools.run as string, /command -v ffprobe/);
+  };
+
+  const yaml = workflow("validate.yml");
+  assertMediaToolsPolicy(yaml);
+  for (const mutated of [
+    yaml.replace("        if: runner.os", "        # if: runner.os"),
+    yaml.replace("runner.os == 'Linux'", "runner.os == 'Windows'"),
+    yaml.replace("inputs.mode == 'full'", "inputs.mode == 'fast'"),
+    yaml.replace("inputs.mode == 'public-snapshot'", "inputs.mode == 'fast'"),
+  ]) {
+    assert.notEqual(mutated, yaml, "media-tools policy mutation must modify the workflow");
+    assert.throws(() => assertMediaToolsPolicy(mutated), /if|Linux|Windows|full|public-snapshot|fast/);
+  }
+});
+
 test("reusable validation supports fast and full modes with narrow diagnostics", () => {
   const yaml = workflow("validate.yml");
   const validation = stepBody(yaml, "Run requested validation");

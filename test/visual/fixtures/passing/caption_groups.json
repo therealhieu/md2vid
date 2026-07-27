@@ -1,0 +1,14 @@
+{
+  "groups": [
+    {
+      "id": "caption-group-0",
+      "frame": 1,
+      "start": 0,
+      "end": 2.6,
+      "words": [
+        { "id": "word-pass-1", "text": "Readable", "start": 0.2, "end": 1.0 },
+        { "id": "word-pass-2", "text": "captions", "start": 1.1, "end": 2.0 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "timing": { "tail": 0.5, "xfade": 0.5, "gap": 0.5 },
+  "canvas": { "width": 1920, "height": 1080 },
+  "slugs": {
+    "cover": "01-cover",
+    "core": "02-core-idea",
+    "lookup": "03-lookup-flow",
+    "collisions": "04-collisions",
+    "load-factor": "05-load-factor",
+    "why": "06-why-matters",
+    "recap": "07-recap"
+  }
+}

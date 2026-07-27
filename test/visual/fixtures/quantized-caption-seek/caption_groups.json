@@ -1,0 +1,23 @@
+{
+  "groups": [
+    {
+      "id": "quantized-group-1",
+      "frame": 1,
+      "start": 0,
+      "end": 0.08,
+      "words": [
+        { "id": "word-before-quantized-time", "start": 0.02, "end": 0.04 },
+        { "id": "word-at-requested-time", "start": 0.04, "end": 0.08 }
+      ]
+    },
+    {
+      "id": "quantized-group-2",
+      "frame": 1,
+      "start": 0.14,
+      "end": 0.3,
+      "words": [
+        { "id": "word-next-group", "start": 0.14, "end": 0.3 }
+      ]
+    }
+  ]
+}

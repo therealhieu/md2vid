@@ -6,8 +6,12 @@ import {
 import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  ensurePinnedHyperframesPatches,
+  PINNED_HYPERFRAMES_VERSION,
+} from "../frameworks/hyperframes/patches.ts";
 
-export const HYPERFRAMES_VERSION = "0.7.26";
+export const HYPERFRAMES_VERSION = PINNED_HYPERFRAMES_VERSION;
 
 export interface HyperframesInstallation {
   packageRoot: string;
@@ -123,6 +127,15 @@ export function runHyperframes(
   }: RunHyperframesOptions = {},
 ): number {
   const installation = resolveHyperframesInstallation(metaUrl);
+  try {
+    ensurePinnedHyperframesPatches(installation);
+  } catch (error) {
+    console.error(
+      `FAIL [hyperframes-cli]: hyperframes@${HYPERFRAMES_VERSION} patch preflight failed: ${errorMessage(error)}`,
+    );
+    return 1;
+  }
+
   let result: SpawnSyncReturns<Buffer>;
   try {
     result = spawn(process.execPath, [installation.cliEntry, ...args], {

@@ -5,16 +5,23 @@
 //
 // The argument is a framework OUTPUT dir (e.g. outputs/<input>/hyperframes) or a flat
 // layout-reference video dir. Runs the NEUTRAL caption invariants (engine/verify.mjs)
-// on any video, then dispatches the framework-specific layout checks off the output's
-// output.config.json `framework` field (default "hyperframes"). Neutral verify runs on
-// any video regardless of framework; the framework verify runs only for that framework.
+// on any video, then dispatches the framework-specific layout checks off valid project
+// configuration. Only valid flat legacy projects may omit `framework` and use HyperFrames.
 
 import { readFileSync, existsSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { readAudioMeta } from "../engine/audio_meta.ts";
 import { verifyNeutral } from "../engine/verify.ts";
-import { loadConfig } from "../engine/config.ts";
+import {
+  captureVoiceWavSnapshots,
+  validateAudioMetaVoiceSnapshots,
+} from "../engine/voice_assets.ts";
+import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
+import type { CaptionGroup } from "../engine/types.ts";
 import { getAdapter } from "../frameworks/index.ts";
+import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { resolveProjectLayout } from "./project_layout.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
 // — a hard ceiling only kicks in well past the readable target so a legitimately long
@@ -25,91 +32,110 @@ const HARD_MAX_CHARS = 72;
 const isFile = (p: string) => existsSync(p) && statSync(p).isFile();
 const isDir = (p: string) => existsSync(p) && statSync(p).isDirectory();
 
-// Parse args. Returns an exit code (number) on bad input so run() can bail
-// without exiting the process — safe for repeated in-process calls.
-function parseArgs(argv: string[]): { dir: string; maxChars: number } | number {
-  const args: { dir: string | null; maxChars: number } = { dir: null, maxChars: TARGET_MAX_CHARS_DEFAULT };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--max-chars") args.maxChars = Number(argv[++i]);
-    else if (!a.startsWith("--") && args.dir === null) args.dir = a;
-    else {
-      console.error(`Unknown argument: ${a}`);
-      return 2;
+const USAGE = "Usage: md2vid verify <output-dir> [--max-chars N]";
+
+function parseVerifyArgs(argv: string[]) {
+  return parseCommand({
+    command: "verify",
+    usage: USAGE,
+    options: { "max-chars": { type: "string" } },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, argv);
+}
+
+function configuredFramework(loaded: LoadedVideoConfig, flat: boolean, outputDir: string): string {
+  if (!flat) {
+    if (!loaded.local) throw new Error(`missing output.config.json — ${loaded.localPath}`);
+    if (loaded.local.framework === undefined) {
+      throw new Error(`missing framework in ${loaded.localPath}`);
     }
+    return loaded.local.framework;
   }
-  if (!args.dir) {
-    console.error("Usage: md2vid verify <output-dir> [--max-chars N]");
-    return 2;
-  }
-  if (!Number.isFinite(args.maxChars)) {
-    console.error(`--max-chars must be a number (got ${args.maxChars})`);
-    return 2;
-  }
-  return args as { dir: string; maxChars: number };
+
+  return loaded.local?.framework ?? loaded.neutral.framework ?? "hyperframes";
 }
 
-// Locate the neutral caption groups: reshaped layout keeps them in the sibling
-// shared/ dir; flat layout-reference videos keep them beside index.html.
-function captionGroupsPath(video: string) {
-  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
-  return isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
-}
-
-// Resolve the framework for this output dir. Reshaped videos carry it in
-// output.config.json; flat layout-reference videos default to hyperframes.
-function frameworkFor(video: string) {
-  const shared = join(video, "..", "shared");
+function readCaptionGroups(path: string): CaptionGroup[] {
   try {
-    const config = loadConfig(isDir(shared) ? shared : video, video);
-    return config.framework ?? "hyperframes";
-  } catch {
-    return "hyperframes";
+    return (JSON.parse(readFileSync(path, "utf8")) as { groups?: CaptionGroup[] }).groups ?? [];
+  } catch (error: unknown) {
+    throw new Error(`invalid caption_groups.json at ${path}: ${(error as Error).message}`);
   }
 }
 
 export function run(argv: string[]): number {
-  const args = parseArgs(argv);
-  if (typeof args === "number") return args;
-
-  const problems: string[] = [];
-  const warnings: string[] = [];
-  const problem = (msg: string) => problems.push(msg);
-  const warn = (msg: string) => warnings.push(msg);
-
-  const video = resolve(args.dir);
-  if (!isDir(video)) {
-    console.log(`FAIL: not a directory: ${video}`);
+  const parsed = parseVerifyArgs(argv);
+  if (parsed.kind === "help") {
+    console.log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    console.error(parsed.message);
+    console.error(parsed.usage);
     return 2;
   }
 
-  // Neutral caption invariants — delegate to the engine, framework-agnostic.
-  const src = captionGroupsPath(video);
-  if (!isFile(src)) {
-    warn(`no caption_groups.json (captions disabled?) — ${src}`);
-  } else {
-    const groups = JSON.parse(readFileSync(src, "utf8")).groups ?? [];
-    for (const f of verifyNeutral(groups, { targetMaxChars: args.maxChars, hardMaxChars: HARD_MAX_CHARS })) {
-      if (f.level === "error") problem(f.msg);
-      else warn(f.msg);
+  const maxChars = Number(parsed.values["max-chars"] ?? TARGET_MAX_CHARS_DEFAULT);
+  if (!Number.isFinite(maxChars)) {
+    console.error(`--max-chars must be a number (got ${maxChars})`);
+    console.error(USAGE);
+    return 2;
+  }
+
+  try {
+    const layout = resolveProjectLayout(parsed.positionals[0]);
+    if (!isDir(layout.outputDir)) throw new Error(`not a directory: ${layout.outputDir}`);
+
+    const metaPath = join(layout.sharedDir, "audio_meta.json");
+    if (!isFile(metaPath)) throw new Error(`missing audio_meta.json — ${metaPath}`);
+    const meta = readAudioMeta(metaPath);
+    const voiceSnapshots = captureVoiceWavSnapshots(
+      layout.sharedDir,
+      meta.voices.map((voice) => voice.path),
+    );
+    validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
+
+    const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
+    const adapter = getAdapter(configuredFramework(loaded, layout.flat, layout.outputDir));
+    const problems: string[] = [];
+    const warnings: string[] = [];
+    const problem = (msg: string) => problems.push(msg);
+    const warn = (msg: string) => warnings.push(msg);
+
+    // Neutral caption invariants — delegate to the engine, framework-agnostic.
+    const src = join(layout.sharedDir, "caption_groups.json");
+    if (!isFile(src)) {
+      warn(`no caption_groups.json (captions disabled?) — ${src}`);
+    } else {
+      const groups = readCaptionGroups(src);
+      for (const finding of verifyNeutral(groups, {
+        targetMaxChars: maxChars,
+        hardMaxChars: HARD_MAX_CHARS,
+      })) {
+        if (finding.level === "error") problem(finding.msg);
+        else warn(finding.msg);
+      }
     }
-  }
 
-  // Framework-specific layout checks — dispatch off config.framework.
-  const adapter = getAdapter(frameworkFor(video));
-  for (const f of adapter.verify(video)) {
-    if (f.level === "error") problem(f.msg);
-    else warn(f.msg);
-  }
+    // Framework-specific layout checks — dispatch off validated config.framework.
+    for (const finding of adapter.verify(layout.outputDir, layout.sharedDir, { voiceSnapshots })) {
+      if (finding.level === "error") problem(finding.msg);
+      else warn(finding.msg);
+    }
 
-  for (const w of warnings) console.log(`WARN: ${w}`);
-  if (problems.length) {
-    for (const p of problems) console.log(`FAIL: ${p}`);
-    console.log(`\n${problems.length} problem(s), ${warnings.length} warning(s)`);
+    for (const warning of warnings) console.log(`WARN: ${warning}`);
+    if (problems.length) {
+      for (const message of problems) console.error(`FAIL: ${message}`);
+      console.error(`\n${problems.length} problem(s), ${warnings.length} warning(s)`);
+      return 1;
+    }
+    console.log(`OK: video contract satisfied (${warnings.length} warning(s))`);
+    return 0;
+  } catch (error: unknown) {
+    console.error(`FAIL: ${(error as Error).message}`);
     return 1;
   }
-  console.log(`OK: video contract satisfied (${warnings.length} warning(s))`);
-  return 0;
 }
 
 if (isMainModule(import.meta.url)) process.exit(run(process.argv.slice(2)));

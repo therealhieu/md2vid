@@ -3,8 +3,8 @@
 // An adapter is { name, emit, scaffold, verify }. The registry (frameworks/index.mjs)
 // maps a framework name to one of these; scripts dispatch off config.framework.
 //
-import { emit } from "./emit.ts";
-import { verify } from "./verify.ts";
+import { emit, preflight } from "./emit.ts";
+import { verify, verifyHyperframesCaptionArtifact } from "./verify.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
@@ -13,7 +13,12 @@ const adapter: FrameworkAdapter = {
   scaffoldSpec,
   writeScaffoldRuntime,
   ensureRuntime,
+  preflight,
   emit,
+  captionArtifactPath: "compositions/captions.html",
+  captionIndexArtifactPath: "index.html",
+  managedVoiceArtifactPath: "assets/voice",
+  verifyCaptionArtifact: verifyHyperframesCaptionArtifact,
   verify,
 };
 export default adapter;

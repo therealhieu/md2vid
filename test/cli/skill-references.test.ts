@@ -13,6 +13,24 @@ import {
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const SKILL_ROOT = join(REPO_ROOT, "skill", "md2vid");
 
+function assertOrder(body: string, fragments: string[], label: string): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `${label}: expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
+function readSourceAndCopy(sourceFromRoot: string): Array<{ label: string; body: string }> {
+  const entry = SKILL_REFERENCE_MAP.find((candidate) => candidate.sourceFromRoot === sourceFromRoot);
+  assert.ok(entry, `missing skill reference mapping for ${sourceFromRoot}`);
+  return [
+    { label: entry.sourceFromRoot, body: readFileSync(join(REPO_ROOT, entry.sourceFromRoot), "utf8") },
+    { label: entry.destinationFromRoot, body: readFileSync(join(REPO_ROOT, entry.destinationFromRoot), "utf8") },
+  ];
+}
+
 test("mandatory skill references are byte-identical to authoritative standards", () => {
   assert.deepEqual(
     SKILL_REFERENCE_MAP.map((entry) => entry.destination),
@@ -36,6 +54,76 @@ test("bundled Remotion standard uses the actual shared build-plan path", () => {
   );
   assert.doesNotMatch(body, /shared\/build_plan\.json/);
   assert.match(body, /shared\/build\/build_plan\.json/);
+});
+
+test("video-generation standards define the narration contract and pre-review gate", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /audio_request\.json\.example/, label);
+    for (const field of ["id", "path", "duration_s", "words"]) assert.match(body, new RegExp(`\\b${field}\\b`), label);
+    assert.match(body, /frame order.*voices\[\].*array/i, label);
+    assert.match(body, /npm run check.*before.*(?:preview|still|studio|render)/is, label);
+  }
+});
+
+test("narration timing policy is authoritative and synchronized", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /word timings.*finite/i, label);
+    assert.match(body, /ordered.*non-overlapping/i, label);
+    assert.match(body, /0.*start.*end.*duration_s/i, label);
+    assert.match(body, /final-word overrun.*bounded to.*duration_s/is, label);
+    assert.match(body, /end past.*clamped/i, label);
+    assert.match(body, /does not extend.*(?:WAV|duration_s)/i, label);
+    assert.match(body, /(?:build.*verify|verify.*build).*fail.*path.*voice.*word/is, label);
+  }
+});
+
+test("public and skill guidance use canonical HyperFrames paths without inventing an audio command", () => {
+  const documents = [
+    { label: "README.md", body: readFileSync(join(REPO_ROOT, "README.md"), "utf8") },
+    { label: "skill/md2vid/SKILL.md", body: readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8") },
+    ...readSourceAndCopy("docs/standards/frameworks/hyperframes.md"),
+  ];
+
+  for (const { label, body } of documents) {
+    assert.match(body, /compositions\/captions\.html/, label);
+    assert.doesNotMatch(body, /(?<!compositions\/)captions\.html/, label);
+    assert.match(body, /gsapSrc[\s\S]*exact unchanged string/i, label);
+    assert.doesNotMatch(body, /(?:^|\n)\s*md2vid audio(?:\s|$)/m, label);
+  }
+  assert.doesNotMatch(
+    readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8"),
+    /index\.html\s*\/\s*captions\.html/,
+  );
+});
+
+test("full-build guidance distinguishes authored sources from regenerated standalone captions", () => {
+  const documents = [
+    { label: "README.md", body: readFileSync(join(REPO_ROOT, "README.md"), "utf8") },
+    { label: "skill/md2vid/SKILL.md", body: readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8") },
+    ...readSourceAndCopy("docs/standards/frameworks/hyperframes.md"),
+  ];
+
+  for (const { label, body } of documents) {
+    assert.match(body, /authored frame(?: and source)? files remain untouched/i, label);
+    assert.match(body, /generated standalone `?compositions\/captions\.html`? is regenerated/i, label);
+    assert.doesNotMatch(body, /authored frame and caption files remain unchanged/i, label);
+    assert.doesNotMatch(body, /full build (?:keeps|leaves) (?:those )?standalone files (?:intact|untouched)/i, label);
+  }
+});
+
+test("framework standards document generated build and check ordering", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /audio_request\.json\.example/, label);
+    assertOrder(body, ["npm run build", "npm run check", "npm run dev"], label);
+    assert.match(body, /npm run check.*before.*render/is, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /neutral.*title card/i, label);
+    assert.match(body, /explicit.*register/i, label);
+    assert.match(body, /examples\/hash-table\/remotion\//, label);
+    assertOrder(body, ["npm run build", "npm run check", "npm run still"], label);
+    assert.match(body, /npm run check.*before.*render/is, label);
+  }
 });
 
 test("installed skill tree validates without repository files", () => {

@@ -29,6 +29,9 @@ const invalidVoicePaths = [
   "../assets/voice/01.wav",
   "assets/music/01.wav",
   "assets/voice/01.mp3",
+  "assets/voice/bad name.wav",
+  "assets/voice/%2e%2e/escape.wav",
+  "assets/voice/intro:.wav",
   "assets/voice//01.wav",
   "assets/voice/./01.wav",
   "assets/voice/",
@@ -40,18 +43,24 @@ for (const invalid of invalidVoicePaths) {
   });
 }
 
-test("accepts and normalizes a nested portable WAV path", () => {
+test("accepts a nested portable WAV path", () => {
   assert.equal(
-    validateVoicePath("assets\\voice\\chapter\\01.wav"),
+    validateVoicePath("assets/voice/chapter/01.wav"),
     "assets/voice/chapter/01.wav",
   );
 });
 
-test("deduplicates normalized voice paths while preserving first-seen order", () => {
+test("rejects backslash-separated voice paths instead of normalizing them", () => {
+  assert.throws(
+    () => validateVoicePath("assets\\voice\\chapter\\01.wav"),
+    /voice asset path/,
+  );
+});
+
+test("deduplicates portable voice paths while preserving first-seen order", () => {
   assert.deepEqual(
     collectVoicePaths([
       { voicePath: "assets/voice/01.wav" },
-      { voicePath: "assets\\voice\\01.wav" },
       { voicePath: "assets/voice/02.wav" },
       { voicePath: "assets/voice/01.wav" },
     ]),

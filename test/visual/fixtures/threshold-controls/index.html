@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 960px; height: 540px; overflow: hidden; }
+    #root, .scene, #frame-01-thresholds, .ground { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #root, .ground { background: #ffffff; }
+    #frame-01-thresholds { color: #141413; }
+    #threshold-title { position: absolute; left: 120px; top: 100px; margin: 0; font: 700 52px/1.1 Georgia, serif; }
+    #el-captions { z-index: 10; pointer-events: none; }
+    .caption-group { position: absolute; left: 120px; bottom: 72px; }
+    .caption-word { color: #8a8a8a; font-family: Arial, sans-serif; margin-right: 14px; }
+    #word-large { font-size: 32px; font-weight: 400; }
+    #word-normal { font-size: 20px; font-weight: 400; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main">
+    <div id="el-01-thresholds" class="scene" data-composition-id="01-thresholds" data-start="0" data-duration="3">
+      <div id="frame-01-thresholds" data-hf-inner-root="true" data-composition-id="01-thresholds" data-frame-theme="light">
+        <div class="ground"></div>
+        <h1 id="threshold-title" data-load-bearing-text>Threshold controls</h1>
+      </div>
+    </div>
+    <div id="el-captions" class="scene" data-composition-id="captions">
+      <div class="caption-group">
+        <span id="word-large" class="caption-word" data-start="0.2" data-end="1.0">Large</span>
+        <span id="word-normal" class="caption-word" data-start="1.2" data-end="2.0">Normal</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      let time = 0;
+      const update = (next) => {
+        time = next;
+        for (const word of document.querySelectorAll('.caption-word')) {
+          const start = Number(word.dataset.start);
+          const end = Number(word.dataset.end);
+          word.className = 'caption-word';
+          if (time >= start && time < end) word.classList.add('is-active');
+          else if (time >= end) word.classList.add('is-spoken');
+        }
+      };
+      window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+      window.__timelines = { main: {}, captions: {}, '01-thresholds': {} };
+      update(0);
+    })();
+  </script>
+</body>
+</html>

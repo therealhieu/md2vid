@@ -2,10 +2,13 @@ export const REQUIRED_PACKED_FILES = [
   "dist/bin/md2vid.js",
   "dist/scripts/build.js",
   "dist/scripts/check_release_name.js",
+  "dist/scripts/cli_args.js",
   "dist/scripts/hyperframes_cli.js",
+  "dist/scripts/managed_file_transaction.js",
   "dist/scripts/install_skill.js",
   "dist/scripts/package_root.js",
   "dist/scripts/platform_support.js",
+  "dist/scripts/project_layout.js",
   "dist/scripts/scaffold_project.js",
   "dist/scripts/skill_references.js",
   "dist/frameworks/assets.js",
@@ -36,6 +39,7 @@ export const FORBIDDEN_PACKED_PREFIXES = [
   "test/",
   "node_modules/",
   "docs/superpowers/",
+  "examples/",
 ] as const;
 
 const removedGsapVendorFile = ["vendor", ["gsap", "min", "js"].join(".")].join("/");

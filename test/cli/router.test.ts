@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import {
   assertSupportedPlatform,
   SUPPORTED_PLATFORMS,
 } from "../../scripts/platform_support.ts";
+import { makeWavForSafeDuration } from "../helpers/wav.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -26,15 +27,47 @@ const BIN = join(REPO_ROOT, "bin", "md2vid.ts");
 const PACKAGE_ROOT_HELPER = join(REPO_ROOT, "scripts", "package_root.ts");
 const PACKAGE_VERSION = (JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as { version: string }).version;
 const FIXTURES = join(REPO_ROOT, "test", "golden", "fixtures", "hash-table-example", "inputs");
+const PINNED_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+
+function authoredFrame(slug: string, gsapSrc = PINNED_GSAP): string {
+  return `<template data-composition-id="${slug}">
+<div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1"></div>
+<script src="${gsapSrc}"></script>
+<script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script>
+</template>\n`;
+}
 
 // Run the bin from an arbitrary cwd; return { code, stdout, stderr }.
-function runBin(args: string[], cwd = REPO_ROOT): { code: number; stdout: string; stderr: string } {
+function runBin(
+  args: string[],
+  cwd = REPO_ROOT,
+  env: NodeJS.ProcessEnv = process.env,
+): { code: number; stdout: string; stderr: string } {
   try {
-    const stdout = execFileSync("node", [BIN, ...args], { cwd, encoding: "utf8", stdio: "pipe" });
+    const stdout = execFileSync("node", [BIN, ...args], { cwd, env, encoding: "utf8", stdio: "pipe" });
     return { code: 0, stdout, stderr: "" };
   } catch (e: any) {
     return { code: e.status ?? 1, stdout: e.stdout?.toString() ?? "", stderr: e.stderr?.toString() ?? "" };
   }
+}
+
+function snapshotTree(root: string): Array<{ path: string; type: "dir" | "file"; contents?: string }> {
+  if (!existsSync(root)) return [];
+  const entries: Array<{ path: string; type: "dir" | "file"; contents?: string }> = [];
+  const visit = (dir: string) => {
+    for (const name of readdirSync(dir).sort()) {
+      const path = join(dir, name);
+      const relativePath = relative(root, path);
+      if (statSync(path).isDirectory()) {
+        entries.push({ path: relativePath, type: "dir" });
+        visit(path);
+      } else {
+        entries.push({ path: relativePath, type: "file", contents: readFileSync(path).toString("base64") });
+      }
+    }
+  };
+  visit(root);
+  return entries;
 }
 
 async function withStaticServer(root: string, operation: (baseUrl: string) => Promise<void>): Promise<void> {
@@ -72,12 +105,22 @@ function seedVideo() {
   const output = join(tmp, "hyperframes");
   mkdirSync(join(shared, "assets", "voice"), { recursive: true });
   mkdirSync(join(output, "compositions", "frames"), { recursive: true });
-  for (const id of ["01", "02", "03", "04", "05", "06", "07"]) {
-    writeFileSync(join(shared, "assets", "voice", `${id}.wav`), `VOICE${id}`);
-  }
   copyFileSync(join(FIXTURES, "audio_meta.json"), join(shared, "audio_meta.json"));
+  const metaPath = join(shared, "audio_meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  for (const voice of meta.voices) {
+    writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+  }
   copyFileSync(join(FIXTURES, "video.config.json"), join(shared, "video.config.json"));
-  copyFileSync(join(FIXTURES, "output.config.json"), join(output, "output.config.json"));
+  const outputConfigPath = join(output, "output.config.json");
+  const outputConfig = JSON.parse(readFileSync(join(FIXTURES, "output.config.json"), "utf8"));
+  outputConfig.visualContract = {
+    version: 1,
+    projectTheme: "light",
+    allowMixedThemes: false,
+    allowLegacyThemeInference: true,
+  };
+  writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig, null, 2)}\n`);
   for (const slug of [
     "01-cover",
     "02-core-idea",
@@ -87,9 +130,44 @@ function seedVideo() {
     "06-why-matters",
     "07-recap",
   ]) {
-    writeFileSync(join(output, "compositions", "frames", `${slug}.html`), "<html></html>\n");
+    writeFileSync(join(output, "compositions", "frames", `${slug}.html`), authoredFrame(slug));
   }
   return { tmp, output };
+}
+
+function invalidCommandCase(command: string, kind: "typo" | "excess") {
+  if (["build", "regroup", "transcribe", "verify"].includes(command)) {
+    const { tmp, output } = seedVideo();
+    const invalid = kind === "typo"
+      ? command === "build" ? ["--caption-only"]
+        : command === "regroup" || command === "verify" ? ["--max-char", "54"]
+        : ["--verbose"]
+      : ["extra"];
+    return { root: tmp, args: [command, output, ...invalid], env: process.env };
+  }
+
+  const root = mkdtempSync(join(tmpdir(), `router-${command}-`));
+  if (command === "new") {
+    const args = kind === "typo"
+      ? [command, "demo", "--framwork", "hyperframes"]
+      : [command, "demo", "extra"];
+    return { root, args, env: { ...process.env, MD2VID_OUTPUTS_ROOT: root } };
+  }
+  if (command === "patch-studio") {
+    const bundle = join(root, "index-test.js");
+    writeFileSync(bundle, "bundle sentinel\n");
+    const args = kind === "typo"
+      ? [command, bundle, "--force"]
+      : [command, bundle, "extra"];
+    return { root, args, env: process.env };
+  }
+
+  const args = kind === "typo" ? [command, "--force"] : [command, "extra"];
+  return {
+    root,
+    args,
+    env: { ...process.env, CLAUDE_CONFIG_DIR: join(root, "claude"), HOME: root, USERPROFILE: root },
+  };
 }
 
 test("platform guard accepts only macOS and Linux", () => {
@@ -138,6 +216,73 @@ test("--help lists the package-owned HyperFrames proxy", () => {
   assert.equal(result.code, 0);
   assert.match(result.stdout, /hyperframes <command> \[args\]/);
 });
+
+for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill"]) {
+  test(`${command} supports subcommand help`, () => {
+    const root = mkdtempSync(join(tmpdir(), `router-${command}-help-`));
+    try {
+      const env = {
+        ...process.env,
+        MD2VID_OUTPUTS_ROOT: root,
+        CLAUDE_CONFIG_DIR: join(root, "claude"),
+        HOME: root,
+        USERPROFILE: root,
+      };
+      const before = snapshotTree(root);
+      for (const flag of ["-h", "--help"]) {
+        const result = runBin([command, flag], REPO_ROOT, env);
+        assert.equal(result.code, 0, `${command} ${flag}: ${result.stderr}`);
+        assert.match(result.stdout, /Usage:/);
+        assert.equal(result.stderr, "");
+        assert.deepEqual(snapshotTree(root), before, `${command} ${flag} must not mutate files`);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("help flags after -- are treated as new command positionals", () => {
+  const root = mkdtempSync(join(tmpdir(), "router-new-terminator-"));
+  try {
+    const env = { ...process.env, MD2VID_OUTPUTS_ROOT: root };
+    const before = snapshotTree(root);
+    for (const flag of ["--help", "-h"]) {
+      const result = runBin(["new", "--", flag], REPO_ROOT, env);
+      assert.equal(result.code, 2);
+      assert.match(result.stderr, /slug must be kebab-case/);
+      assert.match(result.stderr, /Usage: md2vid new/);
+      assert.equal(result.stdout, "");
+      assert.deepEqual(snapshotTree(root), before);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const kind of ["typo", "excess"] as const) {
+  for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill"]) {
+    test(`${command} rejects ${kind} arguments before mutation`, () => {
+      const testCase = invalidCommandCase(command, kind);
+      try {
+        const before = snapshotTree(testCase.root);
+        const result = runBin(testCase.args, REPO_ROOT, testCase.env);
+        assert.equal(result.code, 2, `${testCase.args.join(" ")}: ${result.stderr}`);
+        assert.match(result.stderr, /Usage:/);
+        if (kind === "typo") {
+          const unknownOption = testCase.args.find((arg) => arg.startsWith("--"));
+          assert.ok(unknownOption && result.stderr.includes(unknownOption));
+        } else {
+          assert.match(result.stderr, /expected exactly|positional argument/);
+        }
+        assert.equal(result.stdout, "");
+        assert.deepEqual(snapshotTree(testCase.root), before, `${command} ${kind} input must not mutate files`);
+      } finally {
+        rmSync(testCase.root, { recursive: true, force: true });
+      }
+    });
+  }
+}
 
 test("hyperframes forwards arguments to the package-owned 0.7.26 CLI", () => {
   const result = runBin(["hyperframes", "--version"], tmpdir());
@@ -193,29 +338,36 @@ test("build dispatches and works from an unrelated cwd", () => {
     const r = runBin(["build", output], tmpdir());
     assert.equal(r.code, 0, r.stderr);
     assert.ok(existsSync(join(tmp, "shared", "cues.json")), "build emitted cues.json");
+    const index = readFileSync(join(output, "index.html"), "utf8");
+    assert.doesNotMatch(index, /data-composition-src=/);
+    assert.match(index, /<template id="01-cover-template"/);
+    assert.match(index, /<template id="captions-template"/);
+    assert.ok(existsSync(join(output, "compositions", "frames", "01-cover.html")));
+    assert.ok(existsSync(join(output, "compositions", "captions.html")));
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-test("local gsapSrc resolves to one served file from index captions and frames", async () => {
+test("local gsapSrc stays project-root-relative in index captions and frames", async () => {
   const { tmp, output } = seedVideo();
   try {
-    const gsapSrc = "runtime/custom-gsap.js";
-    mkdirSync(join(output, "runtime"), { recursive: true });
+    const gsapSrc = "assets/gsap/gsap.min.js";
+    mkdirSync(join(output, "assets", "gsap"), { recursive: true });
     writeFileSync(join(output, gsapSrc), "CUSTOM GSAP\n");
     writeFileSync(
       join(output, "output.config.json"),
       `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
     );
+    const framesDir = join(output, "compositions", "frames");
+    for (const name of readdirSync(framesDir).filter((entry) => entry.endsWith(".html"))) {
+      const slug = name.slice(0, -".html".length);
+      writeFileSync(join(framesDir, name), authoredFrame(slug, gsapSrc));
+    }
 
     const result = runBin(["build", output], tmpdir());
     assert.equal(result.code, 0, result.stderr);
-    const framePath = join(output, "compositions", "frames", "01-local-runtime.html");
-    writeFileSync(
-      framePath,
-      '<script src="../../runtime/custom-gsap.js"></script><script>gsap.timeline();</script>\n',
-    );
+    const framePath = join(output, "compositions", "frames", "01-cover.html");
 
     const documents = [
       { path: "index.html", body: readFileSync(join(output, "index.html"), "utf8") },
@@ -224,16 +376,17 @@ test("local gsapSrc resolves to one served file from index captions and frames",
         body: readFileSync(join(output, "compositions", "captions.html"), "utf8"),
       },
       {
-        path: "compositions/frames/01-local-runtime.html",
+        path: "compositions/frames/01-cover.html",
         body: readFileSync(framePath, "utf8"),
       },
     ];
 
     await withStaticServer(output, async (baseUrl) => {
       for (const document of documents) {
-        const match = document.body.match(/<script\s+src="([^"]*custom-gsap\.js)"/);
-        assert.ok(match, `${document.path} must reference custom GSAP`);
-        const response = await fetch(new URL(match[1], new URL(document.path, baseUrl)));
+        const match = document.body.match(/<script\s+src="([^"]*gsap\.min\.js)"/);
+        assert.ok(match, `${document.path} must reference local GSAP`);
+        assert.equal(match[1], gsapSrc, document.path);
+        const response = await fetch(new URL(match[1], baseUrl));
         assert.equal(response.status, 200, document.path);
         assert.equal(await response.text(), "CUSTOM GSAP\n", document.path);
       }
@@ -283,6 +436,12 @@ test("new forwards --framework into a temp outputs root", () => {
     assert.deepEqual(local, {
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
     });
     assert.equal(existsSync(join(root, "router-demo", "assets", "gsap.min.js")), false);
   } finally {
@@ -306,6 +465,30 @@ test("verify and transcribe dispatch", () => {
     assert.notEqual(runBin(["transcribe", join(bare, "hyperframes")]).code, 0);
   } finally {
     rmSync(bare, { recursive: true, force: true });
+  }
+});
+
+test("build and transcribe print actionable missing-audio errors through the router", () => {
+  for (const layout of ["canonical", "flat"] as const) {
+    const root = mkdtempSync(join(tmpdir(), `router-missing-audio-${layout}-`));
+    const output = layout === "canonical" ? join(root, "hyperframes") : join(root, "demo");
+    const shared = layout === "canonical" ? join(root, "shared") : output;
+    try {
+      mkdirSync(output, { recursive: true });
+      if (layout === "canonical") mkdirSync(shared, { recursive: true });
+      const expected = [
+        `FAIL: missing audio_meta.json at ${join(shared, "audio_meta.json")}`,
+        "Create narration with the /md2vid skill workflow or follow https://github.com/therealhieu/md2vid#narration.",
+      ].join("\n") + "\n";
+
+      for (const command of ["build", "transcribe"]) {
+        const result = runBin([command, output]);
+        assert.equal(result.code, 1, `${layout} ${command}`);
+        assert.equal(result.stderr, expected, `${layout} ${command}`);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -335,21 +518,41 @@ test("a prototype member name exits 2, not dispatch", () => {
   assert.match(r.stderr + r.stdout, /Usage|usage/);
 });
 
-// An unknown --framework must surface a non-zero code, not hard-exit the
-// process mid-dispatch (getAdapter throws; run() catches and returns 1).
-test("unknown --framework returns non-zero, does not crash the router", () => {
+test("unknown --framework is a usage error and does not mutate files", () => {
   const root = mkdtempSync(join(tmpdir(), "router-new-"));
   try {
-    const r = execFileSync("node", [BIN, "new", "bad-fw-demo", "--framework", "no-such-fw"], {
-      cwd: REPO_ROOT,
-      env: { ...process.env, MD2VID_OUTPUTS_ROOT: root },
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    assert.fail(`expected non-zero exit, got success: ${r}`);
-  } catch (e: any) {
-    assert.notEqual(e.status, 0);
-    assert.notEqual(e.status, null, "process should exit with a code, not a signal");
+    const before = snapshotTree(root);
+    const result = runBin(
+      ["new", "bad-fw-demo", "--framework", "no-such-framework"],
+      REPO_ROOT,
+      { ...process.env, MD2VID_OUTPUTS_ROOT: root },
+    );
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /no-such-framework/);
+    assert.match(result.stderr, /Usage: md2vid new/);
+    assert.equal(result.stdout, "");
+    assert.deepEqual(snapshotTree(root), before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prototype-like --framework names are usage errors without mutation", () => {
+  const root = mkdtempSync(join(tmpdir(), "router-new-prototype-framework-"));
+  try {
+    const before = snapshotTree(root);
+    for (const framework of ["toString", "constructor"]) {
+      const result = runBin(
+        ["new", "bad-fw-demo", "--framework", framework],
+        REPO_ROOT,
+        { ...process.env, MD2VID_OUTPUTS_ROOT: root },
+      );
+      assert.equal(result.code, 2, framework);
+      assert.match(result.stderr, new RegExp(framework));
+      assert.match(result.stderr, /Usage: md2vid new/);
+      assert.equal(result.stdout, "");
+      assert.deepEqual(snapshotTree(root), before);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

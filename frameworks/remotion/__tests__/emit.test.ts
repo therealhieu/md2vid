@@ -13,6 +13,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { emit } from "../emit.ts";
 import type { BuildPlan, VideoConfig } from "../../../engine/types.ts";
+import { makePcmWav } from "../../../test/helpers/wav.ts";
+
+const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 48_000 });
+const VOICE02 = Buffer.from(VOICE01);
+VOICE02[VOICE02.length - 1] = 1;
 
 function fixture(): { plan: BuildPlan; config: VideoConfig } {
   const plan: BuildPlan = {
@@ -47,8 +52,8 @@ test("remotion emit writes build_plan.json and stages voices into public/", () =
     writeFileSync(join(shared, "caption_groups.json"),
       JSON.stringify({ groups: fixture().plan.captionGroups }) + "\n");
     // stub the two voice wavs emit should copy
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "RIFF01");
-    writeFileSync(join(shared, "assets", "voice", "02.wav"), "RIFF02");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
 
     const { plan, config } = fixture();
     emit(plan, shared, output, config);
@@ -71,8 +76,8 @@ test("remotion emit serializes on-disk regrouped caption groups", () => {
     const output = join(tmp, "remotion");
     mkdirSync(join(shared, "assets", "voice"), { recursive: true });
     mkdirSync(output, { recursive: true });
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "RIFF01");
-    writeFileSync(join(shared, "assets", "voice", "02.wav"), "RIFF02");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
     const diskGroups = [{ ...fixture().plan.captionGroups[0], text: "from disk" }];
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: diskGroups }));
 
@@ -95,8 +100,8 @@ test("remotion emit fills missing runtime files without overwriting authored src
     writeFileSync(join(output, "src", "Root.tsx"), "// authored root\n");
     writeFileSync(join(shared, "caption_groups.json"),
       JSON.stringify({ groups: fixture().plan.captionGroups }) + "\n");
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "RIFF01");
-    writeFileSync(join(shared, "assets", "voice", "02.wav"), "RIFF02");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
 
     const { plan, config } = fixture();
     emit(plan, shared, output, config);
@@ -104,6 +109,26 @@ test("remotion emit fills missing runtime files without overwriting authored src
     assert.equal(readFileSync(join(output, "src", "Root.tsx"), "utf8"), "// authored root\n");
     assert.ok(existsSync(join(output, "src", "index.ts")), "missing src template filled");
     assert.ok(existsSync(join(output, "render.ts")), "missing root template filled");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("remotion captionsOnly emits build_plan.json into a staging output", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-emit-stage-"));
+  try {
+    const shared = join(tmp, "stage", "shared");
+    const output = join(tmp, "stage", "remotion");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(output, { recursive: true });
+    const groups = [{ ...fixture().plan.captionGroups[0], text: "staged" }];
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups }));
+
+    emit(fixture().plan, shared, output, fixture().config, { captionsOnly: true });
+
+    const written = JSON.parse(readFileSync(join(output, "build_plan.json"), "utf8"));
+    assert.deepEqual(written.captionGroups, groups);
+    assert.equal(existsSync(join(output, "src")), false);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -119,8 +144,8 @@ test("remotion emit with captionsOnly refreshes build_plan.json without re-scaff
     writeFileSync(join(output, "src", "Root.tsx"), "// sentinel — must not be overwritten\n");
     writeFileSync(join(shared, "caption_groups.json"),
       JSON.stringify({ groups: fixture().plan.captionGroups }) + "\n");
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "RIFF01");
-    writeFileSync(join(shared, "assets", "voice", "02.wav"), "RIFF02");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
 
     const { plan, config } = fixture();
     emit(plan, shared, output, config, { captionsOnly: true });
@@ -133,7 +158,7 @@ test("remotion emit with captionsOnly refreshes build_plan.json without re-scaff
   }
 });
 
-test("late missing WAV preserves prior outputs after runtime scaffolding", () => {
+test("missing WAV preserves prior outputs before runtime scaffolding", () => {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-emit-missing-"));
   try {
     const shared = join(tmp, "shared");
@@ -141,7 +166,7 @@ test("late missing WAV preserves prior outputs after runtime scaffolding", () =>
     mkdirSync(join(shared, "assets", "voice"), { recursive: true });
     mkdirSync(join(output, "public", "assets", "voice"), { recursive: true });
     mkdirSync(join(output, "src"), { recursive: true });
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "NEW01");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
     writeFileSync(join(output, "src", "Root.tsx"), "AUTHORED\n");
     writeFileSync(join(output, "build_plan.json"), "OLD PLAN\n");
     writeFileSync(join(output, "public", "assets", "voice", "prior.wav"), "PRIOR");
@@ -152,7 +177,7 @@ test("late missing WAV preserves prior outputs after runtime scaffolding", () =>
 
     assert.throws(
       () => emit(fixture().plan, shared, output, fixture().config),
-      /FAIL \[remotion:emit\]: missing voice asset assets\/voice\/02\.wav/,
+      /missing voice asset assets\/voice\/02\.wav/,
     );
     assert.equal(readFileSync(join(output, "build_plan.json"), "utf8"), "OLD PLAN\n");
     assert.deepEqual(readdirSync(join(output, "public", "assets", "voice")), ["prior.wav"]);
@@ -166,8 +191,8 @@ test("late missing WAV preserves prior outputs after runtime scaffolding", () =>
       "available voices must not be partially promoted",
     );
     assert.equal(readFileSync(join(output, "src", "Root.tsx"), "utf8"), "AUTHORED\n");
-    assert.ok(existsSync(join(output, "src", "index.ts")), "runtime is ensured before staging");
-    assert.ok(existsSync(join(output, "render.ts")), "root runtime is ensured before staging");
+    assert.equal(existsSync(join(output, "src", "index.ts")), false, "preflight must run before runtime writes");
+    assert.equal(existsSync(join(output, "render.ts")), false, "preflight must run before root runtime writes");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -180,8 +205,8 @@ test("full emit replaces stale public voice files with the complete plan set", (
     const output = join(tmp, "remotion");
     mkdirSync(join(shared, "assets", "voice"), { recursive: true });
     mkdirSync(join(output, "public", "assets", "voice"), { recursive: true });
-    writeFileSync(join(shared, "assets", "voice", "01.wav"), "NEW01");
-    writeFileSync(join(shared, "assets", "voice", "02.wav"), "NEW02");
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "assets", "voice", "02.wav"), VOICE02);
     writeFileSync(join(output, "public", "assets", "voice", "stale.wav"), "STALE");
     writeFileSync(
       join(shared, "caption_groups.json"),
@@ -192,12 +217,12 @@ test("full emit replaces stale public voice files with the complete plan set", (
 
     assert.equal(existsSync(join(output, "public", "assets", "voice", "stale.wav")), false);
     assert.equal(
-      readFileSync(join(output, "public", "assets", "voice", "01.wav"), "utf8"),
-      "NEW01",
+      readFileSync(join(output, "public", "assets", "voice", "01.wav")).equals(VOICE01),
+      true,
     );
     assert.equal(
-      readFileSync(join(output, "public", "assets", "voice", "02.wav"), "utf8"),
-      "NEW02",
+      readFileSync(join(output, "public", "assets", "voice", "02.wav")).equals(VOICE02),
+      true,
     );
   } finally {
     rmSync(tmp, { recursive: true, force: true });

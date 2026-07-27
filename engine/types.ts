@@ -7,6 +7,13 @@
 export interface Word { id?: string; text: string; start: number; end: number; }
 export interface Voice { id: string; path: string; duration_s: number; words: Word[]; }
 export interface AudioMeta { voices: Voice[]; }
+export interface VoiceAssetSnapshot {
+  path: string;
+  readBytes(): Buffer;
+  digest: string;
+  mode: number;
+  duration_s: number;
+}
 
 // ── Neutral IR — the serialized build_plan.json contract ─────────────────────
 export interface PlanFrame {
@@ -37,6 +44,12 @@ export interface VideoConfig {
   slugs?: Record<string, string>;
   gsapSrc?: string;
   captions?: { tokens?: Record<string, string> };
+  visualContract?: {
+    version: 1;
+    projectTheme: "light" | "dark";
+    allowMixedThemes: boolean;
+    allowLegacyThemeInference: boolean;
+  };
 }
 
 // ── Verification finding (const union, never a TS enum — erasable-only) ──────
@@ -46,10 +59,36 @@ export interface Finding { level: Level; msg: string; }
 // ── Scaffold and adapter contracts ──────────────────────────────────────────
 export interface FrameworkScaffoldSpec {
   outputConfig: Record<string, unknown>;
+  frameworkCheck: string;
   packageScripts: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   nextSteps: string[];
+}
+
+export interface FrameworkPreparation {
+  embeddedFrameTemplates?: string[];
+  captionsHtml?: string;
+  captionIndexHtml?: string;
+  voiceSnapshots?: VoiceAssetSnapshot[];
+}
+
+export interface EmitOptions {
+  captionsOnly?: boolean;
+  runtimeSourceDir?: string;
+  assetSourceDir?: string;
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
+  prepared?: FrameworkPreparation;
+}
+
+export interface CaptionArtifactContext {
+  sharedDir: string;
+  outputDir: string;
+  captionGroupsPath: string;
+}
+
+export interface VerifyOptions {
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
 }
 
 export interface FrameworkAdapter {
@@ -57,9 +96,17 @@ export interface FrameworkAdapter {
   scaffoldSpec(slug: string): FrameworkScaffoldSpec;
   writeScaffoldRuntime(stageDir: string, slug: string): void;
   ensureRuntime(videoDir: string, slug: string): void;
+  preflight(
+    plan: BuildPlan, sharedDir: string, outputDir: string,
+    config: VideoConfig, opts?: EmitOptions
+  ): FrameworkPreparation | void;
   emit(
     plan: BuildPlan, sharedDir: string, outputDir: string,
-    config: VideoConfig, opts?: { captionsOnly?: boolean }
+    config: VideoConfig, opts?: EmitOptions
   ): void;
-  verify(videoDir: string): Finding[];
+  captionArtifactPath: string;
+  captionIndexArtifactPath?: string;
+  managedVoiceArtifactPath: string;
+  verifyCaptionArtifact(context: CaptionArtifactContext): Finding[];
+  verify(videoDir: string, sharedDir?: string, options?: VerifyOptions): Finding[];
 }

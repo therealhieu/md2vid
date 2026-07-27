@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #root, .scene, #frame, .ground { margin: 0; position: absolute; inset: 0; width: 960px; height: 540px; }
+    #root, .ground { background: #faf9f5; }
+    h1 { position: absolute; left: 100px; top: 100px; color: #141413; }
+    #el-captions { pointer-events: none; }
+    .caption-group { position: absolute; left: 100px; bottom: 60px; opacity: 0; }
+    .caption-word { color: #141413; font: 400 24px/1.2 Arial, sans-serif; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="el-01-quantized" class="scene" data-start="0" data-duration="1">
+      <div id="frame" data-hf-inner-root="true" data-composition-id="01-quantized" data-frame-theme="light">
+        <div class="ground"></div><h1 data-load-bearing-text>Quantized seek</h1>
+      </div>
+    </div>
+    <div id="el-captions" class="scene">
+      <div id="quantized-group-1" class="caption-group">
+        <span id="word-before-quantized-time" class="caption-word">Before</span>
+        <span id="word-at-requested-time" class="caption-word">Requested</span>
+      </div>
+      <div id="quantized-group-2" class="caption-group">
+        <span id="word-next-group" class="caption-word">Next</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    const groups = [
+      {
+        element: document.getElementById("quantized-group-1"),
+        start: 0,
+        end: 0.14,
+        words: [
+          { element: document.getElementById("word-before-quantized-time"), start: 0.02, nextStart: 0.04 },
+          { element: document.getElementById("word-at-requested-time"), start: 0.04, lastSpoken: 0.14 }
+        ]
+      },
+      {
+        element: document.getElementById("quantized-group-2"),
+        start: 0.14,
+        end: 1,
+        words: [
+          { element: document.getElementById("word-next-group"), start: 0.14, lastSpoken: 0.4 }
+        ]
+      }
+    ];
+    let time = 0;
+    function update(requested) {
+      time = Math.floor(requested * 30) / 30;
+      for (const group of groups) {
+        const visible = time >= group.start && time < group.end;
+        group.element.style.opacity = visible ? "1" : "0";
+        for (const word of group.words) {
+          word.element.className = "caption-word";
+          if (time < word.start) continue;
+          const spokenAt = word.nextStart ?? word.lastSpoken;
+          word.element.classList.add(time >= spokenAt ? "is-spoken" : "is-active");
+        }
+      }
+    }
+    window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+    update(0);
+  </script>
+</body>
+</html>

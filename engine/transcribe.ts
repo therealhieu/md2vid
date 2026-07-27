@@ -8,14 +8,24 @@
 // run that per wav, read its transcript.json, and merge word arrays back into meta.
 // Deterministic; no network. `hyperframes` resolves the repo-root pinned devDependency.
 
-import { readFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   runHyperframes,
   type RunHyperframesOptions,
 } from "../scripts/hyperframes_cli.ts";
-import type { AudioMeta } from "./types.ts";
+import { normalizeTranscriptWords, validateAudioMeta } from "./audio_meta.ts";
+import type { AudioMeta, Word } from "./types.ts";
+import { captureVoiceWavSnapshots } from "./voice_assets.ts";
 
 type HyperframesRunner = (
   args: string[],
@@ -23,8 +33,8 @@ type HyperframesRunner = (
 ) => number;
 
 // Transcribe every voice wav referenced by meta.voices (paths are relative to
-// baseDir) and fill each voice's `words`. Mutates and returns meta. Returns
-// { meta, ok, total } so the caller can report + set an exit code.
+// baseDir), normalize provider timings, and fill `words` only after every voice
+// succeeds. Returns { meta, ok, total } so the caller can report + set an exit code.
 export function transcribeVoices(
   meta: AudioMeta,
   baseDir: string,
@@ -33,40 +43,49 @@ export function transcribeVoices(
     run = runHyperframes,
   }: { model?: string; run?: HyperframesRunner } = {},
 ): { meta: AudioMeta; ok: number; total: number } {
-  let ok = 0;
-  for (const voice of meta.voices) {
-    const wavRel = voice.path; // e.g. assets/voice/01.wav
-    const wavAbs = join(baseDir, wavRel);
-    if (!existsSync(wavAbs)) {
-      console.error(`MISSING wav: ${wavRel}`);
-      continue;
+  const validated = validateAudioMeta(meta, "audio_meta.json", { allowInvalidWords: true });
+  const snapshots = captureVoiceWavSnapshots(baseDir, validated.voices.map((voice) => voice.path));
+  const snapshotsByPath = new Map(snapshots.map((snapshot) => [snapshot.path, snapshot]));
+  const snapshotRoot = mkdtempSync(join(tmpdir(), "md2vid-transcribe-snapshot-"));
+
+  try {
+    for (const snapshot of snapshots) {
+      const destination = join(snapshotRoot, snapshot.path);
+      mkdirSync(join(destination, ".."), { recursive: true });
+      writeFileSync(destination, snapshot.readBytes(), { mode: snapshot.mode });
+      chmodSync(destination, snapshot.mode);
     }
 
-    const tempDir = mkdtempSync(join(tmpdir(), "hf-trans-"));
-    try {
-      const status = run(
-        ["transcribe", wavRel, "--model", model, "--dir", tempDir],
-        { cwd: baseDir },
-      );
-      const transcript = join(tempDir, "transcript.json");
-      if (status === 0 && existsSync(transcript)) {
-        const words = JSON.parse(readFileSync(transcript, "utf8"));
-        if (Array.isArray(words) && words.length > 0) {
-          voice.words = words.map((word, index) => ({
-            id: `w${index}`,
-            text: String(word.text),
-            start: word.start,
-            end: word.end,
-          }));
-          ok++;
-          console.log(`  ${voice.id}: ${voice.words.length} words`);
-          continue;
+    let ok = 0;
+    const completed: AudioMeta["voices"] = [];
+    for (const voice of validated.voices) {
+      const wav = snapshotsByPath.get(voice.path)!;
+      const candidate = { ...voice, duration_s: wav.duration_s, words: [] as Word[] };
+      const tempDir = mkdtempSync(join(snapshotRoot, ".transcript-"));
+      try {
+        const status = run(
+          ["transcribe", voice.path, "--model", model, "--dir", tempDir],
+          { cwd: snapshotRoot },
+        );
+        const transcript = join(tempDir, "transcript.json");
+        if (status === 0 && existsSync(transcript)) {
+          const words = JSON.parse(readFileSync(transcript, "utf8"));
+          if (Array.isArray(words) && words.length > 0) {
+            candidate.words = normalizeTranscriptWords(words, candidate, transcript);
+            completed.push(candidate);
+            ok++;
+            console.log(`  ${voice.id}: ${candidate.words.length} words`);
+            continue;
+          }
         }
+        console.error(`  ${voice.id}: FAILED (status ${status})`);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
       }
-      console.error(`  ${voice.id}: FAILED (status ${status})`);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
     }
+    if (ok !== validated.voices.length) return { meta, ok, total: validated.voices.length };
+    return { meta: { voices: completed }, ok, total: validated.voices.length };
+  } finally {
+    rmSync(snapshotRoot, { recursive: true, force: true });
   }
-  return { meta, ok, total: meta.voices.length };
 }

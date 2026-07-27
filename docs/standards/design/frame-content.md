@@ -17,7 +17,7 @@ Content frames are paired with `compositions/shared/frame-shell.html` by the par
 - The reusable shell uses track `20`.
 - Captions use track `30`.
 - Each content frame registers exactly one paused timeline under its own `data-composition-id`.
-- Styles and scripts for sub-compositions stay inside the `<template>` so HyperFrames transports them.
+- Keep frame `<style>` and `<script>` elements inside the matching `data-composition-id` root. During embedding, md2vid removes only the exact configured external GSAP script, then relocates any authored top-level sibling `<style>` and `<script>` elements into that root while preserving pre-root → existing-root → post-root order. Unrelated external scripts are retained; arbitrary sibling text, comments, and elements are not transported.
 
 ## Allowed content
 

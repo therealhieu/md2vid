@@ -24,8 +24,9 @@ const DOCS_STANDARDS = join(REPO_ROOT, "docs", "standards", "frameworks");
 const REPO_RELATIVE = /\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs/;
 
 const HYPERFRAMES_NEXT_STEPS = [
+  "review audio_request.json.example and generate narration",
   "author frames in compositions/frames/",
-  "fill video.config.json and add narration",
+  "fill video.config.json voice-id -> frame-slug mappings",
   "npm run build",
   "npm run check",
   "npm run dev",
@@ -33,11 +34,12 @@ const HYPERFRAMES_NEXT_STEPS = [
 
 const REMOTION_NEXT_STEPS = [
   "npm install",
-  "author src/scenes/*.tsx",
-  "fill video.config.json and add narration",
+  "review audio_request.json.example and generate narration",
+  "author and register src/scenes/*.tsx",
+  "fill video.config.json voice-id -> frame-slug mappings",
   "npm run build",
-  "npm run typecheck",
-  "npm run still",
+  "npm run check",
+  "npm run still or npm run studio",
 ];
 
 function scaffold(slug: string, extraArgs: string[], outputsRoot: string) {
@@ -177,6 +179,20 @@ test("Remotion scaffold: no file in the generated tree carries a repo-relative p
   }
 });
 
+test("generated Remotion source is content-neutral", () => {
+  const root = mkdtempSync(join(tmpdir(), "neutral-remotion-"));
+  try {
+    scaffold("neutral-remotion", ["--framework", "remotion"], root);
+    const src = join(root, "neutral-remotion", "src");
+    const tree = readTree(src).map((file) => file.body).join("\n");
+    assert.match(tree, /const SCENES: Record<string, React\.FC<SceneProps>> = \{\};/);
+    assert.doesNotMatch(tree, /Hash table|DATA STRUCTURES|LookupFlowScene|CollisionsScene|LoadFactorScene/i);
+    assert.equal(existsSync(join(src, "scenes")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("canonical HyperFrames templates use the TS default GSAP source", async () => {
   const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
   for (const name of ["caption-skin.html", "frame-shell.html", "frame-template.html"]) {
@@ -195,26 +211,79 @@ test("canonical HyperFrames templates use the TS default GSAP source", async () 
   assert.equal(emitSource.includes(DEFAULT_GSAP_SRC), false, "emit must import the TS source of truth");
 });
 
-test("GSAP script helper maps project sources to document-relative escaped attributes", async () => {
+test("HyperFrames frame template documents the canonical project-root-relative local GSAP source", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  assert.match(template, /assets\/gsap\/gsap\.min\.js/);
+  assert.match(template, /unchanged|same project-root-relative path/i);
+  assert.doesNotMatch(template, /\.\.\/\.\.\/.*gsap/i);
+});
+
+test("canonical HyperFrames frame template nests frame styles inside the composition root", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  const rootStart = template.indexOf('<div id="root" data-composition-id="NN-slug"');
+  const rootEnd = template.lastIndexOf("</div>");
+  const styleStart = template.indexOf("<style>");
+  const styleEnd = template.indexOf("</style>", styleStart);
+
+  assert.ok(rootStart >= 0 && rootEnd > rootStart, "frame composition root must exist");
+  assert.match(
+    template.slice(rootStart, template.indexOf(">", rootStart) + 1),
+    /data-frame-theme="light"/,
+    "versioned scaffold frame template must declare its light theme",
+  );
+  assert.ok(styleStart > rootStart, "frame styles must start inside the composition root");
+  assert.ok(styleEnd < rootEnd, "frame styles must end inside the composition root");
+  assert.doesNotMatch(template.slice(template.indexOf("<template>"), rootStart), /<style\b/i);
+});
+
+test("canonical HyperFrames frame template keeps runtime scripts inside the composition root", async () => {
+  const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  const templateStart = template.indexOf("<template>");
+  const rootStart = template.indexOf('<div id="root" data-composition-id="NN-slug"', templateStart);
+  const rootOpenEnd = template.indexOf(">", rootStart) + 1;
+  const rootEnd = template.lastIndexOf("</div>");
+  const rootInner = template.slice(rootOpenEnd, rootEnd);
+  const transportOutsideRoot = template.slice(templateStart, rootOpenEnd) + template.slice(rootEnd, template.indexOf("</template>"));
+
+  assert.match(template, /^<!--[\s\S]*?<!doctype html>[\s\S]*?<html>[\s\S]*?<body>[\s\S]*?<template>/);
+  assert.match(rootInner, new RegExp(`<script src="${DEFAULT_GSAP_SRC.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"><\\/script>`));
+  assert.match(rootInner, /window\.__timelines\["NN-slug"\] = tl/);
+  assert.match(rootInner, /\(function \(\) \{[\s\S]*?const tl = gsap\.timeline\(\{ paused: true \}\);[\s\S]*?\}\)\(\);/);
+  assert.ok(rootInner.indexOf(`<script src="${DEFAULT_GSAP_SRC}">`) > rootInner.indexOf('id="fNN-header"'));
+  assert.doesNotMatch(transportOutsideRoot, /<(?:style|script)\b/i);
+});
+
+test("GSAP script helper preserves project-root-relative sources in every document", async () => {
   const scaffold = await import("../../frameworks/hyperframes/scaffold.ts") as Record<string, any>;
   assert.equal(typeof scaffold.gsapSrcForDocument, "function");
   assert.equal(typeof scaffold.gsapScriptSrcAttribute, "function");
+  for (const documentPath of [
+    "index.html",
+    "compositions/captions.html",
+    "compositions/frames/01-frame.html",
+  ]) {
+    assert.equal(
+      scaffold.gsapSrcForDocument(scaffold.DEFAULT_GSAP_SRC, documentPath),
+      scaffold.DEFAULT_GSAP_SRC,
+    );
+    assert.equal(
+      scaffold.gsapSrcForDocument("assets/gsap/gsap.min.js", documentPath),
+      "assets/gsap/gsap.min.js",
+    );
+  }
   assert.equal(
-    scaffold.gsapSrcForDocument(scaffold.DEFAULT_GSAP_SRC, "compositions/frames/01-frame.html"),
-    scaffold.DEFAULT_GSAP_SRC,
-  );
-  assert.equal(scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "index.html"), "runtime/custom-gsap.js");
-  assert.equal(
-    scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "compositions/captions.html"),
-    "../runtime/custom-gsap.js",
-  );
-  assert.equal(
-    scaffold.gsapSrcForDocument("runtime/custom-gsap.js", "compositions/frames/01-frame.html"),
-    "../../runtime/custom-gsap.js",
-  );
-  assert.equal(
-    scaffold.gsapScriptSrcAttribute('runtime/a"&<>' + "'`" + ".js", "index.html"),
-    "runtime/a&quot;&amp;&lt;&gt;&#39;&#96;.js",
+    scaffold.gsapScriptSrcAttribute('assets/a"&<>' + "'`" + ".js", "compositions/frames/01-frame.html"),
+    "assets/a&quot;&amp;&lt;&gt;&#39;&#96;.js",
   );
 });
 
@@ -224,10 +293,16 @@ test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts
     outputConfig: {
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
     },
+    frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
       dev: "md2vid hyperframes preview --no-open",
-      check: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
       render: "md2vid hyperframes render",
       publish: "md2vid hyperframes publish",
     },
@@ -270,6 +345,7 @@ test("Remotion scaffoldSpec is the sole exact package manifest source", async ()
   const { scaffoldSpec } = await import("../../frameworks/remotion/scaffold.ts");
   assert.deepEqual(scaffoldSpec("ignored"), {
     outputConfig: { framework: "remotion" },
+    frameworkCheck: "tsc --noEmit -p tsconfig.json",
     packageScripts: {
       studio: "remotion studio src/index.ts",
       render: "node render.ts",
@@ -293,6 +369,42 @@ test("Remotion scaffoldSpec is the sole exact package manifest source", async ()
     },
     nextSteps: REMOTION_NEXT_STEPS,
   });
+});
+
+test("generated framework package scripts expose verified workflows", () => {
+  const expected = {
+    hyperframes: {
+      build: "md2vid build . && md2vid regroup . --max-chars 54",
+      transcribe: "md2vid transcribe .",
+      verify: "md2vid verify .",
+      check: "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
+      dev: "md2vid hyperframes preview --no-open",
+      publish: "md2vid hyperframes publish",
+      render: "md2vid hyperframes render",
+    },
+    remotion: {
+      build: "md2vid build . && md2vid regroup . --max-chars 54",
+      transcribe: "md2vid transcribe .",
+      verify: "md2vid verify .",
+      check: "md2vid verify . && tsc --noEmit -p tsconfig.json",
+      render: "node render.ts",
+      still: "node render.ts --still",
+      studio: "remotion studio src/index.ts",
+      typecheck: "tsc --noEmit -p tsconfig.json",
+    },
+  } as const;
+
+  const root = mkdtempSync(join(tmpdir(), "verified-package-scripts-"));
+  try {
+    for (const framework of ["hyperframes", "remotion"] as const) {
+      const slug = `verified-${framework}`;
+      scaffold(slug, ["--framework", framework], root);
+      const pkg = JSON.parse(readFileSync(join(root, slug, "package.json"), "utf8"));
+      assert.deepEqual(pkg.scripts, expected[framework]);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Remotion ensureRuntime recursively fills missing templates without overwriting authored src", async () => {
@@ -340,6 +452,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
       for (const rel of [
         "meta.json",
         "package.json",
+        "audio_request.json.example",
         "video.config.json",
         "output.config.json",
         "CLAUDE.md",

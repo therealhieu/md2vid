@@ -6,11 +6,50 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Finding } from "../../engine/types.ts";
+import type { CaptionArtifactContext, Finding, VerifyOptions } from "../../engine/types.ts";
+import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
 
 const FPS = 30; // must match templates/src/Root.tsx FPS
 
-export function verify(videoDir: string): Finding[] {
+export function verifyRemotionCaptionArtifact(
+  context: CaptionArtifactContext,
+): Finding[] {
+  const findings: Finding[] = [];
+  const problem = (msg: string) => findings.push({ level: "error" as const, msg });
+  const planPath = join(context.outputDir, "build_plan.json");
+  if (!existsSync(planPath)) {
+    problem(`missing staged build_plan.json: ${planPath}`);
+    return findings;
+  }
+
+  let groups: unknown;
+  try {
+    groups = (JSON.parse(readFileSync(context.captionGroupsPath, "utf8")) as { groups?: unknown }).groups;
+  } catch (error) {
+    problem(`staged caption_groups.json is not valid JSON: ${(error as Error).message}`);
+    return findings;
+  }
+  if (!Array.isArray(groups)) {
+    problem("staged caption_groups.json groups must be an array");
+    return findings;
+  }
+
+  let captionGroups: unknown;
+  try {
+    captionGroups = (JSON.parse(readFileSync(planPath, "utf8")) as { captionGroups?: unknown }).captionGroups;
+  } catch (error) {
+    problem(`staged build_plan.json is not valid JSON: ${(error as Error).message}`);
+    return findings;
+  }
+  if (!Array.isArray(captionGroups)) {
+    problem("staged build_plan.json captionGroups must be an array");
+  } else if (JSON.stringify(captionGroups) !== JSON.stringify(groups)) {
+    problem("caption_groups.json and staged build_plan.json captionGroups differ in content");
+  }
+  return findings;
+}
+
+export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
@@ -46,6 +85,25 @@ export function verify(videoDir: string): Finding[] {
   }
   if (!Array.isArray(plan.frames) || plan.frames.length === 0) {
     warn("build_plan.json has no frames — the video will be empty");
+  }
+
+  const effectiveSharedDir = sharedDir ?? videoDir;
+  const captionGroupsPath = join(
+    effectiveSharedDir,
+    "caption_groups.json",
+  );
+
+  if (existsSync(captionGroupsPath)) {
+    findings.push(
+      ...verifyRemotionCaptionArtifact({
+        sharedDir: effectiveSharedDir,
+        outputDir: videoDir,
+        captionGroupsPath,
+      }),
+    );
+  }
+  if (options.voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), options.voiceSnapshots));
   }
 
   return findings;

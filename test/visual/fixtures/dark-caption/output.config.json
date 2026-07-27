@@ -1,0 +1,9 @@
+{
+  "framework": "hyperframes",
+  "visualContract": {
+    "version": 1,
+    "projectTheme": "dark",
+    "allowMixedThemes": false,
+    "allowLegacyThemeInference": false
+  }
+}

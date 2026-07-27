@@ -65,3 +65,6 @@ outputs/**/*.log
 # Local reference media / scratch assets
 .references/
 .claude/agent-memory
+
+# Local Superpowers task evidence
+/docs/superpowers/**/evidence/

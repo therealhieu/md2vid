@@ -35,6 +35,30 @@ function executableNpxHyperframesLines(body: string): string[] {
     .filter((line) => /^(?:\$\s*)?npx\s+hyperframes\b/.test(line));
 }
 
+function executableMd2vidAudioLines(body: string): string[] {
+  return body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^(?:\$\s*)?(?:npx(?:\s+--yes=false)?\s+)?md2vid\s+audio(?:\s|$)/.test(line));
+}
+
+function assertOrder(body: string, fragments: string[]): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
+function sectionBetween(body: string, start: string, end: string): string {
+  const startIndex = body.indexOf(start);
+  const endIndex = body.indexOf(end, startIndex + start.length);
+  assert.ok(startIndex >= 0, `missing section ${JSON.stringify(start)}`);
+  assert.ok(endIndex > startIndex, `missing section boundary ${JSON.stringify(end)}`);
+  return body.slice(startIndex, endIndex);
+}
+
 test("skill lives at skill/md2vid/SKILL.md", () => {
   assert.ok(existsSync(SKILL), "skill/md2vid/SKILL.md must exist");
 });
@@ -74,6 +98,76 @@ test("mechanical steps invoke the md2vid CLI", () => {
   for (const cmd of [/md2vid new /, /md2vid build /, /md2vid regroup /, /md2vid verify /]) {
     assert.match(body, cmd, `skill must drive the CLI: ${cmd}`);
   }
+});
+
+test("skill documents the shipped narration contract without an executable audio command", () => {
+  const body = readFileSync(SKILL, "utf8");
+  assert.deepEqual(executableMd2vidAudioLines(body), []);
+  assert.match(body, /There is no `md2vid audio` command\./);
+  assert.match(body, /audio_request\.json\.example/);
+  assert.match(body, /voice IDs.*meaningful/i);
+  assert.match(body, /array order/i);
+});
+
+test("single-framework branch is a complete flat-project workflow", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  assert.doesNotMatch(flat, /outputs\/<slug>\//);
+  assertOrder(flat, [
+    "md2vid new <slug>",
+    "<slug>/STORYBOARD.md",
+    "<slug>/SCRIPT.md",
+    "<slug>/audio_request.json",
+    "<slug>/audio_meta.json",
+    "<slug>/assets/voice/",
+    "<slug>/video.config.json",
+    "<slug>/compositions/frames/",
+    "<slug>/src/scenes/",
+    "cd <slug>",
+    "npm run transcribe",
+    "npm run build",
+    "npm run check",
+    "npm run dev",
+    "npm run still",
+    "npm run studio",
+    "npm run render",
+  ]);
+});
+
+test("multi-framework branch is a complete canonical-project workflow", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What build does",
+  );
+  assertOrder(canonical, [
+    "md2vid new <slug>-hyperframes",
+    "md2vid new <slug>-remotion --framework remotion",
+    "outputs/<slug>/shared/STORYBOARD.md",
+    "outputs/<slug>/shared/SCRIPT.md",
+    "outputs/<slug>/shared/audio_request.json",
+    "outputs/<slug>/shared/audio_meta.json",
+    "outputs/<slug>/shared/assets/voice/",
+    "outputs/<slug>/shared/video.config.json",
+    "outputs/<slug>/hyperframes/compositions/frames/",
+    "outputs/<slug>/remotion/src/scenes/",
+    "cd outputs/<slug>/hyperframes",
+    "npm run transcribe",
+    "npm run build",
+    "npm run check",
+    "npm run dev",
+    "cd outputs/<slug>/remotion",
+    "npm run build",
+    "npm run check",
+    "npm run still",
+    "npm run studio",
+    "npm run render",
+  ]);
 });
 
 test("installed operational guidance never executes npx hyperframes", () => {

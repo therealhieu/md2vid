@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 960px; height: 540px; overflow: hidden; }
+    #root, .scene, #frame-01-undeclared-dark, .ground { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #root { background: #1b1a18; }
+    #frame-01-undeclared-dark { color: #faf9f5; }
+    .ground { background: #1b1a18; z-index: 0; }
+    #undeclared-title { position: absolute; z-index: 1; left: 120px; top: 120px; margin: 0; font: 700 54px/1.1 Georgia, serif; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main">
+    <div id="el-01-undeclared-dark" class="scene" data-composition-id="01-undeclared-dark" data-start="0" data-duration="2">
+      <div id="frame-01-undeclared-dark" data-hf-inner-root="true" data-composition-id="01-undeclared-dark">
+        <div class="ground"></div>
+        <h1 id="undeclared-title" data-load-bearing-text>Undeclared dark</h1>
+      </div>
+    </div>
+  </div>
+  <script>
+    let time = 0;
+    window.__player = { pause() {}, seek(next) { time = next; }, getTime() { return time; } };
+    window.__timelines = { main: {}, '01-undeclared-dark': {} };
+  </script>
+</body>
+</html>

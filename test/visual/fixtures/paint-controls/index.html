@@ -1,0 +1,11 @@
+<!doctype html><html><head><style>
+*{box-sizing:border-box}html,body{margin:0;width:960px;height:540px;overflow:hidden}#root,.scene,#frame,.ground{position:absolute;inset:0;width:100%;height:100%}#root,.ground{background:#fff}#frame{color:#141413}.victim{position:absolute;left:80px;width:520px;height:58px;margin:0;font:700 42px/1.2 Arial;z-index:1}.control{position:absolute;left:80px;width:520px;height:58px;z-index:2;background:transparent}#transparent-svg-title{top:24px}#transparent-svg{top:24px}#painted-svg-title{top:124px}#painted-svg{top:124px}#transparent-canvas-title{top:224px}#transparent-canvas{top:224px}#painted-canvas-title{top:324px}#painted-canvas{top:324px}#indeterminate-title{top:424px}#indeterminate-img{top:424px}
+</style></head><body><div id="root"><div id="el-01-paint-controls" class="scene" data-start="0" data-duration="2"><div id="frame" data-hf-inner-root="true" data-composition-id="01-paint-controls" data-frame-theme="light"><div class="ground"></div>
+<h2 id="transparent-svg-title" class="victim" data-load-bearing-text>Transparent SVG control</h2><svg id="transparent-svg" class="control"><rect id="transparent-svg-shape" width="520" height="58" fill="none"/></svg>
+<h2 id="painted-svg-title" class="victim" data-load-bearing-text>Painted SVG control</h2><svg id="painted-svg" class="control"><rect id="painted-svg-shape" width="360" height="58" fill="#cc785c"/></svg>
+<h2 id="transparent-canvas-title" class="victim" data-load-bearing-text>Transparent canvas</h2><canvas id="transparent-canvas" class="control" width="520" height="58"></canvas>
+<h2 id="painted-canvas-title" class="victim" data-load-bearing-text>Painted canvas</h2><canvas id="painted-canvas" class="control" width="520" height="58"></canvas>
+<h2 id="indeterminate-title" class="victim" data-load-bearing-text>Indeterminate image</h2><img id="indeterminate-img" class="control" alt="" />
+</div></div></div><script>
+const ctx=document.getElementById('painted-canvas').getContext('2d');ctx.fillStyle='#cc785c';ctx.fillRect(0,0,360,58);let time=0;window.__player={pause(){},seek(t){time=t},getTime(){return time}};window.__timelines={main:{},'01-paint-controls':{}};
+</script></body></html>

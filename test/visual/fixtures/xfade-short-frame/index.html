@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #root, .scene, .frame, .ground { margin: 0; position: absolute; inset: 0; width: 960px; height: 540px; }
+    #root, .ground { background: #faf9f5; }
+    .scene { display: none; }
+    h1 { position: absolute; left: 100px; top: 100px; color: #141413; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="el-01-short-before" class="scene" data-start="0" data-duration="1"><div class="frame" data-hf-inner-root="true" data-composition-id="01-short-before" data-frame-theme="light"><div class="ground"></div><h1 data-load-bearing-text>Before</h1></div></div>
+    <div id="el-02-short-middle" class="scene" data-start="0.5" data-duration="0.5"><div class="frame" data-hf-inner-root="true" data-composition-id="02-short-middle" data-frame-theme="light"><div class="ground"></div><h1 data-load-bearing-text>Middle</h1></div></div>
+    <div id="el-03-short-after" class="scene" data-start="0.5" data-duration="0.5"><div class="frame" data-hf-inner-root="true" data-composition-id="03-short-after" data-frame-theme="light"><div class="ground"></div><h1 data-load-bearing-text>After</h1></div></div>
+  </div>
+  <script>
+    const hosts = [
+      [document.getElementById("el-01-short-before"), 0, 1],
+      [document.getElementById("el-02-short-middle"), 0.5, 1],
+      [document.getElementById("el-03-short-after"), 0.5, 1]
+    ];
+    let time = 0;
+    function update(next) {
+      time = next;
+      for (const [host, start, end] of hosts) host.style.display = time >= start && time <= end ? "block" : "none";
+    }
+    window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+    update(0);
+  </script>
+</body>
+</html>

@@ -15,8 +15,19 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Finding } from "../../engine/types.ts";
+import { validateVideoConfig } from "../../engine/config.ts";
+import type { CaptionArtifactContext, Finding, VerifyOptions, VideoConfig } from "../../engine/types.ts";
+import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
+import {
+  extractTemplateById,
+  findElementRangeByAttribute,
+  scriptSources,
+} from "./html.ts";
 import { DEFAULT_GSAP_SRC, gsapSrcForDocument, validateGsapSrc } from "./scaffold.ts";
+import {
+  checkAuthoredFrameVisualContract,
+  extractFrameTheme,
+} from "./visual_contract.ts";
 
 const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(FW_HYPERFRAMES, "..", "..");
@@ -37,103 +48,153 @@ const SHARED_PROJECT_DOC = `frameworks/${PROJECT_DOC_BASENAME}`;
 // shared/ dir when reshaped, else beside index.html (flat layout-reference videos).
 // Reads caption groups off disk itself — takes no plan (mirrors verifyNeutral's shape
 // but the HF checks are all file-layout assertions).
-export function verify(videoDir: string): Finding[] {
+export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
 
-  requireGsapSource(videoDir, problem);
+  const outputConfig = readOutputConfig(videoDir, problem);
+  requireGsapSource(videoDir, outputConfig, problem);
+  requireCaptionRuntimeInsideRoot(videoDir, problem);
   requireIndexMountsFrames(videoDir, problem, warn);
   requireProjectDocImport(videoDir, problem, warn);
-  requireBakedGroupsMatchJson(videoDir, problem);
+  requireBakedGroupsMatchJson(videoDir, problem, sharedDir);
+  requireAuthoredFrameVisualContract(videoDir, sharedDir, outputConfig, problem, warn);
+  if (options.voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(videoDir, options.voiceSnapshots));
+  }
 
   return findings;
 }
 
-function scriptAttribute(attributes: string, expectedName: string): string | undefined {
-  let cursor = 0;
-  while (cursor < attributes.length) {
-    while (/\s|\//.test(attributes[cursor] ?? "")) cursor += 1;
-    const nameStart = cursor;
-    while (cursor < attributes.length && !/[\s=/>]/.test(attributes[cursor])) cursor += 1;
-    const name = attributes.slice(nameStart, cursor).toLowerCase();
-    if (!name) {
-      cursor += 1;
-      continue;
-    }
-
-    while (/\s/.test(attributes[cursor] ?? "")) cursor += 1;
-    if (attributes[cursor] !== "=") continue;
-    cursor += 1;
-    while (/\s/.test(attributes[cursor] ?? "")) cursor += 1;
-
-    let value = "";
-    const quote = attributes[cursor];
-    if (quote === '"' || quote === "'") {
-      cursor += 1;
-      const valueStart = cursor;
-      while (cursor < attributes.length && attributes[cursor] !== quote) cursor += 1;
-      value = attributes.slice(valueStart, cursor);
-      if (cursor < attributes.length) cursor += 1;
-    } else {
-      const valueStart = cursor;
-      while (cursor < attributes.length && !/[\s>]/.test(attributes[cursor])) cursor += 1;
-      value = attributes.slice(valueStart, cursor);
-    }
-
-    if (name === expectedName) return value;
-  }
-  return undefined;
+interface OutputConfigState {
+  present: boolean;
+  valid: boolean;
+  config?: VideoConfig;
 }
 
-function scriptSources(html: string): string[] {
-  const source = html.replace(/<!--[\s\S]*?-->/g, "");
-  const lower = source.toLowerCase();
-  const sources: string[] = [];
-  let cursor = 0;
-
-  while (cursor < source.length) {
-    const start = lower.indexOf("<script", cursor);
-    if (start === -1) break;
-    const afterName = source[start + 7];
-    if (afterName && !/[\s>/]/.test(afterName)) {
-      cursor = start + 7;
-      continue;
-    }
-
-    let end = start + 7;
-    let quote = "";
-    while (end < source.length) {
-      const character = source[end];
-      if (quote) {
-        if (character === quote) quote = "";
-      } else if (character === '"' || character === "'") {
-        quote = character;
-      } else if (character === ">") {
-        break;
-      }
-      end += 1;
-    }
-    if (end >= source.length) break;
-
-    const src = scriptAttribute(source.slice(start + 7, end), "src");
-    if (src !== undefined) sources.push(src);
-
-    const close = lower.indexOf("</script", end + 1);
-    if (close === -1) {
-      cursor = end + 1;
-      continue;
-    }
-    const closeEnd = lower.indexOf(">", close + 8);
-    cursor = closeEnd === -1 ? source.length : closeEnd + 1;
+function readOutputConfig(video: string, problem: (msg: string) => void): OutputConfigState {
+  const path = join(video, "output.config.json");
+  if (!isFile(path)) return { present: false, valid: true };
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    problem(`invalid configuration at ${path}: ${(error as Error).message}`);
+    return { present: true, valid: false };
   }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    try {
+      validateVideoConfig(value, path);
+    } catch (error) {
+      problem((error as Error).message);
+    }
+    return { present: true, valid: false };
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.hasOwn(record, "visualContract")) {
+    try {
+      validateVideoConfig({ visualContract: record.visualContract }, path);
+    } catch (error) {
+      problem((error as Error).message);
+      return { present: true, valid: false };
+    }
+  }
+  return { present: true, valid: true, config: record as VideoConfig };
+}
 
-  return sources;
+function optionalConfig(path: string): Record<string, unknown> | undefined {
+  if (!isFile(path)) return undefined;
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function configuredCaptionForeground(
+  video: string,
+  sharedDir: string | undefined,
+  local: VideoConfig | undefined,
+): unknown {
+  const neutral = optionalConfig(join(sharedDir ?? video, "video.config.json")) ?? {};
+  const config = { ...neutral, ...(local ?? {}) };
+  const captions = config.captions;
+  if (captions === null || typeof captions !== "object" || Array.isArray(captions)) return "#141413";
+  const tokens = (captions as Record<string, unknown>).tokens;
+  if (tokens === null || typeof tokens !== "object" || Array.isArray(tokens)) return "#141413";
+  return Object.hasOwn(tokens, "--cap-ink")
+    ? (tokens as Record<string, unknown>)["--cap-ink"]
+    : "#141413";
+}
+
+function configuredVisualContract(outputConfig: OutputConfigState): {
+  projectTheme: "light" | "dark";
+  allowMixedThemes: boolean;
+  allowLegacyThemeInference: boolean;
+} {
+  const contract = outputConfig.config?.visualContract;
+  if (!contract) {
+    return { projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false };
+  }
+  return {
+    projectTheme: contract.projectTheme,
+    allowMixedThemes: contract.allowMixedThemes,
+    allowLegacyThemeInference: contract.allowLegacyThemeInference,
+  };
+}
+
+function requireAuthoredFrameVisualContract(
+  video: string,
+  sharedDir: string | undefined,
+  outputConfig: OutputConfigState,
+  problem: (msg: string) => void,
+  warn: (msg: string) => void,
+): void {
+  if (!outputConfig.valid) return;
+  const frameRoot = join(video, "compositions", "frames");
+  if (!isDir(frameRoot)) return;
+  const captionForeground = configuredCaptionForeground(video, sharedDir, outputConfig.config);
+  const visualContract = configuredVisualContract(outputConfig);
+
+  for (const name of readdirSync(frameRoot).filter((file) => file.endsWith(".html")).sort()) {
+    const html = readFileSync(join(frameRoot, name), "utf8");
+    const extractedFrameSlug = extractFrameTheme(html).frameSlug;
+    const frameSlug = extractedFrameSlug === "unknown" ? name.replace(/\.html$/i, "") : extractedFrameSlug;
+    if (typeof captionForeground !== "string") {
+      problem(
+        `caption_token_invalid_color frame=${frameSlug} token=--cap-ink ` +
+          `value=${JSON.stringify(captionForeground)} reason=expected-literal-hex-color`,
+      );
+      continue;
+    }
+
+    try {
+      const diagnostics = checkAuthoredFrameVisualContract(html, {
+        projectTheme: visualContract.projectTheme,
+        captionForeground,
+        allowMixedThemes: visualContract.allowMixedThemes,
+        allowLegacyThemeInference: visualContract.allowLegacyThemeInference,
+        frameSlug,
+      });
+      for (const diagnostic of diagnostics) {
+        if (diagnostic.severity === "error") problem(diagnostic.message);
+        else warn(diagnostic.message);
+      }
+    } catch (error) {
+      problem(
+        `caption_token_invalid_color frame=${frameSlug} token=--cap-ink ` +
+          `value=${JSON.stringify(captionForeground)} reason=${JSON.stringify((error as Error).message)}`,
+      );
+    }
+  }
 }
 
 function sourceTargetsConfiguredFile(
   video: string,
-  framePath: string,
   canonical: string,
   expected: string,
   source: string,
@@ -141,28 +202,67 @@ function sourceTargetsConfiguredFile(
   if (source !== expected) return false;
   if (canonical === DEFAULT_GSAP_SRC) return source === DEFAULT_GSAP_SRC;
   if (/^(?:https?:)?\/\//i.test(source)) return false;
-  return resolve(dirname(framePath), source) === resolve(video, canonical);
+  return resolve(video, source) === resolve(video, canonical);
 }
 
-function requireGsapSource(video: string, problem: (msg: string) => void): void {
-  const outputConfigPath = join(video, "output.config.json");
-  let configured: unknown;
-  if (isFile(outputConfigPath)) {
-    try {
-      configured = (JSON.parse(readFileSync(outputConfigPath, "utf8")) as { gsapSrc?: unknown }).gsapSrc;
-    } catch (error) {
-      problem(`invalid output.config.json: ${(error as Error).message}`);
-      return;
-    }
+function requireConfiguredGsapSource(
+  video: string,
+  documentPath: string,
+  gsapSrc: string,
+  problem: (msg: string) => void,
+): void {
+  const path = join(video, ...documentPath.split("/"));
+  if (!isFile(path)) return;
+  const expected = gsapSrcForDocument(gsapSrc, documentPath);
+  const sources = scriptSources(readFileSync(path, "utf8"));
+  const matching = sources.filter((source) =>
+    sourceTargetsConfiguredFile(video, gsapSrc, expected, source)
+  );
+  const gsapSources = sources.filter((source) => source === expected || /gsap/i.test(source));
+  if (matching.length !== 1 || gsapSources.length !== 1) {
+    problem(
+      `${documentPath} must include exactly one configured GSAP source ${expected}; ` +
+        `found ${JSON.stringify(gsapSources)}`,
+    );
   }
+}
 
+function requireCaptionRuntimeInsideRoot(video: string, problem: (msg: string) => void): void {
+  const path = join(video, "compositions", "captions.html");
+  if (!isFile(path)) return;
+  const html = readFileSync(path, "utf8");
+  const range = findElementRangeByAttribute(
+    html,
+    "div",
+    "data-composition-id",
+    "captions",
+  );
+  if (!range) {
+    problem("compositions/captions.html must contain a captions composition root");
+    return;
+  }
+  const root = html.slice(range.start, range.end);
+  if (!root.includes("var GROUPS =") || !/window\.__timelines\[["']captions["']\]/.test(root)) {
+    problem("caption initialization script must be inside the captions composition root");
+  }
+}
+
+function requireGsapSource(
+  video: string,
+  outputConfig: OutputConfigState,
+  problem: (msg: string) => void,
+): void {
+  if (!outputConfig.valid) return;
   let gsapSrc: string;
   try {
-    gsapSrc = validateGsapSrc(video, configured);
+    gsapSrc = validateGsapSrc(video, outputConfig.config?.gsapSrc);
   } catch (error) {
     problem((error as Error).message);
     return;
   }
+
+  requireConfiguredGsapSource(video, "index.html", gsapSrc, problem);
+  requireConfiguredGsapSource(video, "compositions/captions.html", gsapSrc, problem);
 
   const frameRoot = join(video, "compositions", "frames");
   if (!isDir(frameRoot)) return;
@@ -172,18 +272,7 @@ function requireGsapSource(video: string, problem: (msg: string) => void): void 
     if (!/\bgsap\b/i.test(html)) continue;
 
     const frameDocument = `compositions/frames/${name}`;
-    const expected = gsapSrcForDocument(gsapSrc, frameDocument);
-    const sources = scriptSources(html);
-    const matching = sources.filter((source) =>
-      sourceTargetsConfiguredFile(video, framePath, gsapSrc, expected, source)
-    );
-    const gsapSources = sources.filter((source) => source === expected || /gsap/i.test(source));
-    if (matching.length !== 1 || gsapSources.length !== 1) {
-      problem(
-        `${frameDocument} references the gsap global and must include exactly one configured GSAP source ` +
-          `${expected}; found ${JSON.stringify(gsapSources)}`,
-      );
-    }
+    requireConfiguredGsapSource(video, frameDocument, gsapSrc, problem);
   }
 }
 
@@ -238,43 +327,95 @@ function requireProjectDocImport(video: string, problem: (msg: string) => void, 
 
 // The renderer reads captions.html (not the JSON), so the baked `var GROUPS` must
 // match the on-disk caption_groups.json group-for-group. HF-specific (references HTML).
-function requireBakedGroupsMatchJson(video: string, problem: (msg: string) => void) {
-  // Reshaped layout keeps neutral IR in the sibling shared/ dir; flat layout-reference
-  // videos keep it beside index.html. Prefer shared/ when present.
-  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
-  const src = isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
-  const html = join(video, "compositions", "captions.html");
+export function verifyHyperframesCaptionArtifact(
+  context: CaptionArtifactContext,
+): Finding[] {
+  const findings: Finding[] = [];
+  const problem = (msg: string) => findings.push({ level: "error" as const, msg });
+  const html = join(context.outputDir, "compositions", "captions.html");
 
-  if (!isFile(src)) return; // captions disabled — neutral verify already warns.
-  if (!isFile(html)) {
-    problem("missing compositions/captions.html but caption_groups.json exists");
-    return;
-  }
-
-  const groups = JSON.parse(readFileSync(src, "utf8")).groups ?? [];
-  const htmlText = readFileSync(html, "utf8");
-  const m = htmlText.match(/^ *var GROUPS = (\[.*\]);$/m);
-  if (!m) {
-    problem("captions.html has no `var GROUPS = [...]` line to compare against");
-    return;
-  }
-  let baked = null;
+  let groups: unknown;
   try {
-    baked = JSON.parse(m[1]);
-  } catch (exc) {
-    problem(`baked var GROUPS is not valid JSON: ${(exc as Error).message}`);
-    return;
+    const parsed = JSON.parse(readFileSync(context.captionGroupsPath, "utf8")) as { groups?: unknown };
+    groups = parsed.groups ?? [];
+  } catch (error) {
+    problem(`staged caption_groups.json is not valid JSON: ${(error as Error).message}`);
+    return findings;
   }
-  if (baked.length !== groups.length) {
-    problem(
-      `caption group count out of sync: JSON has ${groups.length}, ` +
-        `captions.html has ${baked.length} — rebuild with \`md2vid regroup\``
-    );
-  } else if (JSON.stringify(baked) !== JSON.stringify(groups)) {
-    problem(
-      "caption_groups.json and baked var GROUPS differ in content — " +
-        "rebuild with `md2vid regroup`"
-    );
+  if (!Array.isArray(groups)) {
+    problem("staged caption_groups.json groups must be an array");
+    return findings;
+  }
+  if (!isFile(html)) {
+    problem(`missing staged caption HTML: ${html}`);
+    return findings;
+  }
+
+  const compareGroups = (label: string, source: string) => {
+    const match = source.match(/^ *var GROUPS = (\[.*\]);$/m);
+    if (!match) {
+      problem(`${label} has no \`var GROUPS = [...]\` line to compare against`);
+      return;
+    }
+    let baked: unknown;
+    try {
+      baked = JSON.parse(match[1]);
+    } catch (error) {
+      problem(`${label} var GROUPS is not valid JSON: ${(error as Error).message}`);
+      return;
+    }
+    if (!Array.isArray(baked)) {
+      problem(`${label} var GROUPS must be a JSON array`);
+    } else if (baked.length !== groups.length) {
+      problem(
+        `${label} caption group count out of sync: JSON has ${groups.length}, ` +
+          `HTML has ${baked.length} — rebuild with \`md2vid regroup\``,
+      );
+    } else if (JSON.stringify(baked) !== JSON.stringify(groups)) {
+      problem(`${label} is out of sync with caption_groups.json — rebuild with \`md2vid regroup\``);
+    }
+  };
+
+  compareGroups("captions.html", readFileSync(html, "utf8"));
+  const indexPath = join(context.outputDir, "index.html");
+  if (!isFile(indexPath)) {
+    problem(`missing staged caption index: ${indexPath}`);
+    return findings;
+  }
+  let embedded: string | undefined;
+  try {
+    embedded = extractTemplateById(readFileSync(indexPath, "utf8"), "captions-template");
+  } catch (error) {
+    problem(`index.html ${(error as Error).message}`);
+    return findings;
+  }
+  if (embedded === undefined) {
+    problem("index.html has no embedded captions-template");
+  } else {
+    compareGroups("embedded captions-template", embedded);
+  }
+  return findings;
+}
+
+function requireBakedGroupsMatchJson(
+  video: string,
+  problem: (msg: string) => void,
+  sharedDir?: string,
+): void {
+  // Direct adapter callers retain legacy auto-detection. CLI callers pass the already
+  // resolved shared directory so every verification layer uses one authoritative layout.
+  const sharedSrc = join(video, "..", "shared", "caption_groups.json");
+  const captionGroupsPath = sharedDir
+    ? join(sharedDir, "caption_groups.json")
+    : isFile(sharedSrc) ? sharedSrc : join(video, "caption_groups.json");
+  if (!isFile(captionGroupsPath)) return; // captions disabled — neutral verify already warns.
+
+  for (const finding of verifyHyperframesCaptionArtifact({
+    sharedDir: sharedDir ?? video,
+    outputDir: video,
+    captionGroupsPath,
+  })) {
+    problem(finding.msg.replace("missing staged caption HTML: ", "missing compositions/captions.html but caption_groups.json exists — "));
   }
 }
 

@@ -27,13 +27,39 @@ The domain skills (`/hyperframes-core`, `/hyperframes-animation`, `/hyperframes-
 ## Commands
 
 ```bash
-npm run dev          # start the preview server (long-running — keep it alive in background)
-npm run check        # lint + validate + inspect
-npm run render       # render to MP4
+npm run build        # md2vid build . + caption regrouping
+npm run check        # md2vid verify + lint + validate + inspect
+npm run dev          # start preview after check (long-running; keep it alive in background)
+npm run render       # render to MP4 only after review
 npm run publish      # publish and get a shareable link
 md2vid hyperframes lint --verbose  # include info-level findings
 md2vid hyperframes lint --json     # machine-readable output for CI
 md2vid hyperframes docs <topic>    # reference docs in terminal
+```
+
+The npm `postinstall` normally applies the required caption-loop patch to the pinned HyperFrames Studio bundle. npm policies such as `allowScripts` may block that lifecycle script and emit a warning; the warning is nonfatal when commands succeed. Every `md2vid hyperframes <command>` proxy invocation self-heals the caption-loop patch before running the package-owned CLI. Generated `check`, `dev`, and `render` scripts therefore recover automatically when postinstall did not run.
+
+## First run
+
+1. Review the generated `audio_request.json.example`, then prepare `audio_meta.json` and `assets/voice/*.wav` through `/md2vid` and `/hyperframes-media` or an external TTS provider.
+2. Use meaningful, unique voice IDs. Their `voices[]` array order controls frame sequence; map each ID to a visual slug in `video.config.json.slugs`.
+3. Author `compositions/frames/*.html` for those slugs.
+4. Run `npm run build`.
+5. Run `npm run check` before preview or render.
+6. Run `npm run dev` for review; render only after review.
+
+The generated scripts are:
+
+```json
+{
+  "build": "md2vid build . && md2vid regroup . --max-chars 54",
+  "transcribe": "md2vid transcribe .",
+  "verify": "md2vid verify .",
+  "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
+  "dev": "md2vid hyperframes preview --no-open",
+  "render": "md2vid hyperframes render",
+  "publish": "md2vid hyperframes publish"
+}
 ```
 
 ### Existing generated projects
@@ -43,8 +69,11 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 ```json
 {
   "scripts": {
+    "build": "md2vid build . && md2vid regroup . --max-chars 54",
+    "transcribe": "md2vid transcribe .",
+    "verify": "md2vid verify .",
+    "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "dev": "md2vid hyperframes preview --no-open",
-    "check": "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "render": "md2vid hyperframes render",
     "publish": "md2vid hyperframes publish"
   }
@@ -57,7 +86,9 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 
 ## GSAP source
 
-New generated projects use `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js` through `output.config.json` → `gsapSrc`. This default requires network access during preview and render. md2vid does not copy GSAP runtime bytes. For offline use, supply your own local GSAP file and set `gsapSrc` to its project-relative path. Authored frame HTML must reference that same file relative to the frame document—for example, config `runtime/custom-gsap.js` becomes `../../runtime/custom-gsap.js` under `compositions/frames/`.
+New generated projects use `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js` through `output.config.json` → `gsapSrc`. This default requires network access during preview and render. md2vid does not copy GSAP runtime bytes. For offline use, supply your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and in standalone `compositions/captions.html`; HyperFrames resolves it from the project root, so never rewrite it as `../` or `../../` traversal.
+
+Authored frame and source files remain untouched during a full build, while the generated standalone `compositions/captions.html` is regenerated for direct preview. The composed `index.html` loads the configured GSAP source exactly once. The emitter embeds a sanitized template for every authored frame and for generated captions, removes only that exact configured external GSAP script from each embedded copy, then relocates transport-required top-level sibling `<style>` and `<script>` elements into the matching composition root in pre-root → existing-root → post-root order. Unrelated external scripts remain executable inside the root; arbitrary sibling text, comments, and elements are not moved. This keeps authored CSS and timeline registration available when HyperFrames mounts only the root. Hosts backed by embedded templates omit `data-composition-src` so HyperFrames mounts exactly one copy. Standalone authored files under `compositions/frames/` and standalone captions remain byte-unchanged and available for direct preview and inspection. Legacy or manually authored indexes without embedded templates may continue to use `data-composition-src`. Neutral JSON, generated `index.html` and captions, and managed voice assets are staged on the project filesystem, caption-verified, and promoted together with rollback on failure. Caption styles, content, and initialization must all remain inside the `data-composition-id="captions"` root so nested loading cannot discard the runtime setup. Caption regrouping atomically updates `caption_groups.json`, standalone `compositions/captions.html`, and the embedded `captions-template` in `index.html`; verification rejects drift between any of them. Direct `md2vid build <dir> --captions-only` validates the source index before writing and atomically promotes the standalone and embedded caption HTML together.
 
 ## Documentation
 
@@ -78,7 +109,7 @@ https://hyperframes.heygen.com/llms.txt
 ## Project Structure
 
 - `index.html` — main composition (root timeline)
-- `compositions/` — sub-compositions referenced via `data-composition-src`
+- `compositions/` — standalone authored and generated sub-compositions; full md2vid builds embed them in `index.html`, while legacy/manual indexes may reference them via `data-composition-src`
 - `meta.json` — project metadata (id, name)
 - `transcript.json` — whisper word-level transcript (if generated)
 
@@ -102,5 +133,5 @@ Fix all errors before presenting the result. Inspect warnings should be reviewed
    window.__timelines["composition-id"] = gsap.timeline({ paused: true });
    ```
 4. Videos use `muted` with a separate `<audio>` element for the audio track
-5. Sub-compositions use `data-composition-src="compositions/file.html"` to reference other HTML files
+5. Standalone or legacy sub-compositions may use `data-composition-src="compositions/file.html"`; generated md2vid indexes omit it when the matching embedded template is present
 6. Only deterministic logic — no `Date.now()`, no `Math.random()`, no network fetches

@@ -1,15 +1,45 @@
 {
   "voices": [
     {
-      "id": "01",
-      "path": "assets/voice/01.wav",
+      "id": "intro",
+      "path": "assets/voice/intro.wav",
       "duration_s": 3.0,
       "words": [
-        { "id": "w0", "text": "A", "start": 0.0, "end": 0.2 },
-        { "id": "w1", "text": "tiny", "start": 0.2, "end": 0.7 },
-        { "id": "w2", "text": "smoke", "start": 0.7, "end": 1.2 },
-        { "id": "w3", "text": "test", "start": 1.2, "end": 1.7 },
-        { "id": "w4", "text": "frame", "start": 1.7, "end": 2.3 }
+        { "id": "w0", "text": "A", "start": 0.0, "end": 0.15 },
+        { "id": "w1", "text": "remarkably", "start": 0.15, "end": 0.4 },
+        { "id": "w2", "text": "detailed", "start": 0.4, "end": 0.65 },
+        { "id": "w3", "text": "smoke", "start": 0.65, "end": 0.85 },
+        { "id": "w4", "text": "test", "start": 0.85, "end": 1.05 },
+        { "id": "w5", "text": "validates", "start": 1.05, "end": 1.3 },
+        { "id": "w6", "text": "embedded", "start": 1.3, "end": 1.55 },
+        { "id": "w7", "text": "captions.", "start": 1.55, "end": 1.8 },
+        { "id": "w8", "text": "Reverse", "start": 1.8, "end": 2.0 },
+        { "id": "w9", "text": "seeking", "start": 2.0, "end": 2.2 },
+        { "id": "w10", "text": "confirms", "start": 2.2, "end": 2.4 },
+        { "id": "w11", "text": "fresh", "start": 2.4, "end": 2.6 },
+        { "id": "w12", "text": "grouped", "start": 2.6, "end": 2.8 },
+        { "id": "w13", "text": "words.", "start": 2.8, "end": 3.0 }
+      ]
+    },
+    {
+      "id": "followup",
+      "path": "assets/voice/followup.wav",
+      "duration_s": 3.0,
+      "words": [
+        { "id": "f0", "text": "A", "start": 0.0, "end": 0.15 },
+        { "id": "f1", "text": "second", "start": 0.15, "end": 0.4 },
+        { "id": "f2", "text": "offset", "start": 0.4, "end": 0.65 },
+        { "id": "f3", "text": "frame", "start": 0.65, "end": 0.85 },
+        { "id": "f4", "text": "proves", "start": 0.85, "end": 1.05 },
+        { "id": "f5", "text": "local", "start": 1.05, "end": 1.3 },
+        { "id": "f6", "text": "timeline", "start": 1.3, "end": 1.55 },
+        { "id": "f7", "text": "seeking.", "start": 1.55, "end": 1.8 },
+        { "id": "f8", "text": "Late", "start": 1.8, "end": 2.0 },
+        { "id": "f9", "text": "reveals", "start": 2.0, "end": 2.2 },
+        { "id": "f10", "text": "remain", "start": 2.2, "end": 2.4 },
+        { "id": "f11", "text": "deterministic", "start": 2.4, "end": 2.7 },
+        { "id": "f12", "text": "after", "start": 2.7, "end": 2.85 },
+        { "id": "f13", "text": "seeks.", "start": 2.85, "end": 3.0 }
       ]
     }
   ]

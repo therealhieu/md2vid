@@ -8,25 +8,28 @@ HyperFrames, so the build/verify dispatch is unchanged: select it with
 
 ## Generated-project pipeline
 
-```
+```text
 md2vid new <slug> --framework remotion
-  → creates the complete common md2vid contract and Remotion runtime
-    (meta/config/package/docs/standard + render/config/tsconfig/src) before npm install
-cd <slug> && npm install
-md2vid build <output-dir>
-  → engine.plan() writes the sibling shared/build/build_plan.json (neutral IR)
-  → remotion.emit(): ensures missing runtime files, writes <output-dir>/build_plan.json,
-    stages shared/assets/voice/** as real files under
-    <output-dir>/public/assets/voice/**
-cd <output-dir>
-  npm run typecheck  # strict checking for the generated src/**/*.tsx
-  npm run still      # single-frame render smoke (fast, CI-gating)
-  npm run render     # full MP4 → out/video.mp4
-  npm run studio     # interactive Remotion Studio preview
+cd <slug>
+npm install
+# Review audio_request.json.example; prepare audio_meta.json + assets/voice/*.wav.
+# Author and explicitly register any custom src/scenes/*.tsx.
+npm run build
+npm run check
+npm run still      # fast render smoke
+npm run studio     # interactive review
+npm run render     # full MP4 only after review → out/video.mp4
 ```
 
-Run the project checks from the generated Remotion output directory. The installed
-workflow does not require repository source paths.
+The scaffold creates the complete common md2vid contract and Remotion runtime before `npm install`. `npm run build` runs `md2vid build .` and caption regrouping: `engine.plan()` writes `shared/build/build_plan.json` in canonical layout, while `remotion.emit()` writes the output-local `build_plan.json` and stages shared WAV files under `public/assets/voice/`. `npm run check` runs `md2vid verify .` before strict TypeScript checking and is required before still, studio, or render. `md2vid verify .` remains available directly.
+
+Run all generated-project commands from the Remotion output directory. The installed workflow does not require repository source paths.
+
+## Default and opt-in scenes
+
+The default `src/Video.tsx` is a content-neutral title card driven only by each plan frame's slug. It contains no example subject matter.
+
+Rich visuals are opt-in and hand-authored. Add scene components under `src/scenes/`, import them into `src/Video.tsx`, and explicitly register each slug in the `SCENES` map. A public hash-table example is available at `examples/hash-table/remotion/` in the repository, but it is not shipped in the npm package and must be copied and adapted deliberately.
 
 ## What maps to what
 

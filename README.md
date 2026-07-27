@@ -36,6 +36,45 @@ Then invoke:
 
 Use “Remotion” or “both frameworks” explicitly when required.
 
+## Narration
+
+New projects include `audio_request.json.example` as a narration planning example. Review its lines, then use the `/md2vid` skill workflow to generate or prepare voice WAV files and `audio_meta.json`. There is no `md2vid audio` command.
+
+Store voice files under `assets/voice/` and reference them with paths relative to the flat project root or the canonical `shared/` root. A minimal `audio_meta.json` is:
+
+```json
+{
+  "voices": [
+    {
+      "id": "intro",
+      "path": "assets/voice/intro.wav",
+      "duration_s": 3.2,
+      "words": [
+        {
+          "text": "Welcome.",
+          "start": 0,
+          "end": 0.8
+        }
+      ]
+    }
+  ]
+}
+```
+
+The WAV sample extent is authoritative: `duration_s` must exactly equal `dataBytes / blockAlign / sampleRate`, safely floored to 6 decimal places and never rounded upward. On Darwin/Linux, md2vid opens the final path with `O_NOFOLLOW | O_NONBLOCK`, rejects static intermediate symlinks and nonregular files, and checks path/file identities before and after reading. These checks detect ordinary cooperative changes best-effort; they are not race-free against an adversarial swap-and-restore writer because Node core has no descriptor-relative traversal API. Keep the project tree quiescent while inputs are snapshotted. Once captured, immutable snapshot bytes drive timing, transcription, build staging, and emitted-asset SHA-256 verification without a native addon or system helper. Word timings must be finite, ordered, non-overlapping, and within `0 <= start <= end <= duration_s`. `md2vid transcribe` snapshots every WAV before provider calls, uses a private temporary snapshot tree, replaces stale JSON durations, and bounds a provider's final-word overrun without extending the WAV. `md2vid build` and `md2vid verify` reject duration mismatches, out-of-WAV words, and missing/symlinked/stale emitted WAVs before managed output mutation or successful verification, with the metadata path plus voice and word identity.
+
+Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID must be non-empty and unique. Frame order follows the `voices[]` array, not the spelling or numeric value of an ID. Map each voice ID to its authored frame slug in `video.config.json`:
+
+```json
+{
+  "slugs": {
+    "intro": "01-intro"
+  }
+}
+```
+
+The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
+
 ## CLI
 
 ```text
@@ -54,27 +93,34 @@ md2vid install-skill
 
 `md2vid hyperframes --version` must print the package-owned HyperFrames version `0.7.26`.
 
+The npm `postinstall` normally applies the required caption-loop patch to the pinned HyperFrames Studio bundle. npm policies such as `allowScripts` may block that lifecycle script and print a warning; the warning is nonfatal when commands succeed. Every `md2vid hyperframes <command>` proxy invocation self-heals the caption-loop patch before running HyperFrames, so `check`, preview, snapshot, browser, and render remain safe under a blocked postinstall.
+
 ## Preview and render
 
 HyperFrames projects:
 
 ```bash
 cd <video-project>
+npm run build
 npm run check
-npm run dev
-npm run render
+npm run dev        # review in preview
+npm run render     # only after review
 ```
 
-New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to its project-relative path. Authored frame HTML must reference that same file relative to the frame document—for example, config `runtime/custom-gsap.js` becomes `../../runtime/custom-gsap.js` under `compositions/frames/`. md2vid does not copy GSAP bytes into new projects.
+New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.
+
+During a full build, `index.html` loads the configured GSAP source once and embeds sanitized frame/caption templates with that matching external script removed. Authored frame and source files remain untouched. Hosts backed by those embedded templates omit `data-composition-src`, preventing HyperFrames from mounting a second fallback copy. Standalone authored files under `compositions/frames/` remain available for direct preview and inspection. The generated standalone `compositions/captions.html` is regenerated from staged caption groups and remains available for the same purpose. Legacy or manually authored indexes without embedded templates may continue to use `data-composition-src` source loading. Neutral JSON, generated framework artifacts, and managed voice assets are promoted together only after staged caption verification succeeds. Keep caption style, content, and initialization inside the captions composition root.
 
 Remotion projects:
 
 ```bash
 cd <video-project>
 npm install
-npm run typecheck
-npm run still
-npm run render
+npm run build
+npm run check
+npm run still      # fast smoke
+npm run studio     # interactive review
+npm run render     # only after review
 ```
 
 `npm run dev` is long-running; run it in a background terminal. The rendered MP4 location is printed by the framework command.
@@ -86,8 +132,11 @@ md2vid does not auto-rewrite existing generated `package.json` files. Update exi
 ```json
 {
   "scripts": {
+    "build": "md2vid build . && md2vid regroup . --max-chars 54",
+    "transcribe": "md2vid transcribe .",
+    "verify": "md2vid verify .",
+    "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "dev": "md2vid hyperframes preview --no-open",
-    "check": "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     "render": "md2vid hyperframes render",
     "publish": "md2vid hyperframes publish"
   }

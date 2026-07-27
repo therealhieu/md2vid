@@ -6,7 +6,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
 
@@ -25,9 +25,8 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll("`", "&#96;");
 }
 
-export function gsapSrcForDocument(gsapSrc: string, documentPath: string): string {
-  if (gsapSrc === DEFAULT_GSAP_SRC) return gsapSrc;
-  return posix.relative(posix.dirname(documentPath), gsapSrc);
+export function gsapSrcForDocument(gsapSrc: string, _documentPath: string): string {
+  return gsapSrc;
 }
 
 export function gsapScriptSrcAttribute(gsapSrc: string, documentPath: string): string {
@@ -82,16 +81,26 @@ function assertTemplates(): void {
 export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
   assertTemplates();
   return {
-    outputConfig: { framework: "hyperframes", gsapSrc: DEFAULT_GSAP_SRC },
+    outputConfig: {
+      framework: "hyperframes",
+      gsapSrc: DEFAULT_GSAP_SRC,
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
+    },
+    frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
       dev: "md2vid hyperframes preview --no-open",
-      check: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
       render: "md2vid hyperframes render",
       publish: "md2vid hyperframes publish",
     },
     nextSteps: [
+      "review audio_request.json.example and generate narration",
       "author frames in compositions/frames/",
-      "fill video.config.json and add narration",
+      "fill video.config.json voice-id -> frame-slug mappings",
       "npm run build",
       "npm run check",
       "npm run dev",

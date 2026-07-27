@@ -184,8 +184,10 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
     "docs/standards/public.md": "# Standard\n",
     "docs/superpowers/private.md": "internal\n",
     "engine/index.ts": "export {};\n",
+    "examples/hash-table/remotion/README.md": "# Opt-in example\n",
+    "examples/hash-table/remotion/src/Video.tsx": "export const Video = () => null;\n",
     "frameworks/index.ts": "export {};\n",
-    "package.json": "{}\n",
+    "package.json": "{\"files\":[\"dist\"]}\n",
     "package-lock.json": "{}\n",
     "postinstall.mjs": "export {};\n",
     "scripts/public_snapshot.ts": "export {};\n",
@@ -209,6 +211,8 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
   const paths = snapshotPaths(output);
   for (const required of [
     ".github/workflows/ci.yml",
+    "examples/hash-table/remotion/README.md",
+    "examples/hash-table/remotion/src/Video.tsx",
     "scripts/public_snapshot.ts",
     "test/ci/public-snapshot.test.ts",
     "test/golden/fixtures/example/expected/index.html",
@@ -228,6 +232,8 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
     assert.equal(paths.includes(forbidden), false, `copied forbidden ${forbidden}`);
   }
   assert.equal(paths.some((path) => path === ".git" || path.startsWith(".git/")), false);
+  const packageFiles = JSON.parse(readFileSync(join(output, "package.json"), "utf8")).files as string[];
+  assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
 });
 
 test("snapshot rejects symlinks, submodules, and non-blob selected entries", (t) => {
@@ -751,6 +757,8 @@ test("actual repository HEAD snapshot contains required public code and excludes
     ".github/workflows/ci.yml",
     ".github/workflows/release.yml",
     "engine/config.ts",
+    "examples/hash-table/remotion/README.md",
+    "examples/hash-table/remotion/src/Video.tsx",
     "frameworks/hyperframes/scaffold.ts",
     "test/golden/fixtures/hash-table-example/expected/index.html",
   ]) {
@@ -767,4 +775,6 @@ test("actual repository HEAD snapshot contains required public code and excludes
     }
   }
   assert.equal(paths.some((path) => /(^|\/)vendor(?:ed)?\/.*gsap|(^|\/)gsap(?:\.min)?\.js$/i.test(path)), false);
+  const packageFiles = JSON.parse(readFileSync(join(output, "package.json"), "utf8")).files as string[];
+  assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
 });

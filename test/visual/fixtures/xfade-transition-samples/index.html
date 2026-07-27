@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #root, .scene, .frame, .ground { margin: 0; position: absolute; inset: 0; width: 960px; height: 540px; }
+    #root { background: #faf9f5; }
+    .scene { display: none; }
+    .ground { background: #faf9f5; }
+    h1 { position: absolute; left: 100px; top: 100px; z-index: 1; color: #141413; font: 700 48px/1.1 Georgia, serif; }
+    #el-01-first { z-index: 1; }
+    #el-02-middle { z-index: 2; }
+    #el-03-last { z-index: 3; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="el-01-first" class="scene" data-start="0" data-duration="2">
+      <div class="frame" data-hf-inner-root="true" data-composition-id="01-first" data-frame-theme="light">
+        <div class="ground"></div><h1 data-load-bearing-text>First frame</h1>
+      </div>
+    </div>
+    <div id="el-02-middle" class="scene" data-start="1.5" data-duration="2">
+      <div class="frame" data-hf-inner-root="true" data-composition-id="02-middle" data-frame-theme="light">
+        <div class="ground"></div><h1 data-load-bearing-text>Middle frame</h1>
+      </div>
+    </div>
+    <div id="el-03-last" class="scene" data-start="3" data-duration="2">
+      <div class="frame" data-hf-inner-root="true" data-composition-id="03-last" data-frame-theme="light">
+        <div class="ground"></div><h1 data-load-bearing-text>Last frame</h1>
+      </div>
+    </div>
+  </div>
+  <script>
+    const frames = [
+      { host: document.getElementById("el-01-first"), start: 0, end: 2 },
+      { host: document.getElementById("el-02-middle"), start: 1.5, end: 3.5 },
+      { host: document.getElementById("el-03-last"), start: 3, end: 5 }
+    ];
+    let time = 0;
+    function update(next) {
+      time = next;
+      frames.forEach((frame, index) => {
+        const active = time >= frame.start && time <= frame.end;
+        frame.host.style.display = active ? "block" : "none";
+        const inOverlap = index > 0 && time < frame.start + 0.5;
+        const outOverlap = index < frames.length - 1 && time > frame.end - 0.5;
+        frame.host.querySelector(".ground").style.background = inOverlap || outOverlap ? "transparent" : "#faf9f5";
+      });
+    }
+    window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+    update(0);
+  </script>
+</body>
+</html>

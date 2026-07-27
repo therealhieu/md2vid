@@ -34,6 +34,7 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
   assertTemplates();
   return {
     outputConfig: { framework: "remotion" },
+    frameworkCheck: "tsc --noEmit -p tsconfig.json",
     packageScripts: {
       studio: "remotion studio src/index.ts",
       render: "node render.ts",
@@ -57,11 +58,12 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
     },
     nextSteps: [
       "npm install",
-      "author src/scenes/*.tsx",
-      "fill video.config.json and add narration",
+      "review audio_request.json.example and generate narration",
+      "author and register src/scenes/*.tsx",
+      "fill video.config.json voice-id -> frame-slug mappings",
       "npm run build",
-      "npm run typecheck",
-      "npm run still",
+      "npm run check",
+      "npm run still or npm run studio",
     ],
   };
 }
