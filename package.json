@@ -74,7 +74,7 @@
     "check": "npm run typecheck && npm run typecheck:remotion && npm run test"
   },
   "dependencies": {
-    "hyperframes": "0.7.26"
+    "hyperframes": "0.7.76"
   },
   "optionalDependencies": {
     "@remotion/google-fonts": "4.0.486",
