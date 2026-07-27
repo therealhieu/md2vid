@@ -6,6 +6,7 @@ export const REQUIRED_PACKED_FILES = [
   "dist/scripts/hyperframes_cli.js",
   "dist/scripts/managed_file_transaction.js",
   "dist/scripts/install_skill.js",
+  "dist/scripts/upgrade.js",
   "dist/scripts/package_root.js",
   "dist/scripts/platform_support.js",
   "dist/scripts/project_layout.js",

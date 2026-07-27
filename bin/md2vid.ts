@@ -15,6 +15,7 @@ import { run as verifyRun } from "../scripts/verify.ts";
 import { runHyperframes } from "../scripts/hyperframes_cli.ts";
 import { run as patchRun } from "../frameworks/hyperframes/patch-studio.ts";
 import { run as installSkillRun } from "../scripts/install_skill.ts";
+import { run as upgradeRun } from "../scripts/upgrade.ts";
 import { readPackageMetadata } from "../scripts/package_root.ts";
 import { assertSupportedPlatform } from "../scripts/platform_support.ts";
 import { isMainModule } from "../scripts/main-guard.ts";
@@ -30,6 +31,7 @@ const COMMANDS: Record<string, Run> = {
   hyperframes: (args) => runHyperframes(args),
   "patch-studio": patchRun,
   "install-skill": installSkillRun,
+  upgrade: upgradeRun,
 };
 
 function helpText(): string {
@@ -52,6 +54,7 @@ function helpText(): string {
     "  hyperframes <command> [args]                       run package-owned hyperframes@0.7.26",
     "  patch-studio                                     patch the installed HyperFrames Studio",
     "  install-skill                                    install the personal /md2vid skill",
+    "  upgrade                                          update the global CLI and refresh the skill",
   ].join("\n");
 }
 

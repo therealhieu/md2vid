@@ -203,7 +203,7 @@ test("--help exits 0 and documents global and manual-local execution", () => {
     assert.match(result.stdout, /npx --yes=false md2vid/);
     assert.doesNotMatch(result.stdout, /npx --no md2vid/);
     assert.match(result.stdout, /Node\.js >=22\.18/);
-    for (const command of ["new", "build", "regroup", "transcribe", "verify", "hyperframes", "patch-studio", "install-skill"]) {
+    for (const command of ["new", "build", "regroup", "transcribe", "verify", "hyperframes", "patch-studio", "install-skill", "upgrade"]) {
       assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
     }
   } finally {
@@ -217,7 +217,16 @@ test("--help lists the package-owned HyperFrames proxy", () => {
   assert.match(result.stdout, /hyperframes <command> \[args\]/);
 });
 
-for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill"]) {
+test("root help describes synchronized upgrade", () => {
+  const result = runBin(["--help"]);
+  assert.equal(result.code, 0);
+  assert.match(
+    result.stdout,
+    /upgrade\s+update the global CLI and refresh the skill/,
+  );
+});
+
+for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill", "upgrade"]) {
   test(`${command} supports subcommand help`, () => {
     const root = mkdtempSync(join(tmpdir(), `router-${command}-help-`));
     try {
@@ -261,7 +270,7 @@ test("help flags after -- are treated as new command positionals", () => {
 });
 
 for (const kind of ["typo", "excess"] as const) {
-  for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill"]) {
+  for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill", "upgrade"]) {
     test(`${command} rejects ${kind} arguments before mutation`, () => {
       const testCase = invalidCommandCase(command, kind);
       try {
