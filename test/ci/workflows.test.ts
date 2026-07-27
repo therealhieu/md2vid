@@ -1085,6 +1085,7 @@ test("release preflight exposes validated identity and recovery state", () => {
   const yaml = workflow("release.yml");
   const body = releaseJob(yaml, "preflight");
   assert.match(body, /fetch-depth:\s*0/);
+  assert.match(body, /ref:\s*main/);
   assert.match(body, /persist-credentials:\s*false/);
   assert.match(body, /node-version:\s*node/);
   assert.match(body, /tag="\$\{INPUT_TAG:-\$GITHUB_REF_NAME\}"/);
