@@ -63,7 +63,7 @@ export function validateSnapshotPackageMetadata(
 ): void {
   assertEqual(
     typeof packageMetadata.version === "string" ? packageMetadata.version : "",
-    "0.1.8",
+    "0.1.9",
     "package version",
   );
   assertEqual(

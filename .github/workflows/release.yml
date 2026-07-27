@@ -323,6 +323,21 @@ jobs:
           test "$expected" = "11.15.0"
       - name: Install verification dependencies
         run: npm ci --ignore-scripts
+      - name: Install Linux media tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
+      - name: Install macOS media tools
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
       - name: Verify exact release artifact
         shell: bash
         env:
