@@ -1236,7 +1236,7 @@ test("release publication uses OIDC only and publishes the verified tarball", ()
   assert.match(body, /--metadata-only/);
   assert.match(body, /node scripts\/release_preflight\.ts publish-check/);
   assert.match(body, /--tag "\$TAG"[\s\S]*--version "\$VERSION"[\s\S]*--commit "\$COMMIT"[\s\S]*--repository "\$GITHUB_REPOSITORY"[\s\S]*--artifact release-artifact\/artifact\.json/);
-  assert.match(body, /if:\s*steps\.publish-check\.outputs\.publish == 'true'[\s\S]*npm publish "release-artifact\/\$TARBALL" --access public --tag latest/);
+  assert.match(body, /if:\s*steps\.publish-check\.outputs\.publish == 'true'[\s\S]*npm publish "\.\/release-artifact\/\$TARBALL" --access public --tag latest/);
   assert.match(body, /if:\s*steps\.publish-check\.outputs\.publish == 'false'[\s\S]*equal-integrity recovery/);
   assert.doesNotMatch(body, /npm publish\s+(?:--access|\.|release-artifact\s)|npm pack|release:pack/);
 });
@@ -1489,7 +1489,7 @@ test("release policy rejects authority, dependency, and tarball mutations", () =
     yaml.replace("  queue: max\n", "  # GitHub Actions queues one pending run when cancellation is disabled.\n"),
     yaml.replace("needs: [preflight, obtain-artifact, verify-artifact]", "needs: [preflight, obtain-artifact]"),
     yaml.replace("      id-token: write", "      contents: write"),
-    yaml.replace('npm publish "release-artifact/$TARBALL" --access public --tag latest', "npm publish release-artifact --access public --tag latest"),
+    yaml.replace('npm publish "./release-artifact/$TARBALL" --access public --tag latest', "npm publish release-artifact --access public --tag latest"),
     yaml.replace("retention-days: 90", "retention-days: 14"),
     yaml.replace("ref: ${{ needs.preflight.outputs.commit }}", "ref: main"),
   ];
@@ -1498,7 +1498,7 @@ test("release policy rejects authority, dependency, and tarball mutations", () =
     assertReleasePolicy,
     assertReleaseDependencies,
     assertReleaseAuthorities,
-    (value: string) => assert.match(releaseJob(value, "publish-npm"), /npm publish "release-artifact\/\$TARBALL" --access public --tag latest/),
+    (value: string) => assert.match(releaseJob(value, "publish-npm"), /npm publish "\.\/release-artifact\/\$TARBALL" --access public --tag latest/),
     assertReleaseDiagnostics,
     (value: string) => assertReleaseToolchain(releaseJob(value, "obtain-artifact"), /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/),
   ];

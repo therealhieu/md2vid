@@ -463,7 +463,7 @@ jobs:
         shell: bash
         env:
           TARBALL: ${{ needs.obtain-artifact.outputs.tarball }}
-        run: npm publish "release-artifact/$TARBALL" --access public --tag latest
+        run: npm publish "./release-artifact/$TARBALL" --access public --tag latest
       - name: Record equal-integrity recovery
         if: steps.publish-check.outputs.publish == 'false'
         run: echo "equal-integrity recovery; npm publication skipped"
