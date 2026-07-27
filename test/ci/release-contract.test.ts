@@ -120,7 +120,7 @@ test("package docs and release workflow declare macOS and Linux only", () => {
 });
 
 test("one package version drives tag artifact and registry commands", () => {
-  assert.equal(pkg.version, "0.1.10");
+  assert.equal(pkg.version, "0.1.11");
   assert.deepEqual(pkg.os, ["darwin", "linux"]);
   assert.equal(Object.hasOwn(pkg, "cpu"), false);
   assert.equal(lock.version, pkg.version);
@@ -131,7 +131,7 @@ test("one package version drives tag artifact and registry commands", () => {
   assert.match(release, /release:pack/);
   assert.match(release, /release:verify-artifact/);
   assert.match(release, /release:verify-registry/);
-  assert.match(release, /npm publish "release-artifact\/\$TARBALL" --access public --tag latest/);
+  assert.match(release, /npm publish "\.\/release-artifact\/\$TARBALL" --access public --tag latest/);
   assert.match(readme, /git tag -a vX\.Y\.Z/);
   assert.match(runbook, /gh workflow run release\.yml -f tag=vX\.Y\.Z/);
 });
