@@ -40,6 +40,7 @@ jobs:
       - name: Check out full release history
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: main
           fetch-depth: 0
           persist-credentials: false
       - name: Set up exact Node resolver
