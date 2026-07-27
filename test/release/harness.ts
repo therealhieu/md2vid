@@ -528,6 +528,24 @@ function runProjectNpm(
   }, context);
 }
 
+export function runWithHyperframesReadinessRetry<T>(
+  operation: () => T,
+  cleanup: () => void = () => undefined,
+): T {
+  try {
+    return operation();
+  } catch (error) {
+    const commandError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+    const diagnostic = [commandError.message, commandError.stdout, commandError.stderr]
+      .filter((value) => value !== undefined)
+      .map(String)
+      .join("\n");
+    if (!diagnostic.includes("[FrameCapture] Composition has zero duration.")) throw error;
+    cleanup();
+    return operation();
+  }
+}
+
 export function installedCommandEnvironment(
   context: ReleaseContext,
   base: NodeJS.ProcessEnv = process.env,
@@ -1862,14 +1880,17 @@ export async function runFrameworkSmoke(
     // terminated Studio Chrome tree can transiently leave the next headless
     // capture without a ready runtime even after the process group is reaped.
     const smokeRender = join(project, "renders", "smoke.mp4");
-    runProjectNpm(context, project, [
-      "run", "render", "--",
-      "--output", smokeRender,
-      "--fps", "1",
-      "--quality", "draft",
-      "--workers", "1",
-      "--quiet",
-    ]);
+    runWithHyperframesReadinessRetry(
+      () => runProjectNpm(context, project, [
+        "run", "render", "--",
+        "--output", smokeRender,
+        "--fps", "1",
+        "--quality", "draft",
+        "--workers", "1",
+        "--quiet",
+      ]),
+      () => rmSync(smokeRender, { force: true }),
+    );
     assert.ok(statSync(smokeRender).size > 0, "HyperFrames smoke render must be nonempty");
 
     await withHyperframesStudio(context, project, async (baseUrl) => {

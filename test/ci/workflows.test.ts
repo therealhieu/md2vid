@@ -1209,6 +1209,16 @@ test("release verifies one exact current-run tarball on every supported OS", () 
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
   assert.ok(body.indexOf("Check out verified commit") < body.indexOf("Download current release artifact"), "checkout cleanup must run before artifact download");
   assert.match(stepBody(body, "Install verification dependencies"), /^\s+run:\s*npm ci --ignore-scripts\s*$/m);
+  const linuxMedia = stepBody(body, "Install Linux media tools");
+  assert.match(linuxMedia, /if:\s*runner\.os == 'Linux'/);
+  assert.match(linuxMedia, /sudo apt-get install --yes ffmpeg/);
+  const macMedia = stepBody(body, "Install macOS media tools");
+  assert.match(macMedia, /if:\s*runner\.os == 'macOS'/);
+  assert.match(macMedia, /brew install ffmpeg/);
+  for (const media of [linuxMedia, macMedia]) {
+    assert.match(media, /command -v ffmpeg/);
+    assert.match(media, /command -v ffprobe/);
+  }
   assert.match(body, /MD2VID_DIAGNOSTICS_DIR:\s*release-diagnostics/);
   assert.match(stepBody(body, "Verify exact release artifact"), /^\s+--tarball "release-artifact\/\$TARBALL" \\$/m);
   assert.match(body, /--metadata release-artifact\/artifact\.json/);

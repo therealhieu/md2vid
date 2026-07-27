@@ -31,6 +31,7 @@ import {
   REPO_ROOT,
   runInstalledCli,
   runStage,
+  runWithHyperframesReadinessRetry,
   skillInstallTarget,
   stopProcessTree,
   terminateProcessTree,
@@ -61,6 +62,38 @@ test("release smoke status reports generated check scripts for both frameworks",
   assert.match(source, /smoke:hyperframes[^\n]*generated build\/check.*browser.*render/i);
   assert.match(source, /smoke:remotion[^\n]*generated build\/check\/still/);
   assert.doesNotMatch(source, /build\/typecheck\/still/);
+});
+
+test("HyperFrames smoke retries one exact zero-duration readiness failure", () => {
+  let attempts = 0;
+  let cleanups = 0;
+  runWithHyperframesReadinessRetry(
+    () => {
+      attempts++;
+      if (attempts === 1) {
+        const error = new Error("render failed") as Error & { stderr: string };
+        error.stderr = "[FrameCapture] Composition has zero duration.";
+        throw error;
+      }
+    },
+    () => { cleanups++; },
+  );
+  assert.equal(attempts, 2);
+  assert.equal(cleanups, 1);
+});
+
+test("HyperFrames smoke does not retry unrelated or repeated failures", () => {
+  for (const stderr of ["FFmpeg not found", "[FrameCapture] Composition has zero duration."]) {
+    let attempts = 0;
+    const expectedAttempts = stderr.includes("zero duration") ? 2 : 1;
+    assert.throws(() => runWithHyperframesReadinessRetry(() => {
+      attempts++;
+      const error = new Error("render failed") as Error & { stderr: string };
+      error.stderr = stderr;
+      throw error;
+    }));
+    assert.equal(attempts, expectedAttempts);
+  }
 });
 
 test("packed HyperFrames smoke starts pristine and relies on proxy self-healing", () => {
