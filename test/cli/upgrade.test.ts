@@ -105,3 +105,69 @@ test("global validation rejects a local or npx package", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const testCase of [
+  {
+    name: "start failure",
+    invoke: (): SpawnSyncReturns<Buffer> => {
+      throw new Error("spawn npm ENOENT");
+    },
+    cause: /failed to start npm root --global: spawn npm ENOENT/,
+  },
+  {
+    name: "signal termination",
+    invoke: () => result(null, "", { signal: "SIGTERM" }),
+    cause: /npm root --global terminated by SIGTERM/,
+  },
+  {
+    name: "missing status",
+    invoke: () => result(null),
+    cause: /npm root --global exited without a status/,
+  },
+  {
+    name: "nonzero status",
+    invoke: () => result(7),
+    cause: /npm root --global exited with status 7/,
+  },
+  {
+    name: "empty root",
+    invoke: () => result(0, "\n"),
+    cause: /npm root --global returned an empty path/,
+  },
+]) {
+  test(`global validation reports ${testCase.name} with recovery`, () => {
+    const spawn: UpgradeSpawn = () => testCase.invoke();
+    assert.throws(
+      () => resolveGlobalInstallation(
+        { name: "md2vid", version: "0.1.11", root: "/tmp/md2vid" },
+        process.env,
+        { spawn, realpath: realpathSync },
+      ),
+      (error: unknown) => {
+        const message = String((error as Error).message);
+        assert.match(message, testCase.cause);
+        assert.match(message, /npm install --global md2vid@latest/);
+        assert.match(message, /md2vid install-skill/);
+        return true;
+      },
+    );
+  });
+}
+
+test("global validation reports realpath failure with recovery", () => {
+  const spawn: UpgradeSpawn = () => result(0, "/missing/global/root\n");
+  assert.throws(
+    () => resolveGlobalInstallation(
+      { name: "md2vid", version: "0.1.11", root: "/tmp/md2vid" },
+      process.env,
+      { spawn, realpath: () => { throw new Error("ENOENT fixture"); } },
+    ),
+    (error: unknown) => {
+      const message = String((error as Error).message);
+      assert.match(message, /could not resolve global npm installation: ENOENT fixture/);
+      assert.match(message, /npm install --global md2vid@latest/);
+      assert.match(message, /md2vid install-skill/);
+      return true;
+    },
+  );
+});
