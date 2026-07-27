@@ -9,6 +9,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseCommand } from "./cli_args.ts";
+import { isMainModule } from "./main-guard.ts";
 import { readPackageMetadata, type PackageMetadata } from "./package_root.ts";
 
 export type UpgradeSpawn = (
@@ -183,13 +184,20 @@ export function run(
     } catch (error) {
       throw fail(`invalid updated package: ${errorMessage(error)}`);
     }
-    runInheritedChild(
-      "md2vid install-skill",
-      nodeCommand,
-      [installation.cliEntry, "install-skill"],
-      env,
-      spawn,
-    );
+    try {
+      runInheritedChild(
+        "md2vid install-skill",
+        nodeCommand,
+        [installation.cliEntry, "install-skill"],
+        env,
+        spawn,
+      );
+    } catch (error) {
+      const cause = errorMessage(error).replace(/^FAIL \[upgrade\]:\s*/, "");
+      throw fail(
+        `CLI upgrade completed, but skill refresh failed: ${cause}; recovery: md2vid install-skill`,
+      );
+    }
     log(`OK upgraded md2vid ${before.version} → ${after.version}`);
     log("OK refreshed Claude skill");
     return 0;
@@ -199,3 +207,5 @@ export function run(
     return 1;
   }
 }
+
+if (isMainModule(import.meta.url)) process.exit(run(process.argv.slice(2)));

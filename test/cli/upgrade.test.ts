@@ -392,3 +392,62 @@ test("invalid updated package: malformed metadata stops before skill refresh", (
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+const skillFailures = [
+  {
+    name: "start",
+    invoke: (): SpawnSyncReturns<Buffer> => {
+      throw new Error("spawn node EACCES");
+    },
+    cause: /failed to start md2vid install-skill: spawn node EACCES/,
+  },
+  {
+    name: "signal",
+    invoke: () => result(null, "", { signal: "SIGTERM" }),
+    cause: /md2vid install-skill terminated by SIGTERM/,
+  },
+  {
+    name: "status missing",
+    invoke: () => result(null),
+    cause: /md2vid install-skill exited without a status/,
+  },
+  {
+    name: "nonzero",
+    invoke: () => result(9),
+    cause: /md2vid install-skill exited with status 9/,
+  },
+];
+
+for (const testCase of skillFailures) {
+  test(`skill refresh failure: ${testCase.name} reports partial state`, () => {
+    const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-skill-fail-"));
+    try {
+      const globalRoot = join(root, "lib", "node_modules");
+      const packageRoot = join(globalRoot, "md2vid");
+      const cliEntry = createPackage(packageRoot, "0.1.11");
+      let calls = 0;
+      const spawn: UpgradeSpawn = () => {
+        calls += 1;
+        if (calls === 1) return result(0, `${globalRoot}\n`);
+        if (calls === 2) return result(0);
+        return testCase.invoke();
+      };
+      const output = captureLines();
+      const code = run([], {
+        metaUrl: pathToFileURL(cliEntry).href,
+        spawn,
+        log: output.log,
+        error: output.error,
+      });
+      assert.equal(code, 1);
+      assert.equal(calls, 3);
+      const message = output.stderr.join("\n");
+      assert.match(message, /CLI upgrade completed, but skill refresh failed/);
+      assert.match(message, testCase.cause);
+      assert.match(message, /recovery: md2vid install-skill/);
+      assert.equal((message.match(/FAIL \[upgrade\]:/g) ?? []).length, 1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
