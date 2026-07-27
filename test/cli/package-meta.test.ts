@@ -26,7 +26,7 @@ const finalGateChecklistPath = join(
   REPO_ROOT,
   "docs",
   "superpowers",
-  "active",
+  "archive",
   "2026-07-24-md-to-video-e2e",
   "2026-07-24-md-to-video-e2e-final-gate-checklist.md",
 );
@@ -255,14 +255,14 @@ test("final gate requires machine-readable browser visual-integrity evidence", (
   );
 });
 
-test("final gate records complete artifact identity and evidence integrity", () => {
+test("archived final gate records complete artifact identity and evidence integrity", () => {
   const checklist = sourceFinalGateChecklist();
   if (checklist === undefined) return;
   for (const pattern of [
     /Validation tree SHA:/,
     /Artifact package name: md2vid/,
-    new RegExp(`Artifact package version: ${escapeRegex(pkg.version)}`),
-    new RegExp(`Artifact tag: v${escapeRegex(pkg.version)}`),
+    /Artifact package version: 0\.1\.2/,
+    /Artifact tag: v0\.1\.2/,
     /Artifact metadata commit:/,
     /Artifact node version:/,
     /Artifact npm version: 11\.15\.0/,
