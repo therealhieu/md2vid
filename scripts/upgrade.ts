@@ -5,9 +5,11 @@ import {
   type SpawnSyncOptions,
   type SpawnSyncReturns,
 } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import type { PackageMetadata } from "./package_root.ts";
+import { pathToFileURL } from "node:url";
+import { parseCommand } from "./cli_args.ts";
+import { readPackageMetadata, type PackageMetadata } from "./package_root.ts";
 
 export type UpgradeSpawn = (
   command: string,
@@ -97,4 +99,97 @@ export function resolveGlobalInstallation(
     packageRoot,
     cliEntry: join(packageRoot, "dist", "bin", "md2vid.js"),
   };
+}
+
+export interface UpgradeRunDependencies {
+  env?: NodeJS.ProcessEnv;
+  metaUrl?: string;
+  spawn?: UpgradeSpawn;
+  realpath?: (path: string) => string;
+  exists?: (path: string) => boolean;
+  npmCommand?: string;
+  nodeCommand?: string;
+  log?: (line: string) => void;
+  error?: (line: string) => void;
+}
+
+const USAGE = "Usage: md2vid upgrade";
+
+function runInheritedChild(
+  label: string,
+  command: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+  spawn: UpgradeSpawn,
+): void {
+  let child: SpawnSyncReturns<Buffer>;
+  try {
+    child = spawn(command, args, { env, shell: false, stdio: "inherit" });
+  } catch (error) {
+    throw fail(`failed to start ${label}: ${errorMessage(error)}`);
+  }
+  if (child.status !== 0) throw fail(`${label} failed`);
+}
+
+export function run(
+  argv: string[],
+  dependencies: UpgradeRunDependencies = {},
+): number {
+  const log = dependencies.log ?? console.log;
+  const reportError = dependencies.error ?? console.error;
+  const parsed = parseCommand({
+    command: "upgrade",
+    usage: USAGE,
+    options: {},
+    minPositionals: 0,
+    maxPositionals: 0,
+  }, argv);
+  if (parsed.kind === "help") {
+    log(USAGE);
+    return 0;
+  }
+  if (parsed.kind === "error") {
+    reportError(parsed.message);
+    reportError(parsed.usage);
+    return 2;
+  }
+  const env = dependencies.env ?? process.env;
+  const spawn = dependencies.spawn ?? spawnSync;
+  const realpath = dependencies.realpath ?? realpathSync;
+  const exists = dependencies.exists ?? existsSync;
+  const npmCommand = dependencies.npmCommand ?? "npm";
+  const nodeCommand = dependencies.nodeCommand ?? process.execPath;
+  try {
+    const before = readPackageMetadata(dependencies.metaUrl ?? import.meta.url);
+    const installation = resolveGlobalInstallation(before, env, {
+      spawn,
+      realpath,
+      npmCommand,
+    });
+    runInheritedChild(
+      "npm install --global md2vid@latest",
+      npmCommand,
+      ["install", "--global", `${before.name}@latest`],
+      env,
+      spawn,
+    );
+    if (!exists(installation.cliEntry)) {
+      throw fail(`invalid updated package: missing CLI at ${installation.cliEntry}`);
+    }
+    const after = readPackageMetadata(pathToFileURL(installation.cliEntry).href);
+    runInheritedChild(
+      "md2vid install-skill",
+      nodeCommand,
+      [installation.cliEntry, "install-skill"],
+      env,
+      spawn,
+    );
+    log(`OK upgraded md2vid ${before.version} → ${after.version}`);
+    log("OK refreshed Claude skill");
+    return 0;
+  } catch (error) {
+    const detail = errorMessage(error);
+    reportError(detail.startsWith("FAIL [upgrade]:") ? detail : `FAIL [upgrade]: ${detail}`);
+    return 1;
+  }
 }

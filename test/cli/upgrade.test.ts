@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   resolveGlobalInstallation,
+  run,
   type UpgradeSpawn,
 } from "../../scripts/upgrade.ts";
 
@@ -40,7 +41,7 @@ function createPackage(root: string, version: string): string {
     `${JSON.stringify({ name: "md2vid", version }, null, 2)}\n`,
   );
   writeFileSync(cliEntry, "// fixture CLI\n");
-  return cliEntry;
+  return realpathSync(cliEntry);
 }
 
 interface RecordedCall {
@@ -170,4 +171,112 @@ test("global validation reports realpath failure with recovery", () => {
       return true;
     },
   );
+});
+
+function captureLines() {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  return {
+    stdout,
+    stderr,
+    log: (line: string) => stdout.push(line),
+    error: (line: string) => stderr.push(line),
+  };
+}
+
+test("upgrade help and invalid arguments never start npm", () => {
+  for (const testCase of [
+    { argv: ["--help"], code: 0 },
+    { argv: ["extra"], code: 2 },
+    { argv: ["--force"], code: 2 },
+  ]) {
+    const output = captureLines();
+    let calls = 0;
+    const code = run(testCase.argv, {
+      spawn: () => {
+        calls += 1;
+        return result(0);
+      },
+      log: output.log,
+      error: output.error,
+    });
+    assert.equal(code, testCase.code);
+    assert.equal(calls, 0);
+    assert.match(
+      [...output.stdout, ...output.stderr].join("\n"),
+      /Usage: md2vid upgrade/,
+    );
+  }
+});
+
+test("upgrade installs latest then refreshes skill with the fresh absolute CLI", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-success-"));
+  try {
+    const globalRoot = join(root, "lib", "node_modules");
+    const packageRoot = join(globalRoot, "md2vid");
+    const cliEntry = createPackage(packageRoot, "0.1.11");
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: join(root, "claude") };
+    const calls: RecordedCall[] = [];
+    const spawn: UpgradeSpawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (calls.length === 1) return result(0, `${globalRoot}\n`);
+      if (calls.length === 2) {
+        writeFileSync(
+          join(packageRoot, "package.json"),
+          `${JSON.stringify({ name: "md2vid", version: "0.1.12" }, null, 2)}\n`,
+        );
+      }
+      return result(0);
+    };
+    const output = captureLines();
+    assert.equal(run([], {
+      env,
+      metaUrl: pathToFileURL(cliEntry).href,
+      spawn,
+      log: output.log,
+      error: output.error,
+    }), 0);
+    assert.deepEqual(calls.map(({ command, args }) => ({ command, args })), [
+      { command: "npm", args: ["root", "--global"] },
+      { command: "npm", args: ["install", "--global", "md2vid@latest"] },
+      { command: process.execPath, args: [cliEntry, "install-skill"] },
+    ]);
+    assert.equal(calls[0].options.env, env);
+    assert.equal(calls[0].options.shell, false);
+    assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "inherit"]);
+    for (const call of calls.slice(1)) {
+      assert.equal(call.options.env, env);
+      assert.equal(call.options.shell, false);
+      assert.equal(call.options.stdio, "inherit");
+    }
+    assert.deepEqual(output.stderr, []);
+    assert.deepEqual(output.stdout, [
+      "OK upgraded md2vid 0.1.11 → 0.1.12",
+      "OK refreshed Claude skill",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("already-current upgrade still runs npm install and skill refresh", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-upgrade-current-"));
+  try {
+    const globalRoot = join(root, "lib", "node_modules");
+    const packageRoot = join(globalRoot, "md2vid");
+    const cliEntry = createPackage(packageRoot, "0.1.11");
+    const calls: string[] = [];
+    const spawn: UpgradeSpawn = (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      return calls.length === 1 ? result(0, `${globalRoot}\n`) : result(0);
+    };
+    assert.equal(run([], { metaUrl: pathToFileURL(cliEntry).href, spawn }), 0);
+    assert.deepEqual(calls, [
+      "npm root --global",
+      "npm install --global md2vid@latest",
+      `${process.execPath} ${cliEntry} install-skill`,
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
