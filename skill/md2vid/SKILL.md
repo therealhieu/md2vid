@@ -108,6 +108,8 @@ npm install -g md2vid
 md2vid install-skill
 ```
 
+For normal updates of an existing global installation, run `md2vid upgrade`. The command updates the npm package and refreshes this copied skill. Use `md2vid install-skill` directly only for skill repair or recovery after a partial upgrade failure.
+
 Do not substitute `npx` automatically: registry resolution may download a different package version. A human may use `npx --yes=false md2vid` for manual project-local CLI commands without approving an install, but the `/md2vid` skill requires the global executable in v0.1.
 
 | Command | Role |
@@ -118,7 +120,8 @@ Do not substitute `npx` automatically: registry resolution may download a differ
 | `md2vid regroup <dir> [--max-chars 54]` | Readable caption lines |
 | `md2vid verify <dir>` | Neutral caption invariants + framework-specific verify |
 | `md2vid hyperframes <command> [args]` | Run the package-owned HyperFrames CLI (pinned to `0.7.26`) |
-| `md2vid install-skill` | Copy this skill into `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/md2vid` (re-run after `npm update`) |
+| `md2vid install-skill` | Repair or refresh this skill in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/md2vid` without updating the CLI package |
+| `md2vid upgrade` | Update the global npm CLI to `md2vid@latest` and refresh the copied skill |
 
 Adapters: `frameworks/hyperframes/`, `frameworks/remotion/` (`{ name, scaffoldSpec, writeScaffoldRuntime, ensureRuntime, emit, verify }`).
 
