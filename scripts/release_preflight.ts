@@ -519,9 +519,10 @@ export function run(
     if (event !== "push" && event !== "recovery") throw new Error("event must be push or recovery");
     validateRepository(repository);
     const parsed = parseReleaseTag(tag);
-    const tagType = requireCommand(runner("git", ["cat-file", "-t", tag]), "git annotated tag check").stdout.trim();
+    const tagRef = `refs/tags/${tag}`;
+    const tagType = requireCommand(runner("git", ["cat-file", "-t", tagRef]), "git annotated tag check").stdout.trim();
     if (tagType !== "tag") throw new Error("release tag must be an annotated tag");
-    const commit = requireCommand(runner("git", ["rev-parse", `${tag}^{commit}`]), "git tag dereference").stdout.trim();
+    const commit = requireCommand(runner("git", ["rev-parse", `${tagRef}^{commit}`]), "git tag dereference").stdout.trim();
     if (!commit) throw new Error("git tag dereference returned no commit");
     requireCommand(runner("git", ["merge-base", "--is-ancestor", commit, "origin/main"]), "origin/main ancestry check");
     const metadata = readReleaseMetadataAtCommit(commit, runner);

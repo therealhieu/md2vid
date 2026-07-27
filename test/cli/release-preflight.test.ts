@@ -399,8 +399,8 @@ function githubReleaseResponses(
 
 function baseGitResponses(): Record<string, CommandResult> {
   return {
-    "git cat-file -t v1.2.3": result("tag\n"),
-    "git rev-parse v1.2.3^{commit}": result("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
+    "git cat-file -t refs/tags/v1.2.3": result("tag\n"),
+    "git rev-parse refs/tags/v1.2.3^{commit}": result("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"),
     "git merge-base --is-ancestor aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa origin/main": result(),
     "git show aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:package.json": result(JSON.stringify(validPackageJson)),
     "git show aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:package-lock.json": result(JSON.stringify(validLockJson)),
@@ -481,8 +481,8 @@ test("preflight validates the tag commit and invokes exact first-publication com
     artifact_run_id: "",
   });
   assert.deepEqual(calls, [
-    ["git", "cat-file", "-t", "v1.2.3"],
-    ["git", "rev-parse", "v1.2.3^{commit}"],
+    ["git", "cat-file", "-t", "refs/tags/v1.2.3"],
+    ["git", "rev-parse", "refs/tags/v1.2.3^{commit}"],
     ["git", "merge-base", "--is-ancestor", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "origin/main"],
     ["git", "show", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:package.json"],
     ["git", "show", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:package-lock.json"],
@@ -506,13 +506,13 @@ test("preflight validates the tag commit and invokes exact first-publication com
 });
 
 test("preflight rejects lightweight tags before registry decisions", () => {
-  const responses = { "git cat-file -t v1.2.3": result("commit\n") };
+  const responses = { "git cat-file -t refs/tags/v1.2.3": result("commit\n") };
   const { runner, calls } = fixtureRunner(responses);
   assert.throws(
     () => run(["preflight", "--tag", "v1.2.3", "--repository", "therealhieu/md2vid", "--event", "push"], runEnv(), { runner }),
     /annotated tag/,
   );
-  assert.deepEqual(calls, [["git", "cat-file", "-t", "v1.2.3"]]);
+  assert.deepEqual(calls, [["git", "cat-file", "-t", "refs/tags/v1.2.3"]]);
 });
 
 test("preflight rejects commits outside origin/main before registry decisions", () => {
@@ -860,8 +860,8 @@ test("preflight validates metadata from the tag commit even when current checkou
     packages: { "": { name: "md2vid", version: "1.5.0" } },
   };
   const responses = {
-    "git cat-file -t v1.5.0": result("tag\n"),
-    "git rev-parse v1.5.0^{commit}": result("cccccccccccccccccccccccccccccccccccccccc\n"),
+    "git cat-file -t refs/tags/v1.5.0": result("tag\n"),
+    "git rev-parse refs/tags/v1.5.0^{commit}": result("cccccccccccccccccccccccccccccccccccccccc\n"),
     "git merge-base --is-ancestor cccccccccccccccccccccccccccccccccccccccc origin/main": result(),
     "git show cccccccccccccccccccccccccccccccccccccccc:package.json": result(JSON.stringify(packageAtTag)),
     "git show cccccccccccccccccccccccccccccccccccccccc:package-lock.json": result(JSON.stringify(lockAtTag)),
