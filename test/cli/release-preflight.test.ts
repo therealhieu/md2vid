@@ -765,14 +765,27 @@ test("release-check returns only verified absent or matching GitHub states", () 
 
 test("release lookup verifies repository access and accepts only canonical endpoint 404", () => {
   const repositoryResponse = result(JSON.stringify({ full_name: "therealhieu/md2vid" }));
-  const absent = fixtureRunner({
-    "gh api repos/therealhieu/md2vid": repositoryResponse,
-    "gh api repos/therealhieu/md2vid/releases/tags/v1.2.3": result("", "gh: Not Found (HTTP 404)", 1),
-  });
-  assert.deepEqual(
-    run(["release-check", "--tag", "v1.2.3", "--repository", "therealhieu/md2vid", "--commit", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], runEnv(), { runner: absent.runner }),
-    { github_release_state: "absent" },
-  );
+  for (const response of [
+    result("", "gh: Not Found (HTTP 404)", 1),
+    result(
+      JSON.stringify({
+        message: "Not Found",
+        documentation_url: "https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name",
+        status: "404",
+      }),
+      "gh: Not Found (HTTP 404)",
+      1,
+    ),
+  ]) {
+    const absent = fixtureRunner({
+      "gh api repos/therealhieu/md2vid": repositoryResponse,
+      "gh api repos/therealhieu/md2vid/releases/tags/v1.2.3": response,
+    });
+    assert.deepEqual(
+      run(["release-check", "--tag", "v1.2.3", "--repository", "therealhieu/md2vid", "--commit", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], runEnv(), { runner: absent.runner }),
+      { github_release_state: "absent" },
+    );
+  }
 
   const inaccessible = fixtureRunner({
     "gh api repos/missing/repository": result("", "gh: Not Found (HTTP 404)", 1),

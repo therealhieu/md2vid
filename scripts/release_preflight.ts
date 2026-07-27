@@ -373,6 +373,24 @@ function verifyRepositoryAccess(repository: string, env: NodeJS.ProcessEnv, runn
   }
 }
 
+function isCanonicalGitHubReleaseNotFound(result: CommandResult): boolean {
+  if (result.status === null || result.stderr.trim() !== "gh: Not Found (HTTP 404)") return false;
+  const body = result.stdout.trim();
+  if (!body) return true;
+  try {
+    const value = JSON.parse(body) as Record<string, unknown>;
+    return value !== null
+      && typeof value === "object"
+      && !Array.isArray(value)
+      && Object.keys(value).sort().join(",") === "documentation_url,message,status"
+      && value.message === "Not Found"
+      && value.documentation_url === "https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name"
+      && value.status === "404";
+  } catch {
+    return false;
+  }
+}
+
 function lookupGitHubRelease(
   tag: string,
   repository: string,
@@ -384,7 +402,7 @@ function lookupGitHubRelease(
   const result = runner("gh", ["api", githubApiPath(repository, `/releases/tags/${tag}`)]);
   if (result.status !== 0) {
     const diagnostic = `${result.stderr}\n${result.stdout}`.trim();
-    if (result.status !== null && diagnostic === "gh: Not Found (HTTP 404)") return "absent";
+    if (isCanonicalGitHubReleaseNotFound(result)) return "absent";
     throw new Error(`GitHub release lookup failed: ${diagnostic}`);
   }
   const release = parseJson(result.stdout, "GitHub release lookup") as {
