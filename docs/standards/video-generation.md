@@ -112,7 +112,7 @@ Captions are a designed layer, not raw transcript output. The default word-level
 The default subtitle look is a **plain bottom subtitle**, not a lifted card. The canonical skin lives at `.hyperframes/caption-skin.html` in each generated HyperFrames project (see `/md2vid` Step 8).
 
 - **No card.** Transparent background — no fill, no border, no shadow, no radius.
-- **Karaoke highlight, retained.** Three word states track the voice: upcoming words sit in faint ink (`--cap-ink` @40%), the word being spoken reads in full ink under a 2px coral underline (`--cap-accent`), and spoken words settle to full ink with the underline cleared. The active word also gets a subtle scale pop. A faint cream halo (`text-shadow`) keeps the text legible over frame content.
+- **Karaoke highlight, retained.** Three word states track the voice: upcoming words use a readable ink/canvas mix (`--cap-ink` @61%, meeting the 4.5:1 default contrast gate across the supported parchment grounds), the word being spoken reads in full ink under a 2px coral underline (`--cap-accent`), and spoken words settle to full ink with the underline cleared. The active word also gets a subtle scale pop. A faint cream halo (`text-shadow`) keeps the text legible over frame content.
 - **Smaller and bottom-anchored.** `clamp(28px, 3vw, 40px)`, band pinned to the bottom of the canvas (`.caption-stage { bottom: 0 }`), not a mid-lower third.
 - **Reserve the caption band.** The subtitle occupies a reserved zone: the bottom ~14% of the canvas (~150px @1080). Content frames must keep every load-bearing focal, card, and diagram above it — no visual ever sits under a subtitle line. Enforced via `--frame-safe-bottom` (see `design/frame-content.md`).
 
@@ -134,6 +134,21 @@ At any moment, the **visual focal, the narration, and the caption carry the same
 - Preserve the theme's warm editorial direction: parchment backgrounds, warm neutrals, terracotta accents, serif-led hierarchy, rounded cards, ring shadows, and organic conceptual visuals.
 - Do not use cool blue-gray palettes, generic futuristic AI gradients, sharp tech-dashboard styling, or saturated colors outside the theme.
 - If a HyperFrames preset is needed, pick or adapt the preset that best matches `design/frame.md`; do not choose a conflicting visual style just because it is available.
+
+HyperFrames projects declare the static theme gate in `output.config.json`:
+
+```json
+{
+  "visualContract": {
+    "version": 1,
+    "projectTheme": "light",
+    "allowMixedThemes": false,
+    "allowLegacyThemeInference": false
+  }
+}
+```
+
+Every authored frame must declare `data-frame-theme="light"` or `"dark"`. Missing metadata fails by default. `allowLegacyThemeInference: true` is an explicit migration-only compatibility setting that downgrades missing declarations to warnings; an absent or malformed `visualContract` does not enable legacy inference.
 
 ## HyperFrames project structure
 

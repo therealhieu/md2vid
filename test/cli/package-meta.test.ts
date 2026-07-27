@@ -1,10 +1,11 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -21,17 +22,29 @@ const gitignore = readFileSync(join(REPO_ROOT, ".gitignore"), "utf8");
 const publicSnapshot = JSON.parse(
   readFileSync(join(REPO_ROOT, "public-snapshot.json"), "utf8"),
 ) as { paths: Array<{ path: string }> };
-const finalGateChecklist = readFileSync(
-  join(
-    REPO_ROOT,
-    "docs",
-    "superpowers",
-    "active",
-    "2026-07-24-md-to-video-e2e",
-    "2026-07-24-md-to-video-e2e-final-gate-checklist.md",
-  ),
-  "utf8",
+const finalGateChecklistPath = join(
+  REPO_ROOT,
+  "docs",
+  "superpowers",
+  "active",
+  "2026-07-24-md-to-video-e2e",
+  "2026-07-24-md-to-video-e2e-final-gate-checklist.md",
 );
+const finalGateChecklist = existsSync(finalGateChecklistPath)
+  ? readFileSync(finalGateChecklistPath, "utf8")
+  : undefined;
+const isIntentionalPublicSnapshot = finalGateChecklist === undefined
+  && isAuthenticPublicSnapshotCheckout(REPO_ROOT);
+
+function sourceFinalGateChecklist(): string | undefined {
+  if (finalGateChecklist !== undefined) return finalGateChecklist;
+  assert.equal(
+    isIntentionalPublicSnapshot,
+    true,
+    `source checkout is missing required final-gate checklist: ${finalGateChecklistPath}`,
+  );
+  return undefined;
+}
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -174,18 +187,22 @@ test("release runbook binds recovery to the publication-capable workflow contrac
 });
 
 test("final gate matrix begins with the pinned npm version preflight", () => {
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
   assert.match(
-    finalGateChecklist,
+    checklist,
     /corepack npm --version\ncorepack npm run typecheck\ncorepack npm run typecheck:remotion\ncorepack npm test\ncorepack npm run check:skill-references\ncorepack npm run public:snapshot:check\ncorepack npm run release:check\ngit diff --check main\.\.\.HEAD\ngit diff --check\n/,
   );
-  assert.match(finalGateChecklist, /npm version:\s*11\.15\.0/);
-  assert.match(finalGateChecklist, /`corepack npm --version`[^\n]*exactly `11\.15\.0`/i);
+  assert.match(checklist, /npm version:\s*11\.15\.0/);
+  assert.match(checklist, /`corepack npm --version`[^\n]*exactly `11\.15\.0`/i);
 });
 
 test("final gate preview records DNS-derived local-time and runtime uniqueness evidence", () => {
-  const freshDnsGate = finalGateChecklist.slice(
-    finalGateChecklist.indexOf("## 6. Create a fresh DNS Markdown-to-video project"),
-    finalGateChecklist.indexOf("## 10. Render the final MP4"),
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
+  const freshDnsGate = checklist.slice(
+    checklist.indexOf("## 6. Create a fresh DNS Markdown-to-video project"),
+    checklist.indexOf("## 10. Render the final MP4"),
   );
   for (const pattern of [
     /local = clamp\(global - hostStart, 0, frameDuration\)/,
@@ -207,7 +224,40 @@ test("final gate preview records DNS-derived local-time and runtime uniqueness e
   );
 });
 
+test("final gate requires machine-readable browser visual-integrity evidence", () => {
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
+  const previewGate = checklist.slice(
+    checklist.indexOf("## 9. Preview and verify composed caption synchronization"),
+    checklist.indexOf("## 10. Render the final MP4"),
+  );
+
+  for (const pattern of [
+    /caption-contrast\.json/,
+    /text-occlusion\.json/,
+    /frame-theme\.json/,
+    /test\/visual\/composed-visual-integrity\.mjs/,
+    /--url "\$PREVIEW_URL"/,
+    /--project "\$PROJECT_ROOT"/,
+    /--evidence "\$BROWSER_EVIDENCE_DIR"/,
+    /--browser-path "\$CHROME_PATH"/,
+    /elementsFromPoint\(\)/,
+    /active and spoken captions[^\n]*normal text[^\n]*4\.5:1/i,
+    /large text[^\n]*3\.0:1[^\n]*computed size and weight/i,
+    /opaque foreign element[^\n]*victim[^\n]*occluder/i,
+    /declared `data-frame-theme`[^\n]*computed full-canvas ground/i,
+  ]) {
+    assert.match(previewGate, pattern);
+  }
+  assert.match(
+    previewGate,
+    /caption contrast, text occlusion, or frame-theme assertion[^\n]*→ FAIL/i,
+  );
+});
+
 test("final gate records complete artifact identity and evidence integrity", () => {
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
   for (const pattern of [
     /Validation tree SHA:/,
     /Artifact package name: md2vid/,
@@ -227,14 +277,16 @@ test("final gate records complete artifact identity and evidence integrity", () 
     /evidence confinement result:/i,
     /evidence paths are ignored by Git/i,
   ]) {
-    assert.match(finalGateChecklist, pattern);
+    assert.match(checklist, pattern);
   }
 });
 
 test("final gate protects the complete ordered repository matrix and result fields", () => {
-  const matrixSection = finalGateChecklist.slice(
-    finalGateChecklist.indexOf("## 2. Run the exact repository gate matrix"),
-    finalGateChecklist.indexOf("## 3. Create a clean temporary validation commit"),
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
+  const matrixSection = checklist.slice(
+    checklist.indexOf("## 2. Run the exact repository gate matrix"),
+    checklist.indexOf("## 3. Create a clean temporary validation commit"),
   );
   const commandBlock = matrixSection.match(/```bash\n([\s\S]*?)```/)?.[1]
     .trim()
@@ -276,16 +328,18 @@ test("completion evidence stays ignored and excluded from public and package pay
 });
 
 test("final gate checks committed and working-tree whitespace", () => {
+  const checklist = sourceFinalGateChecklist();
+  if (checklist === undefined) return;
   assert.match(
-    finalGateChecklist,
+    checklist,
     /corepack npm run release:check\ngit diff --check main\.\.\.HEAD\ngit diff --check\n/,
   );
   assert.match(
-    finalGateChecklist,
+    checklist,
     /`git diff --check main\.\.\.HEAD` exits `0`\./,
   );
   assert.match(
-    finalGateChecklist,
+    checklist,
     /`git diff --check` exits `0`\./,
   );
 });

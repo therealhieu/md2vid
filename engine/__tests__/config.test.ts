@@ -23,6 +23,84 @@ test("accepts optional defaults and null-prototype config records", () => {
   assert.deepEqual(validateVideoConfig({}, "video.config.json"), {});
 });
 
+test("accepts the exact caption token vocabulary and versioned visual contract", () => {
+  const config = {
+    captions: {
+      tokens: {
+        "--cap-ink": "#141413",
+        "--cap-canvas": "#FAF9F5",
+        "--cap-accent": "#CC785C",
+        "--cap-accent-2": "#abc",
+        "--cap-band-top": "14%",
+        "--cap-band-height": "200px",
+        "--font-display": '"EB Garamond", Georgia, serif',
+        "--font-body": "Inter, sans-serif",
+        "--ink": "#141413",
+        "--cream": "#FAF9F5",
+        "--tile": "#EFE9DE",
+        "--tile-strong": "#ECE3D4",
+        "--coral": "#CC785C",
+      },
+    },
+    visualContract: {
+      version: 1,
+      projectTheme: "light",
+      allowMixedThemes: false,
+      allowLegacyThemeInference: false,
+    },
+  };
+
+  assert.equal(validateVideoConfig(config, "output.config.json"), config);
+});
+
+test("rejects unknown caption tokens with a stable diagnostic", () => {
+  assert.throws(
+    () => validateVideoConfig(
+      { captions: { tokens: { "--cap-unknown": "red" } } },
+      "video.config.json",
+    ),
+    /--cap-unknown.*caption_token_unknown/,
+  );
+});
+
+test("rejects malformed values by caption token category", () => {
+  for (const [name, value, expected] of [
+    ["--cap-ink", "not-a-color", /--cap-ink.*caption_token_invalid_color/],
+    ["--cream", "rgb(250, 249, 245)", /--cream.*caption_token_invalid_color/],
+    ["--coral", "#12", /--coral.*caption_token_invalid_color/],
+    ["--cap-band-top", "auto", /captions\.tokens\.--cap-band-top.*safe CSS length/],
+    ["--cap-band-height", "calc(100% - 20px)", /captions\.tokens\.--cap-band-height.*safe CSS length/],
+    ["--cap-band-height", "200px; color: red", /captions\.tokens\.--cap-band-height.*safe CSS length/],
+    ["--font-display", "Inter; color: red", /captions\.tokens\.--font-display.*safe font family/],
+    ["--font-body", "Inter\nbody", /captions\.tokens\.--font-body.*safe font family/],
+    ["--font-body", "</style>", /captions\.tokens\.--font-body.*safe font family/],
+  ] as const) {
+    assert.throws(
+      () => validateVideoConfig({ captions: { tokens: { [name]: value } } }, "video.config.json"),
+      expected,
+      `${name}=${JSON.stringify(value)}`,
+    );
+  }
+});
+
+test("rejects malformed versioned visual-contract configuration", () => {
+  for (const [visualContract, expected] of [
+    [null, /visualContract/],
+    [{}, /visualContract\.version/],
+    [{ version: 2, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false }, /visualContract\.version/],
+    [{ version: 1, projectTheme: "sepia", allowMixedThemes: false, allowLegacyThemeInference: false }, /visualContract\.projectTheme/],
+    [{ version: 1, projectTheme: "light", allowMixedThemes: "no", allowLegacyThemeInference: false }, /visualContract\.allowMixedThemes/],
+    [{ version: 1, projectTheme: "light", allowMixedThemes: false }, /visualContract\.allowLegacyThemeInference/],
+    [{ version: 1, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: "yes" }, /visualContract\.allowLegacyThemeInference/],
+  ] as const) {
+    assert.throws(
+      () => validateVideoConfig({ visualContract }, "output.config.json"),
+      expected,
+      JSON.stringify(visualContract),
+    );
+  }
+});
+
 test("rejects unsafe slug grammar without echoing the unsafe value", () => {
   const unsafeSlugs = [
     "../outside",

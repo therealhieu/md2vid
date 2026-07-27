@@ -21,6 +21,28 @@ function invalid(path: string, field: string, expectation: string): never {
 }
 
 const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const LITERAL_HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const SAFE_CSS_LENGTH = /^(?:0|(?:\d+(?:\.\d+)?|\.\d+)(?:px|%|em|rem|vh|vw|vmin|vmax|cqw|cqh|cqmin|cqmax|ch|ex|lh|rlh|cm|mm|q|in|pt|pc))$/i;
+const UNSAFE_FONT_FAMILY = /[;{}<>\x00-\x1f\x7f]|\/\*|\*\//;
+
+const CAPTION_COLOR_TOKENS = new Set([
+  "--cap-ink",
+  "--cap-canvas",
+  "--cap-accent",
+  "--cap-accent-2",
+  "--ink",
+  "--cream",
+  "--tile",
+  "--tile-strong",
+  "--coral",
+]);
+const CAPTION_LENGTH_TOKENS = new Set(["--cap-band-top", "--cap-band-height"]);
+const CAPTION_FONT_TOKENS = new Set(["--font-display", "--font-body"]);
+const CAPTION_TOKENS = new Set([
+  ...CAPTION_COLOR_TOKENS,
+  ...CAPTION_LENGTH_TOKENS,
+  ...CAPTION_FONT_TOKENS,
+]);
 
 export function validateSlugMappings(
   value: unknown,
@@ -129,7 +151,47 @@ export function validateVideoConfig(value: unknown, path: string): VideoConfig {
   const tokens = captions ? optionalRecord(captions, "tokens", path) : undefined;
   if (tokens) {
     for (const [name, token] of Object.entries(tokens)) {
+      if (!CAPTION_TOKENS.has(name)) {
+        invalid(
+          path,
+          `captions.tokens.${name}`,
+          `caption_token_unknown: must be one of ${JSON.stringify([...CAPTION_TOKENS])}`,
+        );
+      }
       if (typeof token !== "string") invalid(path, `captions.tokens.${name}`, "must be a string");
+      const trimmed = token.trim();
+      if (CAPTION_COLOR_TOKENS.has(name) && !LITERAL_HEX_COLOR.test(trimmed)) {
+        invalid(
+          path,
+          `captions.tokens.${name}`,
+          "caption_token_invalid_color: must be a literal #RGB, #RGBA, #RRGGBB, or #RRGGBBAA color",
+        );
+      }
+      if (CAPTION_LENGTH_TOKENS.has(name) && !SAFE_CSS_LENGTH.test(trimmed)) {
+        invalid(path, `captions.tokens.${name}`, "must be a safe CSS length");
+      }
+      if (
+        CAPTION_FONT_TOKENS.has(name) &&
+        (trimmed.length === 0 || UNSAFE_FONT_FAMILY.test(token))
+      ) {
+        invalid(path, `captions.tokens.${name}`, "must be a safe font family string");
+      }
+    }
+  }
+
+  const visualContract = optionalRecord(value, "visualContract", path);
+  if (visualContract) {
+    if (visualContract.version !== 1) {
+      invalid(path, "visualContract.version", "must equal the supported version 1");
+    }
+    if (visualContract.projectTheme !== "light" && visualContract.projectTheme !== "dark") {
+      invalid(path, "visualContract.projectTheme", 'must be either "light" or "dark"');
+    }
+    if (typeof visualContract.allowMixedThemes !== "boolean") {
+      invalid(path, "visualContract.allowMixedThemes", "must be a boolean");
+    }
+    if (typeof visualContract.allowLegacyThemeInference !== "boolean") {
+      invalid(path, "visualContract.allowLegacyThemeInference", "must be a boolean");
     }
   }
 

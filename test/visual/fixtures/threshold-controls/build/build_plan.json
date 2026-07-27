@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "canvas": { "width": 960, "height": 540 },
+  "totalDuration": 3,
+  "frames": [
+    { "frameNum": 1, "slug": "01-thresholds", "start": 0, "frameDur": 3 }
+  ]
+}

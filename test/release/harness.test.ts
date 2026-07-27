@@ -131,6 +131,10 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.match(source, /frame2HostStart\s*\+\s*2\.9/);
   assert.match(source, /caption-word is-active/);
   assert.match(source, /caption-word is-spoken/);
+  assert.match(source, /caption-host/);
+  assert.match(source, /captionHostStyle\.pointerEvents/);
+  assert.match(source, /elementsFromPoint/);
+  assert.match(source, /visual scene beneath caption host/);
   assert.match(source, /performance\.now/);
   assert.match(source, /250/);
   assert.match(source, /--fps",\s*"1"/);
@@ -431,6 +435,17 @@ test("extracts canonical local GSAP URLs from generated and authored HTML", () =
     <script src="assets/gsap/gsap.min.js"></script>
     <script>gsap.timeline();</script>
   `), ["assets/gsap/gsap.min.js"]);
+});
+
+test("HyperFrames smoke fixture composition roots declare the light frame theme", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
+
+  for (const frameSlug of ["01-smoke", "02-smoke"] as const) {
+    const frame = readFileSync(join(fixtureRoot, `${frameSlug}.html`), "utf8");
+    const root = frame.match(new RegExp(`<div\\b[^>]*data-composition-id="${frameSlug}"[^>]*>`))?.[0];
+    assert.ok(root, `${frameSlug} composition root must exist`);
+    assert.match(root, /\sdata-frame-theme="light"(?:\s|>)/, `${frameSlug} composition root must declare the light frame theme`);
+  }
 });
 
 test("the two-frame meaningful-ID smoke fixture transports authored style and controllers as top-level siblings", () => {

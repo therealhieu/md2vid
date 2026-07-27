@@ -81,7 +81,16 @@ function assertTemplates(): void {
 export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
   assertTemplates();
   return {
-    outputConfig: { framework: "hyperframes", gsapSrc: DEFAULT_GSAP_SRC },
+    outputConfig: {
+      framework: "hyperframes",
+      gsapSrc: DEFAULT_GSAP_SRC,
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
+    },
     frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
       dev: "md2vid hyperframes preview --no-open",

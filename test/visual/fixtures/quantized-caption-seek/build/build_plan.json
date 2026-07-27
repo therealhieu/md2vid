@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "canvas": { "width": 960, "height": 540 },
+  "totalDuration": 1,
+  "frames": [
+    { "frameNum": 1, "slug": "01-quantized", "start": 0, "frameDur": 1 }
+  ]
+}

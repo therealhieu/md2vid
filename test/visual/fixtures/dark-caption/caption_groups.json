@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "id": "caption-group-dark",
+      "frame": 1,
+      "start": 0.1,
+      "end": 1.6,
+      "words": [
+        { "id": "word-dark-1", "text": "Invisible", "start": 0.1, "end": 1.1 }
+      ]
+    }
+  ]
+}

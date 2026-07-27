@@ -323,6 +323,23 @@ Start the isolated project preview in the background and record its PID and URL.
 - [ ] After each nonmonotonic seek, confirm the main/player and captions timelines report the same logical time.
 - [ ] Confirm the visible caption group matches the expected neutral caption group at each sampled time.
 - [ ] Confirm active-word styling matches the expected word.
+- [ ] Run the durable composed-browser visual-integrity helper at caption and frame samples from the validation checkout/repository root:
+
+```bash
+node test/visual/composed-visual-integrity.mjs \
+  --url "$PREVIEW_URL" \
+  --project "$PROJECT_ROOT" \
+  --evidence "$BROWSER_EVIDENCE_DIR" \
+  --browser-path "$CHROME_PATH"
+```
+
+- [ ] Save active/spoken caption foreground, sampled background, ratio, threshold, word state, frame slug, and global time to `caption-contrast.json`.
+- [ ] Active and spoken captions are normal text by default and require `4.5:1`.
+- [ ] Large text may use `3.0:1` only when computed size and weight independently qualify (`>=24px`, or `>=18.66px` with weight `>=700`); record the qualification basis per sample.
+- [ ] Include browser controls proving a ~`3.x:1` large-text sample passes while a normal-text sample at the same ratio fails.
+- [ ] Inspect text paint stacks with `document.elementsFromPoint()` and continue past transparent or non-painting layers.
+- [ ] Save each opaque foreign element found above load-bearing text, including victim and occluder selectors plus sampled rectangles, to `text-occlusion.json`; require zero material occlusions.
+- [ ] Compare every frame's declared `data-frame-theme` with its computed full-canvas ground at midpoint and transition samples; save results to `frame-theme.json`.
 - [ ] Review each frame midpoint.
 - [ ] Review transition-boundary snapshots.
 - [ ] Confirm all DNS source sections are represented.
@@ -358,6 +375,9 @@ Standalone/composed parity:
 Late → early → late restoration:
 Seek samples and main/caption times:
 Caption semantic checks:
+Caption contrast evidence: caption-contrast.json
+Text occlusion evidence: text-occlusion.json
+Frame-theme evidence: frame-theme.json
 Visual review result:
 Render approval:
 ```
@@ -367,6 +387,7 @@ Failure rule:
 ```text
 DNS-derived local-time conversion, standalone/composed mismatch, nonmonotonic restoration failure, controller/timeline count mismatch, `__hf2` mount, duplicate ID, or `const tl` redeclaration collision
   → FAIL
+caption contrast, text occlusion, or frame-theme assertion failure → FAIL
   → save machine-readable browser state and screenshots
   → do not render for release approval
 ```

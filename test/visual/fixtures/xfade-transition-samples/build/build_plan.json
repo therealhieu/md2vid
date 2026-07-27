@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "canvas": { "width": 960, "height": 540 },
+  "timing": { "xfade": 0.5 },
+  "totalDuration": 5,
+  "frames": [
+    { "frameNum": 1, "slug": "01-first", "start": 0, "frameDur": 2 },
+    { "frameNum": 2, "slug": "02-middle", "start": 1.5, "frameDur": 2 },
+    { "frameNum": 3, "slug": "03-last", "start": 3, "frameDur": 2 }
+  ]
+}

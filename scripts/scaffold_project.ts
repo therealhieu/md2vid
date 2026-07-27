@@ -121,7 +121,7 @@ export function validateCommonScaffold(stageDir: string, slug: string): void {
   }
 
   const neutral = JSON.parse(readFileSync(join(stageDir, "video.config.json"), "utf8")) as Record<string, unknown>;
-  for (const key of ["framework", "gsapSrc"]) {
+  for (const key of ["framework", "gsapSrc", "visualContract"]) {
     if (Object.hasOwn(neutral, key)) throw new Error(`video.config.json contains framework-local key "${key}"`);
   }
 

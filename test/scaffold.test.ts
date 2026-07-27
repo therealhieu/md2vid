@@ -44,6 +44,12 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     assert.deepEqual(local, {
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
     });
 
     const claude = readFileSync(join(dir, "CLAUDE.md"), "utf8");

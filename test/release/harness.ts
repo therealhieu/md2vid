@@ -1442,6 +1442,10 @@ async function assertHyperframesBrowserExecution(
               throw new Error("mounted 02-smoke frame is missing #s02-title");
             }
             const pageGetComputedStyle = (globalThis as any).getComputedStyle;
+            const captionHostStyle = pageGetComputedStyle(captionHost);
+            if (captionHostStyle.pointerEvents !== "none") {
+              throw new Error(`caption host must not intercept hit testing: ${captionHostStyle.pointerEvents}`);
+            }
             const rootStyle = pageGetComputedStyle(mountedFrameRoot);
             const titleStyle = pageGetComputedStyle(smokeTitle);
             const hostRect = frame1Host.getBoundingClientRect();
@@ -1536,6 +1540,20 @@ async function assertHyperframesBrowserExecution(
               throw new Error("composed frame state probe is missing visual elements");
             }
             player.pause();
+            player.seek(expectations[0]?.time ?? 0);
+            const hitStack = pageDocument.elementsFromPoint(viewportWidth / 2, viewportHeight / 2);
+            if (hitStack.includes(captionHost)) {
+              throw new Error("caption host must be absent from elementFromPoint hits");
+            }
+            const visualSceneExposed = hitStack.some((element: any) =>
+              element === frame1Host ||
+              element === frame2Host ||
+              frame1Host.contains(element) ||
+              frame2Host.contains(element)
+            );
+            if (!visualSceneExposed) {
+              throw new Error("visual scene beneath caption host must remain exposed to hit testing");
+            }
 
             const samples = expectations.map(({ time, visibleGroups: expectedVisibleGroups, classes }, sampleIndex) => {
               player.seek(time);
@@ -1805,6 +1823,14 @@ export async function runFrameworkSmoke(
       const sources = parseGsapUrls(readFileSync(document, "utf8"));
       assert.deepEqual(sources, [gsapSrc], `local GSAP source in ${relative(project, document)}`);
     }
+    const generatedIndex = readFileSync(join(project, "index.html"), "utf8");
+    assert.equal(
+      generatedIndex.match(/\.caption-host\s*\{\s*pointer-events:\s*none;\s*\}/g)?.length,
+      1,
+      "packed build must emit the caption host pointer rule exactly once",
+    );
+    const captionHostTag = generatedIndex.match(/<div(?=[^>]*\bid="el-captions")[^>]*>/)?.[0] ?? "";
+    assert.match(captionHostTag, /class="scene caption-host"/);
 
     for (const voiceName of ["intro.wav", "followup.wav"]) {
       const staged = join(project, "assets", "voice", voiceName);

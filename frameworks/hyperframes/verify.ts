@@ -15,7 +15,8 @@
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CaptionArtifactContext, Finding, VerifyOptions } from "../../engine/types.ts";
+import { validateVideoConfig } from "../../engine/config.ts";
+import type { CaptionArtifactContext, Finding, VerifyOptions, VideoConfig } from "../../engine/types.ts";
 import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
 import {
   extractTemplateById,
@@ -23,6 +24,10 @@ import {
   scriptSources,
 } from "./html.ts";
 import { DEFAULT_GSAP_SRC, gsapSrcForDocument, validateGsapSrc } from "./scaffold.ts";
+import {
+  checkAuthoredFrameVisualContract,
+  extractFrameTheme,
+} from "./visual_contract.ts";
 
 const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(FW_HYPERFRAMES, "..", "..");
@@ -48,16 +53,144 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
 
-  requireGsapSource(videoDir, problem);
+  const outputConfig = readOutputConfig(videoDir, problem);
+  requireGsapSource(videoDir, outputConfig, problem);
   requireCaptionRuntimeInsideRoot(videoDir, problem);
   requireIndexMountsFrames(videoDir, problem, warn);
   requireProjectDocImport(videoDir, problem, warn);
   requireBakedGroupsMatchJson(videoDir, problem, sharedDir);
+  requireAuthoredFrameVisualContract(videoDir, sharedDir, outputConfig, problem, warn);
   if (options.voiceSnapshots) {
     findings.push(...verifyEmittedVoiceSnapshots(videoDir, options.voiceSnapshots));
   }
 
   return findings;
+}
+
+interface OutputConfigState {
+  present: boolean;
+  valid: boolean;
+  config?: VideoConfig;
+}
+
+function readOutputConfig(video: string, problem: (msg: string) => void): OutputConfigState {
+  const path = join(video, "output.config.json");
+  if (!isFile(path)) return { present: false, valid: true };
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    problem(`invalid configuration at ${path}: ${(error as Error).message}`);
+    return { present: true, valid: false };
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    try {
+      validateVideoConfig(value, path);
+    } catch (error) {
+      problem((error as Error).message);
+    }
+    return { present: true, valid: false };
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.hasOwn(record, "visualContract")) {
+    try {
+      validateVideoConfig({ visualContract: record.visualContract }, path);
+    } catch (error) {
+      problem((error as Error).message);
+      return { present: true, valid: false };
+    }
+  }
+  return { present: true, valid: true, config: record as VideoConfig };
+}
+
+function optionalConfig(path: string): Record<string, unknown> | undefined {
+  if (!isFile(path)) return undefined;
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function configuredCaptionForeground(
+  video: string,
+  sharedDir: string | undefined,
+  local: VideoConfig | undefined,
+): unknown {
+  const neutral = optionalConfig(join(sharedDir ?? video, "video.config.json")) ?? {};
+  const config = { ...neutral, ...(local ?? {}) };
+  const captions = config.captions;
+  if (captions === null || typeof captions !== "object" || Array.isArray(captions)) return "#141413";
+  const tokens = (captions as Record<string, unknown>).tokens;
+  if (tokens === null || typeof tokens !== "object" || Array.isArray(tokens)) return "#141413";
+  return Object.hasOwn(tokens, "--cap-ink")
+    ? (tokens as Record<string, unknown>)["--cap-ink"]
+    : "#141413";
+}
+
+function configuredVisualContract(outputConfig: OutputConfigState): {
+  projectTheme: "light" | "dark";
+  allowMixedThemes: boolean;
+  allowLegacyThemeInference: boolean;
+} {
+  const contract = outputConfig.config?.visualContract;
+  if (!contract) {
+    return { projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false };
+  }
+  return {
+    projectTheme: contract.projectTheme,
+    allowMixedThemes: contract.allowMixedThemes,
+    allowLegacyThemeInference: contract.allowLegacyThemeInference,
+  };
+}
+
+function requireAuthoredFrameVisualContract(
+  video: string,
+  sharedDir: string | undefined,
+  outputConfig: OutputConfigState,
+  problem: (msg: string) => void,
+  warn: (msg: string) => void,
+): void {
+  if (!outputConfig.valid) return;
+  const frameRoot = join(video, "compositions", "frames");
+  if (!isDir(frameRoot)) return;
+  const captionForeground = configuredCaptionForeground(video, sharedDir, outputConfig.config);
+  const visualContract = configuredVisualContract(outputConfig);
+
+  for (const name of readdirSync(frameRoot).filter((file) => file.endsWith(".html")).sort()) {
+    const html = readFileSync(join(frameRoot, name), "utf8");
+    const extractedFrameSlug = extractFrameTheme(html).frameSlug;
+    const frameSlug = extractedFrameSlug === "unknown" ? name.replace(/\.html$/i, "") : extractedFrameSlug;
+    if (typeof captionForeground !== "string") {
+      problem(
+        `caption_token_invalid_color frame=${frameSlug} token=--cap-ink ` +
+          `value=${JSON.stringify(captionForeground)} reason=expected-literal-hex-color`,
+      );
+      continue;
+    }
+
+    try {
+      const diagnostics = checkAuthoredFrameVisualContract(html, {
+        projectTheme: visualContract.projectTheme,
+        captionForeground,
+        allowMixedThemes: visualContract.allowMixedThemes,
+        allowLegacyThemeInference: visualContract.allowLegacyThemeInference,
+        frameSlug,
+      });
+      for (const diagnostic of diagnostics) {
+        if (diagnostic.severity === "error") problem(diagnostic.message);
+        else warn(diagnostic.message);
+      }
+    } catch (error) {
+      problem(
+        `caption_token_invalid_color frame=${frameSlug} token=--cap-ink ` +
+          `value=${JSON.stringify(captionForeground)} reason=${JSON.stringify((error as Error).message)}`,
+      );
+    }
+  }
 }
 
 function sourceTargetsConfiguredFile(
@@ -114,21 +247,15 @@ function requireCaptionRuntimeInsideRoot(video: string, problem: (msg: string) =
   }
 }
 
-function requireGsapSource(video: string, problem: (msg: string) => void): void {
-  const outputConfigPath = join(video, "output.config.json");
-  let configured: unknown;
-  if (isFile(outputConfigPath)) {
-    try {
-      configured = (JSON.parse(readFileSync(outputConfigPath, "utf8")) as { gsapSrc?: unknown }).gsapSrc;
-    } catch (error) {
-      problem(`invalid output.config.json: ${(error as Error).message}`);
-      return;
-    }
-  }
-
+function requireGsapSource(
+  video: string,
+  outputConfig: OutputConfigState,
+  problem: (msg: string) => void,
+): void {
+  if (!outputConfig.valid) return;
   let gsapSrc: string;
   try {
-    gsapSrc = validateGsapSrc(video, configured);
+    gsapSrc = validateGsapSrc(video, outputConfig.config?.gsapSrc);
   } catch (error) {
     problem((error as Error).message);
     return;

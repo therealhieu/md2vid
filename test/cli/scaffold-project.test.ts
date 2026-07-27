@@ -158,15 +158,23 @@ test("validateFrameworkRuntime rejects unsafe or missing local gsapSrc", () => {
 });
 
 test("validateCommonScaffold rejects framework-local keys in neutral config", () => {
-  const stage = mkdtempSync(join(tmpdir(), "common-scaffold-invalid-"));
-  try {
-    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
-    const configPath = join(stage, "video.config.json");
-    const config = JSON.parse(readFileSync(configPath, "utf8"));
-    config.framework = "hyperframes";
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    assert.throws(() => validateCommonScaffold(stage, "demo-video"), /framework-local key "framework"/);
-  } finally {
-    rmSync(stage, { recursive: true, force: true });
+  for (const [key, value] of [
+    ["framework", "hyperframes"],
+    ["visualContract", { version: 1, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false }],
+  ] as const) {
+    const stage = mkdtempSync(join(tmpdir(), "common-scaffold-invalid-"));
+    try {
+      writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+      const configPath = join(stage, "video.config.json");
+      const config = JSON.parse(readFileSync(configPath, "utf8"));
+      config[key] = value;
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+      assert.throws(
+        () => validateCommonScaffold(stage, "demo-video"),
+        new RegExp(`framework-local key "${key}"`),
+      );
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
   }
 });

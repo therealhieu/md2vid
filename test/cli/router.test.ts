@@ -112,7 +112,15 @@ function seedVideo() {
     writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
   }
   copyFileSync(join(FIXTURES, "video.config.json"), join(shared, "video.config.json"));
-  copyFileSync(join(FIXTURES, "output.config.json"), join(output, "output.config.json"));
+  const outputConfigPath = join(output, "output.config.json");
+  const outputConfig = JSON.parse(readFileSync(join(FIXTURES, "output.config.json"), "utf8"));
+  outputConfig.visualContract = {
+    version: 1,
+    projectTheme: "light",
+    allowMixedThemes: false,
+    allowLegacyThemeInference: true,
+  };
+  writeFileSync(outputConfigPath, `${JSON.stringify(outputConfig, null, 2)}\n`);
   for (const slug of [
     "01-cover",
     "02-core-idea",
@@ -428,6 +436,12 @@ test("new forwards --framework into a temp outputs root", () => {
     assert.deepEqual(local, {
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
     });
     assert.equal(existsSync(join(root, "router-demo", "assets", "gsap.min.js")), false);
   } finally {

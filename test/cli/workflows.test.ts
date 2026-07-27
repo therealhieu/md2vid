@@ -95,7 +95,7 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
       writeFileSync(
         join(framesDir, `${slug}.html`),
         `<template data-composition-id="${slug}">
-<div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1">${slug}</div>
+<div data-composition-id="${slug}" data-frame-theme="light" data-width="1920" data-height="1080" data-duration="1">${slug}</div>
 <script src="${DEFAULT_GSAP_SRC}"></script>
 <script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script>
 </template>\n`,

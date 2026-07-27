@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 960px; height: 540px; overflow: hidden; }
+    #root, .scene, #frame-01-dark-caption, .ground { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #root { background: #1b1a18; }
+    #el-01-dark-caption { z-index: 1; }
+    #frame-01-dark-caption { color: #faf9f5; }
+    .ground { background: #1b1a18; z-index: 0; }
+    #dark-title { position: absolute; z-index: 1; left: 120px; top: 120px; margin: 0; font: 700 54px/1.1 Georgia, serif; }
+    #el-captions { z-index: 10; pointer-events: none; }
+    .caption-group { position: absolute; left: 120px; bottom: 72px; }
+    .caption-word { color: #141413; font: 400 20px/1.3 Arial, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main">
+    <div id="el-01-dark-caption" class="scene" data-composition-id="01-dark-caption" data-start="0" data-duration="2">
+      <div id="frame-01-dark-caption" data-hf-inner-root="true" data-composition-id="01-dark-caption" data-frame-theme="dark">
+        <div class="ground"></div>
+        <h1 id="dark-title" data-load-bearing-text>Dark frame</h1>
+      </div>
+    </div>
+    <div id="el-captions" class="scene" data-composition-id="captions">
+      <div class="caption-group">
+        <span id="word-dark-1" class="caption-word" data-start="0.1" data-end="1.1">Invisible</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      let time = 0;
+      const update = (next) => {
+        time = next;
+        const word = document.getElementById('word-dark-1');
+        word.className = 'caption-word';
+        if (time >= 0.1 && time < 1.1) word.classList.add('is-active');
+        else if (time >= 1.1) word.classList.add('is-spoken');
+      };
+      window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+      window.__timelines = { main: {}, captions: {}, '01-dark-caption': {} };
+      update(0);
+    })();
+  </script>
+</body>
+</html>

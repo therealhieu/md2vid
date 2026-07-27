@@ -44,6 +44,12 @@ export interface VideoConfig {
   slugs?: Record<string, string>;
   gsapSrc?: string;
   captions?: { tokens?: Record<string, string> };
+  visualContract?: {
+    version: 1;
+    projectTheme: "light" | "dark";
+    allowMixedThemes: boolean;
+    allowLegacyThemeInference: boolean;
+  };
 }
 
 // ── Verification finding (const union, never a TS enum — erasable-only) ──────

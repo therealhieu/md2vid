@@ -28,7 +28,7 @@ const PINNED_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 
 function authoredFrame(slug: string): string {
   return `<template data-composition-id="${slug}">
-<div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1"></div>
+<div data-composition-id="${slug}" data-frame-theme="light" data-width="1920" data-height="1080" data-duration="1"></div>
 <script src="${PINNED_GSAP}"></script>
 <script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script>
 </template>\n`;

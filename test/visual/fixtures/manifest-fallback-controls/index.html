@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #root, .scene, .frame, .ground { margin: 0; position: absolute; inset: 0; width: 960px; height: 540px; }
+    #root, .ground { background: #faf9f5; }
+    .scene { display: none; }
+    h1 { position: absolute; left: 100px; top: 100px; color: #141413; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="el-01-ambiguous" class="scene" data-composition-id="01-ambiguous__hf1" data-start="0"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Ambiguous</h1></div></div>
+    <div id="el-02-start-mismatch" class="scene" data-composition-id="02-start-mismatch__hf1" data-start="2"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Start mismatch</h1></div></div>
+    <div id="el-03-missing-start" class="scene" data-composition-id="03-missing-start__hf1"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Missing start</h1></div></div>
+    <div id="el-04-wrong-identity" class="scene" data-composition-id="04-wrong-identity__hf1" data-start="6"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Wrong identity</h1></div></div>
+    <div id="el-05-malformed" class="scene" data-composition-id="05-malformed__hf1" data-start="8"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Malformed</h1></div></div>
+    <div id="el-06-duration-mismatch" class="scene" data-composition-id="06-duration-mismatch__hf1" data-start="10"><div class="frame" data-hf-inner-root="true" data-frame-theme="light"><div class="ground"></div><h1>Duration mismatch</h1></div></div>
+  </div>
+  <script>
+    const hosts = [
+      [document.getElementById("el-01-ambiguous"), 0, 1],
+      [document.getElementById("el-02-start-mismatch"), 2, 3],
+      [document.getElementById("el-03-missing-start"), 4, 5],
+      [document.getElementById("el-04-wrong-identity"), 6, 7],
+      [document.getElementById("el-05-malformed"), 8, 9],
+      [document.getElementById("el-06-duration-mismatch"), 10, 11]
+    ];
+    window.__clipManifest = {
+      clips: [
+        { id: "el-01-ambiguous", kind: "composition", compositionId: "01-ambiguous__hf1", start: 0, duration: 1 },
+        { id: "el-01-ambiguous", kind: "composition", compositionId: "01-ambiguous__hf1", start: 0, duration: 1 },
+        { id: "el-02-start-mismatch", kind: "composition", compositionId: "02-start-mismatch__hf1", start: 2.1, duration: 1 },
+        { id: "el-03-missing-start", kind: "composition", compositionId: "03-missing-start__hf1", start: 4, duration: 1 },
+        { id: "el-04-wrong-identity", kind: "composition", compositionId: "wrong__hf1", start: 6, duration: 1 },
+        { id: "el-05-malformed", kind: "composition", compositionId: "05-malformed__hf1", start: 8, duration: "bad" },
+        { id: "el-06-duration-mismatch", kind: "composition", compositionId: "06-duration-mismatch__hf1", start: 10, duration: 1.5 }
+      ]
+    };
+    let time = 0;
+    function update(next) {
+      time = next;
+      for (const [host, start, end] of hosts) host.style.display = time >= start && time <= end ? "block" : "none";
+    }
+    window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+    update(0);
+  </script>
+</body>
+</html>

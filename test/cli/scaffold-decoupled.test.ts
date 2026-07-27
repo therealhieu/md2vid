@@ -232,6 +232,11 @@ test("canonical HyperFrames frame template nests frame styles inside the composi
   const styleEnd = template.indexOf("</style>", styleStart);
 
   assert.ok(rootStart >= 0 && rootEnd > rootStart, "frame composition root must exist");
+  assert.match(
+    template.slice(rootStart, template.indexOf(">", rootStart) + 1),
+    /data-frame-theme="light"/,
+    "versioned scaffold frame template must declare its light theme",
+  );
   assert.ok(styleStart > rootStart, "frame styles must start inside the composition root");
   assert.ok(styleEnd < rootEnd, "frame styles must end inside the composition root");
   assert.doesNotMatch(template.slice(template.indexOf("<template>"), rootStart), /<style\b/i);
@@ -288,6 +293,12 @@ test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts
     outputConfig: {
       framework: "hyperframes",
       gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      visualContract: {
+        version: 1,
+        projectTheme: "light",
+        allowMixedThemes: false,
+        allowLegacyThemeInference: false,
+      },
     },
     frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {

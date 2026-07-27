@@ -1,0 +1,14 @@
+{
+  "groups": [
+    {
+      "id": "caption-group-thresholds",
+      "frame": 1,
+      "start": 0,
+      "end": 2.8,
+      "words": [
+        { "id": "word-large", "text": "Large", "start": 0.2, "end": 1.0 },
+        { "id": "word-normal", "text": "Normal", "start": 1.2, "end": 2.0 }
+      ]
+    }
+  ]
+}

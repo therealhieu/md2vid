@@ -41,6 +41,7 @@ import {
   gsapScriptSrcAttribute,
   validateGsapSrc,
 } from "./scaffold.ts";
+import { contrastRatio, parseCssColor, type CssColor } from "./visual_contract.ts";
 
 const FW_HYPERFRAMES = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(FW_HYPERFRAMES, "..", "..");
@@ -61,6 +62,58 @@ const DEFAULT_CAPTION_TOKENS = {
   "--cap-band-height": "200px",
   "--font-display": '"EB Garamond"',
 };
+
+export const UPCOMING_CAPTION_INK_PERCENT = 61;
+
+function mixSrgb(foreground: CssColor, background: CssColor, foregroundPercent: number): CssColor {
+  const weight = foregroundPercent / 100;
+  return {
+    red: foreground.red * weight + background.red * (1 - weight),
+    green: foreground.green * weight + background.green * (1 - weight),
+    blue: foreground.blue * weight + background.blue * (1 - weight),
+    alpha: 1,
+  };
+}
+
+function colorHex(color: CssColor): string {
+  const channel = (value: number) => Math.round(value).toString(16).padStart(2, "0");
+  return `#${channel(color.red)}${channel(color.green)}${channel(color.blue)}`;
+}
+
+function requireCaptionBaselineContrast(tokens: Record<string, string>): void {
+  const foreground = tokens["--cap-ink"];
+  const background = tokens["--cap-canvas"];
+  let foregroundColor: CssColor;
+  let backgroundColor: CssColor;
+  let ratio: number;
+  try {
+    foregroundColor = parseCssColor(foreground);
+    backgroundColor = parseCssColor(background);
+    ratio = contrastRatio(foregroundColor, backgroundColor);
+  } catch (error) {
+    throw new Error(
+      `caption_token_invalid_color frame=captions foreground=${foreground} background=${background} ` +
+        `reason=${JSON.stringify((error as Error).message)}`,
+    );
+  }
+  const threshold = 4.5;
+  if (ratio < threshold) {
+    throw new Error(
+      `caption_contrast_insufficient frame=captions foreground=${foreground} background=${background} ` +
+        `ratio=${ratio.toFixed(2)} threshold=${threshold.toFixed(2)}`,
+    );
+  }
+
+  const effective = mixSrgb(foregroundColor, backgroundColor, UPCOMING_CAPTION_INK_PERCENT);
+  const upcomingRatio = contrastRatio(effective, backgroundColor);
+  if (upcomingRatio < threshold) {
+    throw new Error(
+      `caption_contrast_insufficient frame=captions state=upcoming foreground=${foreground} ` +
+        `canvas=${background} mix=${UPCOMING_CAPTION_INK_PERCENT}% effective=${colorHex(effective)} ` +
+        `ratio=${upcomingRatio.toFixed(2)} threshold=${threshold.toFixed(2)}`,
+    );
+  }
+}
 
 export function sanitizeCompositionTemplate(
   html: string,
@@ -87,6 +140,7 @@ export function buildCaptionsHtml(plan: BuildPlan, groups: CaptionGroup[], confi
   const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
   const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "compositions/captions.html");
   const tokens = { ...DEFAULT_CAPTION_TOKENS, ...(config.captions?.tokens || {}) };
+  requireCaptionBaselineContrast(tokens);
 
   let skin = readFileSync(CAPTION_SKIN, "utf8");
 
@@ -191,6 +245,7 @@ export function buildIndexHtml(
       html, body { width: ${width}px; height: ${height}px; overflow: hidden; background: #000; }
       #root { position: relative; width: ${width}px; height: ${height}px; overflow: hidden; background: #FAF9F5; }
       .scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .caption-host { pointer-events: none; }
     </style>
   </head>
   <body>
@@ -207,7 +262,7 @@ ${mounts}
       <!-- captions -->
       <div
         id="el-captions"
-        class="scene"
+        class="scene caption-host"
         data-composition-id="captions"${sourceAttribute("captions", "compositions/captions.html")}
         data-start="0"
         data-duration="${total.toFixed(3)}"

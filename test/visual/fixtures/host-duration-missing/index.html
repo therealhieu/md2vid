@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body, #root, .scene, #frame, .ground { margin: 0; position: absolute; inset: 0; width: 960px; height: 540px; }
+    #root, .ground { background: #faf9f5; }
+    h1 { position: absolute; left: 100px; top: 100px; color: #141413; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div id="el-01-missing-duration" class="scene" data-composition-id="01-missing-duration__hf1" data-start="0">
+      <div id="frame" data-hf-inner-root="true" data-composition-id="01-missing-duration__hf1" data-frame-theme="light">
+        <div class="ground"></div>
+        <h1 data-load-bearing-text>Missing duration</h1>
+      </div>
+    </div>
+  </div>
+  <script>
+    let time = 0;
+    window.__clipManifest = { clips: [] };
+    window.__player = { pause() {}, seek(next) { time = next; }, getTime() { return time; } };
+  </script>
+</body>
+</html>

@@ -15,9 +15,17 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildIndexHtml, emit, preflight, sanitizeCompositionTemplate } from "../emit.ts";
+import {
+  UPCOMING_CAPTION_INK_PERCENT,
+  buildCaptionsHtml,
+  buildIndexHtml,
+  emit,
+  preflight,
+  sanitizeCompositionTemplate,
+} from "../emit.ts";
 import { extractTemplateById, replaceTemplateById } from "../html.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
+import { contrastRatio, parseCssColor } from "../visual_contract.ts";
 
 const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 });
 const VOICE02 = Buffer.from(VOICE01);
@@ -297,6 +305,21 @@ test("legacy index generation without embedded templates retains source loading"
   assert.match(index, /data-composition-src="compositions\/captions\.html"/);
   assert.doesNotMatch(index, /<template id="01-a-template"/);
   assert.doesNotMatch(index, /<template id="captions-template"/);
+});
+
+test("outer caption host is non-intercepting without disabling visual frame hosts", () => {
+  const index = buildIndexHtml(makePlan(), {}, []);
+  const captionHost = index.match(/<div(?=[^>]*\bid="el-captions")[^>]*>/)?.[0];
+  assert.ok(captionHost, "generated index contains the outer captions scene");
+  assert.match(captionHost, /class="scene caption-host"/);
+  assert.equal(index.match(/\.caption-host\s*\{\s*pointer-events:\s*none;\s*\}/g)?.length, 1);
+
+  for (const slug of ["01-a", "02-b"]) {
+    const frameHost = index.match(new RegExp(`<div(?=[^>]*\\bid="el-${slug}")[^>]*>`))?.[0];
+    assert.ok(frameHost, `generated index contains visual frame host ${slug}`);
+    assert.match(frameHost, /class="scene"/);
+    assert.doesNotMatch(frameHost, /caption-host|pointer-events/);
+  }
 });
 
 test("full emit embeds sanitized frame and caption templates while preserving authored files", () => {
@@ -740,6 +763,95 @@ test("emit is idempotent — running it twice on the same inputs yields identica
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test("caption emission rejects insufficient baseline ink/canvas contrast", () => {
+  const plan = makePlan();
+  assert.throws(
+    () => buildCaptionsHtml(plan, plan.captionGroups, {
+      captions: {
+        tokens: {
+          "--cap-ink": "#141413",
+          "--cap-canvas": "#1b1a18",
+        },
+      },
+    }),
+    /caption_contrast_insufficient frame=captions foreground=#141413 background=#1b1a18 ratio=1\.\d{2} threshold=4\.50/,
+  );
+});
+
+test("caption emission rejects configured upcoming-state contrast below the threshold", () => {
+  const plan = makePlan();
+  assert.throws(
+    () => buildCaptionsHtml(plan, plan.captionGroups, {
+      captions: {
+        tokens: {
+          "--cap-ink": "#767676",
+          "--cap-canvas": "#fff",
+        },
+      },
+    }),
+    /caption_contrast_insufficient frame=captions state=upcoming foreground=#767676 canvas=#fff mix=61% effective=#ababab ratio=2\.29 threshold=4\.50/,
+  );
+});
+
+test("caption emission accepts configured colors whose full and upcoming states pass", () => {
+  const plan = makePlan();
+  const captions = buildCaptionsHtml(plan, plan.captionGroups, {
+    captions: {
+      tokens: {
+        "--cap-ink": "#000",
+        "--cap-canvas": "#fff",
+      },
+    },
+  });
+  assert.match(captions, /--cap-ink: #000;/);
+  assert.match(captions, /--cap-canvas: #fff;/);
+});
+
+test("caption emission keeps the existing valid default token values", () => {
+  const plan = makePlan();
+  const captions = buildCaptionsHtml(plan, plan.captionGroups, {});
+  for (const token of [
+    "--ink: #141413;",
+    "--cream: #FAF9F5;",
+    "--tile: #EFE9DE;",
+    "--tile-strong: #ECE3D4;",
+    "--coral: #CC785C;",
+    "--cap-ink: #141413;",
+    "--cap-canvas: #FAF9F5;",
+    "--cap-accent: #CC785C;",
+    "--cap-band-height: 200px;",
+    '--font-display: "EB Garamond";',
+  ]) {
+    assert.match(captions, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
+
+test("caption skin upcoming words meet the normal-text contrast gate", () => {
+  const skin = readFileSync(new URL("../templates/caption-skin.html", import.meta.url), "utf8");
+  const upcoming = skin.match(
+    /\.caption-word\s*\{[\s\S]*?color:\s*color-mix\(in srgb,\s*var\(--cap-ink,\s*(#[0-9a-f]+)\)\s+(\d+)%\s*,\s*var\(--cap-canvas,\s*(#[0-9a-f]+)\)\s*\)/i,
+  );
+  assert.ok(upcoming, "caption skin declares a literal ink/canvas upcoming-state mix");
+  const ink = parseCssColor(upcoming[1]);
+  assert.equal(Number(upcoming[2]), UPCOMING_CAPTION_INK_PERCENT);
+  const inkWeight = UPCOMING_CAPTION_INK_PERCENT / 100;
+  const canvas = parseCssColor(upcoming[3]);
+  const effective = {
+    red: ink.red * inkWeight + canvas.red * (1 - inkWeight),
+    green: ink.green * inkWeight + canvas.green * (1 - inkWeight),
+    blue: ink.blue * inkWeight + canvas.blue * (1 - inkWeight),
+    alpha: 1,
+  };
+  for (const background of [canvas, parseCssColor("#f6f0e5"), parseCssColor("#faf7f0")]) {
+    assert.ok(
+      contrastRatio(effective, background) >= 4.5,
+      `upcoming caption contrast must be >= 4.5:1, got ${contrastRatio(effective, background).toFixed(2)}:1`,
+    );
+  }
+  assert.match(skin, /\.caption-word\.is-active\s*\{[\s\S]*?color:\s*var\(--cap-ink,\s*#141413\)/);
+  assert.match(skin, /\.caption-word\.is-spoken\s*\{[\s\S]*?color:\s*var\(--cap-ink,\s*#141413\)/);
 });
 
 test("caption look is sourced from the skin, not baked inline in emit", () => {

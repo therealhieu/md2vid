@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 960px; height: 540px; overflow: hidden; }
+    #root, .scene, #frame-01-passing, .ground { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #root { background: #faf9f5; }
+    #el-01-passing { z-index: 1; }
+    #frame-01-passing { color: #141413; }
+    .ground { background: #faf9f5; z-index: 0; }
+    #passing-title { position: absolute; z-index: 1; left: 120px; top: 120px; margin: 0; font: 700 54px/1.1 Georgia, serif; }
+    #el-captions { z-index: 10; pointer-events: none; }
+    .caption-group { position: absolute; left: 120px; bottom: 72px; padding: 18px 22px; background: transparent; }
+    .caption-group.is-hidden { opacity: 0; }
+    .caption-word { color: #141413; font: 400 20px/1.3 Arial, sans-serif; margin-right: 8px; }
+    #word-hidden { color: #faf9f5; }
+  </style>
+</head>
+<body>
+  <div id="root" data-composition-id="main">
+    <div id="el-01-passing" class="scene" data-composition-id="01-passing" data-start="0" data-duration="3">
+      <div id="frame-01-passing" data-hf-inner-root="true" data-composition-id="01-passing" data-frame-theme="light">
+        <div class="ground"></div>
+        <h1 id="passing-title" data-load-bearing-text>Passing title</h1>
+      </div>
+    </div>
+    <div id="el-captions" class="scene" data-composition-id="captions">
+      <div class="caption-group is-hidden" data-start="-2" data-end="-1">
+        <span id="word-hidden" class="caption-word is-spoken" data-start="-2" data-end="-1">Hidden</span>
+      </div>
+      <div class="caption-group" data-start="0" data-end="2.6">
+        <span id="word-pass-1" class="caption-word" data-start="0.2" data-end="1.0">Readable</span>
+        <span id="word-pass-2" class="caption-word" data-start="1.1" data-end="2.0">captions</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      let time = 0;
+      const update = (next) => {
+        time = next;
+        for (const word of document.querySelectorAll('.caption-word')) {
+          const start = Number(word.dataset.start);
+          const end = Number(word.dataset.end);
+          word.className = 'caption-word';
+          if (time >= start && time < end) word.classList.add('is-active');
+          else if (time >= end) word.classList.add('is-spoken');
+        }
+      };
+      window.__player = { pause() {}, seek(next) { update(next); }, getTime() { return time; } };
+      window.__timelines = { main: {}, captions: {}, '01-passing': {} };
+      update(0);
+    })();
+  </script>
+</body>
+</html>

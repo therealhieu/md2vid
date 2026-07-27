@@ -14,7 +14,17 @@ const errs = (findings: Array<{ level: string; msg: string }>) =>
 
 // Build a minimal reshaped HF video dir: outputs/<x>/{shared,hyperframes}. Returns
 // the hyperframes (output) dir. `opts` toggles what to write so tests can omit pieces.
-function makeVideo({ index, captionsHtml, groups, claude, gsapSrc = DEFAULT_GSAP_SRC, frameHtml }: any = {}) {
+function makeVideo({
+  index,
+  captionsHtml,
+  groups,
+  claude,
+  gsapSrc = DEFAULT_GSAP_SRC,
+  frameHtml,
+  videoConfig,
+  visualContract,
+  outputConfigText,
+}: any = {}) {
   const root = mkdtempSync(join(tmpdir(), "hfverify-"));
   const shared = join(root, "shared");
   const output = join(root, "hyperframes");
@@ -26,11 +36,14 @@ function makeVideo({ index, captionsHtml, groups, claude, gsapSrc = DEFAULT_GSAP
     writeFileSync(join(output, "compositions", "captions.html"), captionsHtml ?? bakeCaptions(groups ?? DEFAULT_GROUPS, gsapSrc));
   if (groups !== null)
     writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: groups ?? DEFAULT_GROUPS }));
+  if (videoConfig !== undefined) {
+    writeFileSync(join(shared, "video.config.json"), `${JSON.stringify(videoConfig, null, 2)}\n`);
+  }
   if (claude !== null) writeFileSync(join(output, "CLAUDE.md"), claude ?? "@../../../docs/standards/frameworks/hyperframes.md\n");
   writeFileSync(join(output, "AGENTS.md"), "@../../../docs/standards/frameworks/hyperframes.md\n");
   writeFileSync(
     join(output, "output.config.json"),
-    `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
+    outputConfigText ?? `${JSON.stringify({ framework: "hyperframes", gsapSrc, ...(visualContract ? { visualContract } : {}) }, null, 2)}\n`,
   );
   if (frameHtml !== undefined) {
     writeFileSync(join(output, "compositions", "frames", "01-frame.html"), frameHtml);
@@ -59,10 +72,263 @@ const bakeCaptions = (groups: any, gsapSrc = DEFAULT_GSAP_SRC) => `<template id=
 </div>
 </template>`;
 
+const visualFrame = ({
+  theme,
+  ground,
+}: {
+  theme?: "light" | "dark";
+  ground: string;
+}) => `<template>
+<div id="frame-01-frame" data-composition-id="01-frame"${theme ? ` data-frame-theme="${theme}"` : ""}>
+  <style>
+    #frame-01-frame { position: absolute; inset: 0; color: #141413; }
+    #frame-01-frame .ground { position: absolute; inset: 0; background: ${ground}; }
+  </style>
+  <div class="clip ground" data-track-index="0"></div>
+</div>
+</template>`;
+
+const warns = (findings: Array<{ level: string; msg: string }>) =>
+  findings.filter((finding) => finding.level === "warn").map((finding) => finding.msg);
+
 test("passes a well-formed HF video", () => {
   const { root, output } = makeVideo();
   try {
     assert.deepEqual(errs(verify(output)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verifies explicit light authored-frame theme and caption contrast", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "light", ground: "#FAF9F5" }),
+    videoConfig: { captions: { tokens: { "--cap-ink": "#141413" } } },
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.deepEqual(errs(findings), []);
+    assert.equal(
+      findings.some((finding) => finding.msg.includes("frame_theme_") || finding.msg.includes("caption_contrast_")),
+      false,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a declared light frame with a near-black full-canvas ground", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "light", ground: "#1b1a18" }),
+    videoConfig: { captions: { tokens: { "--cap-ink": "#141413" } } },
+  });
+  try {
+    const messages = errs(verify(output, join(root, "shared")));
+    assert.ok(
+      messages.some((message) =>
+        message.includes("frame_theme_mismatch") &&
+        message.includes("frame=01-frame") &&
+        message.includes("declared=light") &&
+        message.includes("ground=#1b1a18") &&
+        message.includes("detected=dark")
+      ),
+      JSON.stringify(messages),
+    );
+    assert.ok(
+      messages.some((message) =>
+        message.includes("caption_contrast_insufficient") &&
+        message.includes("foreground=#141413") &&
+        message.includes("background=#1b1a18") &&
+        message.includes("threshold=4.50")
+      ),
+      JSON.stringify(messages),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing visual-contract config fails missing frame-theme metadata by default", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ ground: "#FAF9F5" }),
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.ok(
+      errs(findings).some((message) =>
+        message.includes("frame_theme_missing") &&
+        message.includes("frame=01-frame") &&
+        message.includes("compatibility=strict")
+      ),
+      JSON.stringify(findings),
+    );
+    assert.deepEqual(warns(findings).filter((message) => message.includes("frame_theme_missing")), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("validated legacy inference config downgrades missing frame-theme metadata", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ ground: "#FAF9F5" }),
+    visualContract: {
+      version: 1,
+      projectTheme: "light",
+      allowMixedThemes: false,
+      allowLegacyThemeInference: true,
+    },
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.deepEqual(errs(findings), []);
+    assert.ok(
+      warns(findings).some((message) =>
+        message.includes("frame_theme_missing") &&
+        message.includes("frame=01-frame") &&
+        message.includes("compatibility=legacy-warning")
+      ),
+      JSON.stringify(findings),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("versioned visual-contract config requires explicit frame-theme metadata", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ ground: "#FAF9F5" }),
+    visualContract: { version: 1, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false },
+  });
+  try {
+    const messages = errs(verify(output, join(root, "shared")));
+    assert.ok(
+      messages.some((message) =>
+        message.includes("frame_theme_missing") &&
+        message.includes("frame=01-frame") &&
+        message.includes("compatibility=strict")
+      ),
+      JSON.stringify(messages),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("direct verify rejects a present unsupported visual-contract version", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ ground: "#FAF9F5" }),
+    visualContract: { version: 2, projectTheme: "light", allowMixedThemes: false, allowLegacyThemeInference: false },
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.ok(
+      errs(findings).some((message) =>
+        message.includes("invalid configuration") &&
+        message.includes("output.config.json") &&
+        message.includes("visualContract.version")
+      ),
+      JSON.stringify(findings),
+    );
+    assert.equal(findings.some((finding) => finding.msg.includes("frame_theme_missing")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("direct verify rejects malformed output configuration without legacy downgrade", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ ground: "#FAF9F5" }),
+    outputConfigText: "{bad json\n",
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.ok(
+      errs(findings).some((message) =>
+        message.includes("invalid configuration at") && message.includes("output.config.json")
+      ),
+      JSON.stringify(findings),
+    );
+    assert.equal(findings.some((finding) => finding.msg.includes("frame_theme_missing")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("versioned visual-contract config supports an explicit dark project", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "dark", ground: "#1b1a18" }),
+    videoConfig: { captions: { tokens: { "--cap-ink": "#FAF9F5" } } },
+    visualContract: { version: 1, projectTheme: "dark", allowMixedThemes: false, allowLegacyThemeInference: false },
+  });
+  try {
+    assert.deepEqual(errs(verify(output, join(root, "shared"))), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("versioned visual-contract config safely enables declared mixed themes", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "dark", ground: "#1b1a18" }),
+    videoConfig: { captions: { tokens: { "--cap-ink": "#FAF9F5" } } },
+    visualContract: { version: 1, projectTheme: "light", allowMixedThemes: true, allowLegacyThemeInference: false },
+  });
+  try {
+    assert.deepEqual(errs(verify(output, join(root, "shared"))), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses the current captions token config when checking authored-frame contrast", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "dark", ground: "#1b1a18" }),
+    videoConfig: { captions: { tokens: { "--cap-ink": "#FAF9F5" } } },
+  });
+  try {
+    const messages = errs(verify(output, join(root, "shared")));
+    assert.ok(messages.some((message) =>
+      message.includes("frame_theme_mismatch") && message.includes("project=light")
+    ));
+    assert.equal(messages.some((message) => message.includes("caption_contrast_insufficient")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("warns when a dynamic full-canvas ground requires browser visual validation", () => {
+  const { root, output } = makeVideo({
+    frameHtml: visualFrame({ theme: "light", ground: "var(--frame-bg)" }),
+  });
+  try {
+    const findings = verify(output, join(root, "shared"));
+    assert.deepEqual(errs(findings), []);
+    assert.ok(
+      warns(findings).some((message) =>
+        message.includes("visual_contract_browser_required") &&
+        message.includes("frame=01-frame") &&
+        message.includes("literal-full-canvas-ground-not-found")
+      ),
+      JSON.stringify(findings),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing composition roots use the configured frame filename in diagnostics", () => {
+  const { root, output } = makeVideo({
+    frameHtml: "<template><div>missing composition metadata</div></template>",
+  });
+  try {
+    const messages = errs(verify(output, join(root, "shared")));
+    assert.ok(
+      messages.some((message) =>
+        message.includes("frame_theme_missing") && message.includes("frame=01-frame")
+      ),
+      JSON.stringify(messages),
+    );
+    assert.equal(messages.some((message) => message.includes("frame=unknown")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -99,7 +365,7 @@ test("flags a CLAUDE.md missing the HF @import", () => {
 
 test("accepts the configured project-root-relative GSAP source unchanged in an authored frame", () => {
   const gsapSrc = "assets/gsap/gsap.min.js";
-  const frameHtml = `<script src="assets/gsap/gsap.min.js"></script>\n<script>gsap.timeline();</script>\n`;
+  const frameHtml = `${visualFrame({ theme: "light", ground: "#FAF9F5" })}\n<script src="assets/gsap/gsap.min.js"></script>\n<script>gsap.timeline();</script>\n`;
   const { root, output } = makeVideo({ gsapSrc, frameHtml });
   try {
     mkdirSync(join(output, "assets", "gsap"), { recursive: true });
