@@ -1,6 +1,6 @@
 # md2vid PR Completion — Corrected Local Gate Check
 
-Date: 2026-07-27  
+Date: 2026-07-27
 Result: **PASS — local only; commit/push/PR mutation not authorized**
 
 ## Identity

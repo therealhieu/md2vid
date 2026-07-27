@@ -3,7 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { extname, isAbsolute, join, resolve } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runComposedVisualIntegrity, validatePlan } from "./composed-visual-integrity.mjs";
@@ -58,12 +58,40 @@ after(async () => {
 
 function browserPath(): string {
   if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
-  return execFileSync(
+  const output = execFileSync(
     process.execPath,
     [join(REPO_ROOT, "node_modules", "hyperframes", "dist", "cli.js"), "browser", "path"],
     { encoding: "utf8" },
-  ).trim();
+  );
+  return output.trim().split(/\r?\n/).at(-1)?.trim() ?? "";
 }
+
+test("browser path discovery returns only an executable path on first use", () => {
+  const home = mkdtempSync(join(tmpdir(), "md2vid-visual-browser-home-"));
+  const previousHome = process.env.HOME;
+  const previousChromePath = process.env.CHROME_PATH;
+  const previousNoTelemetry = process.env.HYPERFRAMES_NO_TELEMETRY;
+  const previousDoNotTrack = process.env.DO_NOT_TRACK;
+  try {
+    process.env.HOME = home;
+    delete process.env.CHROME_PATH;
+    delete process.env.HYPERFRAMES_NO_TELEMETRY;
+    delete process.env.DO_NOT_TRACK;
+    const discovered = browserPath();
+    assert.equal(isAbsolute(discovered), true, `unexpected browser path output: ${discovered}`);
+    assert.equal(existsSync(discovered), true, `browser path does not exist: ${discovered}`);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousChromePath === undefined) delete process.env.CHROME_PATH;
+    else process.env.CHROME_PATH = previousChromePath;
+    if (previousNoTelemetry === undefined) delete process.env.HYPERFRAMES_NO_TELEMETRY;
+    else process.env.HYPERFRAMES_NO_TELEMETRY = previousNoTelemetry;
+    if (previousDoNotTrack === undefined) delete process.env.DO_NOT_TRACK;
+    else process.env.DO_NOT_TRACK = previousDoNotTrack;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
 
 async function runFixture(name: string) {
   const outputDir = mkdtempSync(join(tmpdir(), `md2vid-visual-${name}-`));
