@@ -364,8 +364,13 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   });
   assert.equal(
     state.run,
-    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nASSOCIATED_FILE=\"$STATE_DIR/associated.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$ASSOCIATED_FILE\"\nPR_NUMBER=$(jq -er 'if type == \"array\" and length == 1 and (.[0].number | type) == \"number\" then .[0].number else error(\"observer run must map to exactly one PR\") end' \"$ASSOCIATED_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\n{\n  printf 'run_file=%s\\n' \"$RUN_FILE\"\n  printf 'associated_file=%s\\n' \"$ASSOCIATED_FILE\"\n  printf 'pr_file=%s\\n' \"$PR_FILE\"\n  printf 'commits_file=%s\\n' \"$COMMITS_FILE\"\n} >> \"$GITHUB_OUTPUT\"",
+    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\nPR_NUMBER=$(jq -er '.pull_requests as $prs | if ($prs | type == \"array\") and ($prs | length == 1) and (($prs[0].number | type) == \"number\") and ($prs[0].number >= 1) then $prs[0].number else error(\"observer run must map to exactly one PR\") end' \"$RUN_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\n{\n  printf 'run_file=%s\\n' \"$RUN_FILE\"\n  printf 'pr_file=%s\\n' \"$PR_FILE\"\n  printf 'commits_file=%s\\n' \"$COMMITS_FILE\"\n} >> \"$GITHUB_OUTPUT\"",
   );
+  assert.equal(
+    (String(state.run).match(/gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID"/g) ?? []).length,
+    1,
+  );
+  assert.doesNotMatch(String(state.run), /actions\/runs\/\$RUN_ID\/pull_requests|ASSOCIATED_FILE|associated_file/);
 
   const policy = steps[1];
   exactKeys(policy, ["name", "id", "shell", "env", "run"]);
@@ -373,7 +378,6 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   assert.equal(policy.shell, "bash");
   assert.deepEqual(policy.env, {
     RUN_FILE: "${{ steps.state.outputs.run_file }}",
-    ASSOCIATED_FILE: "${{ steps.state.outputs.associated_file }}",
     PR_FILE: "${{ steps.state.outputs.pr_file }}",
     COMMITS_FILE: "${{ steps.state.outputs.commits_file }}",
     RUN_ID: "${{ github.event.workflow_run.id }}",
@@ -452,10 +456,42 @@ function dependabotPolicyScript(yaml: string): string {
   return match[1];
 }
 
+function dependabotRunPrNumberJqExpression(yaml: string): string {
+  const state = parsedSteps(
+    parsedJob(parseWorkflow(yaml).value, "request-auto-merge"),
+    "request-auto-merge",
+  )[0];
+  const match = String(state.run).match(/PR_NUMBER=\$\(jq -er '([^']+)' "\$RUN_FILE"\)/);
+  assert.ok(match, "missing trusted run pull_requests extraction expression");
+  return match[1];
+}
+
+function runDependabotPrNumberExtraction(
+  yaml: string,
+  run: unknown,
+): { status: number | null; stdout: string; stderr: string } {
+  const dir = mkdtempSync(join(tmpdir(), "md2vid-dependabot-run-pr-"));
+  const runFile = join(dir, "run.json");
+  try {
+    writeFileSync(runFile, JSON.stringify(run));
+    const result = spawnSync("jq", [
+      "-er",
+      dependabotRunPrNumberJqExpression(yaml),
+      runFile,
+    ], { encoding: "utf8" });
+    return {
+      status: result.status,
+      stdout: result.stdout.trim(),
+      stderr: result.stderr.trim(),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 type PolicyFixture = {
   event: WorkflowRecord;
   run: WorkflowRecord;
-  associated: WorkflowRecord[];
   pr: WorkflowRecord;
   commits: WorkflowRecord[];
 };
@@ -490,16 +526,16 @@ function makePolicyFixture(
     actor: { login: "dependabot[bot]" },
     repository: { full_name: "therealhieu/md2vid" },
     head_branch: head,
+    pull_requests: [{
+      number: 123,
+      head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
+      base: { ref: "main", repo: { full_name: "therealhieu/md2vid" } },
+    }],
   };
   const event = {
     number: 123,
     head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
   };
-  const associated = [{
-    number: 123,
-    head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
-    base: { ref: "main", repo: { full_name: "therealhieu/md2vid" } },
-  }];
   const pr = {
     number: 123,
     state: "open",
@@ -514,7 +550,7 @@ function makePolicyFixture(
     author: { login: "dependabot[bot]" },
     commit: { message, verification: { verified: true } },
   }];
-  return { event, run, associated, pr, commits };
+  return { event, run, pr, commits };
 }
 
 function runDependabotPolicy(
@@ -541,7 +577,6 @@ function runDependabotPolicy(
         EVENT_HEAD_SHA: String((fixture.event.head as WorkflowRecord).sha),
         EVENT_HEAD_REPOSITORY: String(((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name),
         RUN_FILE: write("run.json", fixture.run),
-        ASSOCIATED_FILE: write("associated.json", fixture.associated),
         PR_FILE: write("pr.json", fixture.pr),
         COMMITS_FILE: write("commits.json", fixture.commits),
       },
@@ -853,6 +888,30 @@ test("Dependabot defines exact weekly patch groups", () => {
   assert.doesNotMatch(body, /update-types:[\s\S]{0,80}-\s+"?(?:minor|major)"?/);
 });
 
+test("Dependabot trusted run PR extraction accepts one numeric run-object PR", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  assert.deepEqual(
+    runDependabotPrNumberExtraction(yaml, { pull_requests: [{ number: 123 }] }),
+    { status: 0, stdout: "123", stderr: "" },
+  );
+
+  const invalid = [
+    {},
+    { pull_requests: null },
+    { pull_requests: { number: 123 } },
+    { pull_requests: [] },
+    { pull_requests: [{ number: 123 }, { number: 124 }] },
+    { pull_requests: [{ number: "123" }] },
+    { pull_requests: [{ number: 0 }] },
+    { pull_requests: [{ number: -1 }] },
+  ];
+  for (const run of invalid) {
+    const result = runDependabotPrNumberExtraction(yaml, run);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /observer run must map to exactly one PR|Cannot index|boolean/);
+  }
+});
+
 test("Dependabot trusted policy constants equal repository metadata", () => {
   const script = dependabotPolicyScript(workflow("dependabot-auto-merge.yml"));
   const setValues = (name: string): string[] => {
@@ -910,13 +969,13 @@ test("Dependabot trusted policy accepts only exact grouped patches", () => {
   ];
   const unknownGroup = makePolicyFixture("runtime-patches", runtimeNames);
   (unknownGroup.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
-  (unknownGroup.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
+  ((unknownGroup.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
   (unknownGroup.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
   unknownGroup.run.head_branch = "dependabot/npm_and_yarn/unknown-patches-abc123";
   invalid.push(unknownGroup);
   const nearPrefix = makePolicyFixture("runtime-patches", runtimeNames);
   (nearPrefix.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
-  (nearPrefix.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
+  ((nearPrefix.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
   (nearPrefix.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
   nearPrefix.run.head_branch = "dependabot/npm_and_yarn/runtime-patchesevil";
   invalid.push(nearPrefix);
@@ -952,8 +1011,12 @@ test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   mutate((fixture) => { (fixture.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/other"; });
   mutate((fixture) => { (fixture.event.head as WorkflowRecord).sha = "b".repeat(40); });
   mutate((fixture) => { ((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
-  mutate((fixture) => { fixture.associated.push(structuredClone(fixture.associated[0])); });
-  mutate((fixture) => { (fixture.associated[0].head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { delete fixture.run.pull_requests; });
+  mutate((fixture) => { fixture.run.pull_requests = []; });
+  mutate((fixture) => { (fixture.run.pull_requests as WorkflowRecord[]).push(structuredClone((fixture.run.pull_requests as WorkflowRecord[])[0])); });
+  mutate((fixture) => { ((fixture.run.pull_requests as WorkflowRecord[])[0] as WorkflowRecord).number = "123"; });
+  mutate((fixture) => { ((fixture.run.pull_requests as WorkflowRecord[])[0] as WorkflowRecord).number = 124; });
+  mutate((fixture) => { ((fixture.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).sha = "b".repeat(40); });
   mutate((fixture) => { (fixture.pr.user as WorkflowRecord).login = "other"; });
   mutate((fixture) => { (fixture.pr.base as WorkflowRecord).ref = "develop"; });
   mutate((fixture) => { ((fixture.pr.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
@@ -1004,6 +1067,7 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("      - name: Fetch trusted observer and PR state", "      - uses: ./.github/actions/local\n      - name: Fetch trusted observer and PR state"),
     yaml.replace("      - name: Fetch trusted observer and PR state", "      - run: gh api --method DELETE repos/therealhieu/md2vid\n      - name: Fetch trusted observer and PR state"),
     yaml.replace("      - name: Fetch trusted observer and PR state", "      - run: node ./evil.mjs\n      - name: Fetch trusted observer and PR state"),
+    yaml.replace("gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"", "gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\n          gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$STATE_DIR/associated.json\""),
     yaml.replace("--method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\"", "--method POST \"repos/$REPOSITORY/actions/runs/$RUN_ID\""),
     yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),

@@ -738,13 +738,62 @@ Verifier evidence retained on 2026-07-28: the single read-only verifier returned
 
   Use the configured git identity and do not push or change remote settings.
 
+### Task 5.3: Correlate trusted runs from supported workflow-run metadata [Mode A standalone]
+
+#### Confirmed canary failure — 2026-07-28
+
+The real grouped Dependabot canary PR #25 confirmed a workflow-run/PR correlation defect in the trusted default-branch stage, not a repository permission issue.
+
+Evidence:
+
+- Observer run `30341879923`, rerun attempt `2`, succeeded for the real grouped Dependabot PR #25.
+- Trusted run `30355942906` had effective `GITHUB_TOKEN` permissions `actions: read`, `contents: write`, and `pull-requests: write`.
+- `GET repos/therealhieu/md2vid/actions/runs/30341879923` succeeds under those permissions, and the workflow-run JSON includes the documented `pull_requests` field.
+- The next command, `GET repos/therealhieu/md2vid/actions/runs/30341879923/pull_requests`, returns `HTTP 404` with both the workflow token and a user token because that subendpoint is unsupported.
+- Official GitHub workflow-run REST documentation exposes associated pull requests on the workflow-run object itself via `pull_requests`; Context7 quota was unavailable when this was verified, and the official docs search confirmed the run-object field.
+
+Remediation:
+
+- Keep the no-review architecture, remote policy, unprivileged observer, trusted default-branch `workflow_run` origin, run metadata validation, event/live PR/head/repository cross-checks, complete commit provenance validation, live-head recheck, and exact `gh pr merge --auto --squash --match-head-commit` side effect.
+- Remove the unsupported associated-pull-requests subendpoint call and its `ASSOCIATED_FILE` handoff.
+- Correlate exactly one numeric PR from the trusted observer `RUN_FILE` object's `.pull_requests` array.
+- Fail closed when `.pull_requests` is missing, empty, multiple, or malformed, then continue to re-query the live PR and commits before any merge request.
+- Preserve current workflow permissions exactly: `actions: read`, `contents: write`, and `pull-requests: write`; do not add checkout, artifacts, installs, builds, caches, project execution, or any review/approval side effect.
+
+**Files:**
+- Modify: `test/ci/workflows.test.ts`
+- Modify: `.github/workflows/dependabot-auto-merge.yml`
+- Regenerate if required: `public-snapshot.json`
+
+- [x] **Step 1: Record the confirmed failure before code changes**
+
+  This section records the canary run IDs, effective permissions, supported run-object `pull_requests` field, unsupported subendpoint, and remediation while preserving the no-review architecture and remote policy.
+
+- [x] **Step 2: RED — contract supported run-object correlation**
+
+  In `test/ci/workflows.test.ts`, require exactly one Actions run GET, forbid `/actions/runs/$RUN_ID/pull_requests`, require trusted `RUN_FILE` `.pull_requests` correlation, require exactly one associated pull request with a numeric `number`, and retain event/live cross-checks. Run the focused workflow test and capture RED against the current workflow.
+
+- [x] **Step 3: GREEN — remove the unsupported subendpoint**
+
+  In `.github/workflows/dependabot-auto-merge.yml`, remove `ASSOCIATED_FILE` and the second API call. Derive `PR_NUMBER` from `RUN_FILE` `.pull_requests`, pass only needed files and outputs, and fail closed on missing, multiple, or malformed PR entries. Preserve live PR and commits re-query, run metadata validation, event PR/head/repository cross-checks, exact provenance/head checks, no-review exact merge command, no checkout/artifacts/project execution, and current permissions.
+
+- [x] **Step 4: Strengthen mutations**
+
+  Add or update mutation coverage for reintroduced unsupported endpoint usage, absent/multiple/malformed run `pull_requests`, and correlation mismatches without weakening existing authority, trust-origin, commit-provenance, multi-commit, and head-rotation coverage.
+
+- [x] **Step 5: Verify and commit**
+
+  Regenerate the public snapshot if required. Run focused workflow tests, Actionlint, pinned snapshot check, full check, `release:check`, scoped diff checks, and working-tree diff checks. Commit conventionally with the configured identity. Do not push or change remote settings.
+
 ### Task 6: Preserve protections and prove the no-review canary [Tester: yes]
 
 #### Live canary deviation — 2026-07-28
 
-The real grouped Dependabot canary PR #25 exposed a concrete least-privilege omission after the approved remote policy was applied. Observer run `30341879923` succeeded, but trusted `workflow_run` run `30341888573` failed consistently in `Fetch trusted observer and PR state`: `gh api --method GET repos/therealhieu/md2vid/actions/runs/30341879923` returned `gh: Not Found (HTTP 404)`. The trusted job grants only `contents: write` and `pull-requests: write`; querying the observer run and its associated pull requests also requires `actions: read`.
+The real grouped Dependabot canary PR #25 first exposed a concrete least-privilege omission after the approved remote policy was applied. Observer run `30341879923` succeeded, but trusted `workflow_run` run `30341888573` failed consistently in `Fetch trusted observer and PR state`: `gh api --method GET repos/therealhieu/md2vid/actions/runs/30341879923` returned `gh: Not Found (HTTP 404)`. That first failure was caused by the trusted job granting only `contents: write` and `pull-requests: write`; the workflow-run GET requires `actions: read`.
 
-The `actions: read` remediation merged and is preserved. A later canary/rollout review exposed the approval deadlock described in Task 5.2. Task 6 now resumes only after Task 5.2 merges: preserve the exact five strict required checks and every other live protection, disable only Actions pull-request approval permission while keeping read-only workflow defaults, and rerun the real Dependabot canary without any workflow-created review.
+The `actions: read` remediation merged and is preserved. A later canary/rollout review exposed the approval deadlock described in Task 5.2. A subsequent rerun with effective `actions: read`, `contents: write`, and `pull-requests: write` proved that `GET repos/therealhieu/md2vid/actions/runs/30341879923` succeeds and includes the supported run-object `.pull_requests` field, while the separate `GET repos/therealhieu/md2vid/actions/runs/30341879923/pull_requests` subendpoint returns `HTTP 404` because it is unsupported. Task 5.3 fixes correlation by using the supported workflow-run object `.pull_requests` source and forbidding the unsupported subendpoint.
+
+Task 6 now resumes only after Task 5.2 and Task 5.3 merge: preserve the exact five strict required checks and every other live protection, disable only Actions pull-request approval permission while keeping read-only workflow defaults, and rerun the real Dependabot canary without any workflow-created review.
 
 **Tester:** This is a remote policy task. API read-back and a real Dependabot PR are the verification mechanism. Do not simulate eligibility with an ordinary pull request.
 
@@ -755,7 +804,7 @@ The `actions: read` remediation merged and is preserved. A later canary/rollout 
 
 **Prerequisites:**
 
-- Tasks 1–5 and Task 5.2 have merged into `main`.
+- Tasks 1–5, Task 5.2, and Task 5.3 have merged into `main`.
 - Their implementation PRs passed all existing CI checks.
 - Live `main` protection already has zero required approvals and the strict five required checks; the coordinator made that user-approved change while preserving every other protection.
 - Before changing Actions approval permission, read current state, show `can_approve_pull_request_reviews: true → false` with `default_workflow_permissions: read` unchanged, and obtain explicit confirmation.
@@ -905,19 +954,24 @@ gh api repos/therealhieu/md2vid/branches/main/protection \
 
 Expected: native auto-merge and squash merge remain enabled, approvals remain `0`, and every other protected-branch field matches Step 4. Stop if any value differs.
 
-- [ ] **Step 8: Confirm merged configuration exists on `main`**
+- [ ] **Step 7: Confirm merged configuration and Task 5.3 implementation exist on `main`**
 
 ```bash
 gh api repos/therealhieu/md2vid/contents/.github/dependabot.yml \
   -f ref=main --jq '.sha'
 
-gh api repos/therealhieu/md2vid/contents/.github/workflows/dependabot-auto-merge.yml \
-  -f ref=main --jq '.sha'
+WORKFLOW_CONTENT=$(gh api repos/therealhieu/md2vid/contents/.github/workflows/dependabot-auto-merge.yml \
+  -f ref=main --jq '.content' \
+  | python3 -c 'import base64, sys; print(base64.b64decode(sys.stdin.read()).decode(), end="")')
+
+printf '%s' "$WORKFLOW_CONTENT" | grep -F '.pull_requests as $prs'
+printf '%s' "$WORKFLOW_CONTENT" | grep -F 'run.pull_requests'
+! printf '%s' "$WORKFLOW_CONTENT" | grep -F 'actions/runs/$RUN_ID/pull_requests'
 ```
 
-Expected: both commands return nonempty 40-character blob SHAs.
+Expected: the Dependabot file command returns a nonempty 40-character blob SHA, and the workflow content checks prove the Task 5.3 run-object `.pull_requests` correlation and unsupported subendpoint removal rather than only file existence.
 
-- [ ] **Step 9: Obtain a real Dependabot patch canary**
+- [ ] **Step 8: Obtain a real Dependabot patch canary**
 
 Use GitHub's Dependabot UI **Check for updates** action or wait for the scheduled Monday scan. Do not create a fake Dependabot PR.
 
@@ -938,7 +992,7 @@ Select a patch-group PR whose branch matches one of:
 ^dependabot/github_actions/actions-patches(?:-|$)
 ```
 
-- [ ] **Step 10: Capture no-review auto-merge evidence**
+- [ ] **Step 9: Capture no-review auto-merge evidence**
 
 ```bash
 set -euo pipefail
@@ -973,13 +1027,13 @@ CHECKS=$(gh pr checks "$PR" --repo therealhieu/md2vid --required --json name,sta
 if printf '%s' "$CHECKS" | jq -e 'any(.[]; .state == "PENDING")' >/dev/null; then
   test "$(gh pr view "$PR" --repo therealhieu/md2vid --json state --jq .state)" = OPEN
 else
-  echo "All required checks completed before observation; use timestamp proof in Step 11."
+  echo "All required checks completed before observation; use timestamp proof in Step 10."
 fi
 ```
 
-When the pending state is observed, the PR must remain `OPEN`, target `main`, have a `SQUASH` auto-merge request, and have no review from `github-actions[bot]`. Missing the transient pending state is not a failure; Step 11 proves ordering from timestamps.
+When the pending state is observed, the PR must remain `OPEN`, target `main`, have a `SQUASH` auto-merge request, and have no review from `github-actions[bot]`. Missing the transient pending state is not a failure; Step 10 proves ordering from timestamps.
 
-- [ ] **Step 11: Watch checks and verify ordered no-review squash merge**
+- [ ] **Step 10: Watch checks and verify ordered no-review squash merge**
 
 ```bash
 set -euo pipefail
@@ -1046,7 +1100,7 @@ Expected:
 - state is `MERGED` through the native auto-merge request, not a human review or manual merge command;
 - `parent_count` is `1` and the message begins with `chore(deps)`.
 
-- [ ] **Step 12: Observe a negative case when one already exists**
+- [ ] **Step 11: Observe a negative case when one already exists**
 
 ```bash
 NEGATIVE_PR=$(gh pr list \
