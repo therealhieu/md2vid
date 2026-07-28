@@ -1019,7 +1019,6 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     assert.notEqual(mutated, yaml, `privileged mutation ${index} must modify workflow`);
     assert.throws(
       () => assertDependabotAutoMergePolicy(mutated),
-      undefined,
       `privileged mutation ${index} was accepted`,
     );
   }
