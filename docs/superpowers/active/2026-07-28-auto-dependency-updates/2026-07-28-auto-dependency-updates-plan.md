@@ -161,7 +161,7 @@ Do not weaken or remove branch protection as rollback. Disable auto-merge and Ac
 - Existing generated projects may retain an older exact canonical jsDelivr GSAP URL without becoming invalid.
 - Runtime, development, and Actions groups are weekly and patch-only; minor and major updates remain manual.
 - Dependabot titles use `chore(deps)`.
-- The observer uses `pull_request` with no write authority and no checkout, artifact, cache, or PR-controlled execution; the privileged default-branch stage uses `workflow_run`, checks out no code, executes no PR-controlled file, and grants only `contents: write` plus `pull-requests: write`.
+- The observer uses `pull_request` with no write authority and no checkout, artifact, cache, or PR-controlled execution; the privileged default-branch stage uses `workflow_run`, keeps top-level `permissions: {}`, checks out no code, executes no PR-controlled file, and grants its trusted job exactly `actions: read`, `contents: write`, and `pull-requests: write`. The job-scoped `actions: read` grant is only for querying the triggering observer run and associated PRs.
 - A PR changing either workflow cannot execute proposed privileged content; the trusted stage correlates exactly one observer run to exactly one Dependabot PR and binds review plus auto-merge to the same verified live head SHA.
 - `main` requires one approval and the verified stable CI checks, blocks force pushes and deletion, and uses native squash auto-merge.
 - A real grouped Dependabot patch canary is approved by Actions, remains open while required checks are pending, and squash-merges only after all checks pass.

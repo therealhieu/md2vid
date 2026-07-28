@@ -266,7 +266,7 @@ Eligible grouped patch PR against main
                  merge to main
 ```
 
-The observer uses the `pull_request` event with no write permissions and emits only a successful completion signal. The merge-policy job uses `workflow_run`, is defined on the default branch, grants only explicit `contents: write` plus `pull-requests: write` permissions, and re-queries the live PR through trusted GitHub APIs. It does not use `pull_request_target`, check out the PR, install dependencies, or execute changed code. The untrusted observer run is never consumed as an artifact or metadata source.
+The observer uses the `pull_request` event with no write permissions and emits only a successful completion signal. The merge-policy workflow retains top-level `permissions: {}`. Its trusted `workflow_run` job is defined on the default branch and grants exactly `actions: read`, `contents: write`, and `pull-requests: write`; `actions: read` is job-scoped only to query the triggering observer run and its associated PRs before the live PR is re-queried through trusted GitHub APIs. It does not use `pull_request_target`, check out the PR, install dependencies, or execute changed code. The untrusted observer run is never consumed as an artifact or metadata source.
 
 ## Repository protection and approval
 
