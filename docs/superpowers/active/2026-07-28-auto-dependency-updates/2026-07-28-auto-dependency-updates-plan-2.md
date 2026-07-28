@@ -4,11 +4,34 @@
 
 **Goal:** Create patch-only Dependabot groups, add a checkout-free guarded approval and native auto-merge workflow, then activate repository protections and prove one real Dependabot canary.
 
-**Architecture:** Dependabot determines which grouped patch PRs are created. The merge workflow independently validates the Dependabot actor, repository, base branch, semantic update type, group branch, and dependency-name policy before performing its only side effects: approval and a native squash auto-merge request. GitHub branch protection decides when or whether the merge occurs.
+**Architecture:** Dependabot determines which grouped patch PRs are created. A no-write `pull_request` observer emits only a completion signal. A privileged `workflow_run` stage whose definition comes from the default branch re-queries exactly one associated live Dependabot PR, validates repository, actor, author, base, head repository/ref/SHA, every commit's provenance, semantic update type, group branch, and dependency-name policy, then performs its only side effects: commit-bound approval and a head-bound native squash auto-merge request. GitHub branch protection decides when or whether the merge occurs.
 
 **Tech Stack:** Dependabot v2 configuration, GitHub Actions, full-SHA-pinned `dependabot/fetch-metadata`, trusted inline Node.js policy validation, GitHub CLI, GitHub REST API.
 
 ---
+
+## Approved Mode B architecture revision — 2026-07-28
+
+The original Task 5 workflow sketch used privileged `pull_request` execution. Post-Mode-A review and authoritative GitHub documentation established that `pull_request` uses workflow content from the PR-associated merge ref. A Dependabot Actions PR could therefore execute its proposed workflow or metadata-action revision before merge. The approved replacement is:
+
+```text
+Dependabot pull_request
+  → Dependabot auto-merge observer
+     - permissions: {}
+     - completion signal only
+     - no checkout, artifacts, caches, installs, builds, or repository execution
+  → workflow_run completed
+  → trusted default-branch Dependabot auto-merge workflow
+     - exact repository/event/workflow/conclusion/actor guard
+     - API correlation to exactly one associated PR
+     - live PR + every commit revalidation
+     - exact patch/group/dependency policy
+     - review POST with commit_id
+     - live-head recheck
+     - gh pr merge --auto --squash --match-head-commit
+```
+
+`dependabot/fetch-metadata@v2.5.0` is removed from the revised workflow. Its pinned implementation requires `context.payload.pull_request` and validates only the first listed commit, so it cannot directly and completely enforce this `workflow_run` trust model. The privileged stage instead uses checkout-free trusted GitHub API queries and inline parsing. This section supersedes the original single-workflow code sketch below; Mode B replaces that sketch and records the final exact contracts in tests.
 
 ## Group: `dependabot-automation`
 
@@ -398,6 +421,7 @@ git commit -m "test(ci): define Dependabot patch policy"
 
 **Files:**
 - Modify: `.github/dependabot.yml:1-16`
+- Create: `.github/workflows/dependabot-auto-merge-observer.yml`
 - Create: `.github/workflows/dependabot-auto-merge.yml`
 - Regenerate: `public-snapshot.json`
 
@@ -566,7 +590,7 @@ jobs:
         run: gh pr merge "$PR_URL" --auto --squash
 ```
 
-Before implementation, resolve `dependabot/fetch-metadata@v2` again and use the current upstream full SHA plus matching version comment. If it differs from the planned SHA, update both workflow and tests; do not use a movable tag.
+The original single-stage snippet above is superseded by the approved `pull_request` observer plus default-branch `workflow_run` implementation. The pinned `dependabot/fetch-metadata@v2.5.0` evidence remains recorded for the architecture decision, but it is not executed in the revised trusted stage because its implementation requires a `pull_request` payload and validates only the first commit. The revised workflow must use trusted API/inline metadata parsing instead.
 
 - [ ] **Step 3: Run focused policy tests**
 

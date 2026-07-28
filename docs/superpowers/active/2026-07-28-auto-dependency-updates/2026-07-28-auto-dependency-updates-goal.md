@@ -23,7 +23,8 @@ You are a senior implementation agent working in this repository. Follow strict 
 - Do not exclude GSAP or another current dependency from patch grouping. Remove operational static-version coupling instead.
 - Preserve HyperFrames patch-anchor validation as the compatibility gate for new HyperFrames patches.
 - Preserve existing projects that explicitly use an older exact canonical jsDelivr GSAP URL.
-- The privileged workflow must use `pull_request`, not `pull_request_target`, and must not check out, install, build, import, or execute pull-request files.
+- The original privileged workflow requirement was `pull_request`, not `pull_request_target`, with no checkout, install, build, import, or pull-request-file execution.
+- **Approved architecture decision (2026-07-28):** authoritative GitHub documentation confirms that `pull_request` runs use workflow content from the event-associated merge ref. Because the privileged workflow used the mutable `dependabot/fetch-metadata` action, an Actions update could execute its proposed workflow/action revision with write authority before merge. The approved replacement is an unprivileged `pull_request` observer that emits only a successful completion signal, followed by a privileged default-branch `workflow_run` stage that re-queries and validates the live PR through GitHub APIs. This is an explicit architecture exception to the original trigger requirement, approved before implementation.
 - Remote settings must not change until Tasks 1–5 are merged to `main`, live state is read back, the exact settings diff is shown, and the user explicitly confirms the write.
 - Minor and major dependency updates, merge queues, external auto-merge apps, PATs, and GitHub App tokens remain out of scope.
 

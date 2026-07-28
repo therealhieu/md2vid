@@ -4,6 +4,28 @@
 
 Configure weekly grouped Dependabot patch updates for npm runtime/optional dependencies, npm development dependencies, and GitHub Actions. A guarded workflow will approve eligible Dependabot patch pull requests and request GitHub native squash auto-merge. Required checks, dependency review, and protected-branch rules remain the authority that permits or blocks the merge.
 
+## Approved architecture decision — 2026-07-28
+
+The original design required one privileged `pull_request` workflow. Independent verification of current GitHub Actions behavior found that a `pull_request` run uses the workflow version at the event-associated merge ref. The event therefore permits a Dependabot Actions PR that changes this workflow or its metadata action reference to execute the proposed privileged content before merge. This is a trust-origin failure that tests, commit binding, and branch protection cannot repair inside the single-stage design.
+
+The approved replacement is:
+
+```text
+Dependabot PR
+  → unprivileged pull_request observer from the PR event
+  → no writes, checkout, artifacts, caches, or PR-code execution
+  → successful completion only
+  → privileged workflow_run defined on default-branch content
+  → trusted GitHub API re-query and complete commit/provenance validation
+  → commit-bound approval
+  → live-head recheck
+  → --auto --squash --match-head-commit
+```
+
+The observer is intentionally not a source of metadata. The privileged stage re-queries the live PR and its commits. `dependabot/fetch-metadata@v2.5.0` is not retained because its pinned implementation requires `context.payload.pull_request`, while `workflow_run` supplies `workflow_run` payload data. Trusted checkout-free API queries and inline parsing replace it. No external action runs in the privileged stage.
+
+This decision is an approved exception to the original `pull_request`-only requirement. The original requirement, its concrete security reason, and this replacement must remain separately traceable in the goal, research, and plan artifacts.
+
 ## Goals
 
 - Group compatible patch updates on the existing weekly schedule.
@@ -232,7 +254,7 @@ Eligible grouped patch PR against main
                  merge to main
 ```
 
-The merge-policy job uses the `pull_request` event, a full-SHA-pinned `dependabot/fetch-metadata` action, and explicit `contents: write` plus `pull-requests: write` permissions. It does not use `pull_request_target`, check out the PR, install dependencies, or execute changed code.
+The observer uses the `pull_request` event with no write permissions and emits only a successful completion signal. The merge-policy job uses `workflow_run`, is defined on the default branch, grants only explicit `contents: write` plus `pull-requests: write` permissions, and re-queries the live PR through trusted GitHub APIs. It does not use `pull_request_target`, check out the PR, install dependencies, or execute changed code. The untrusted observer run is never consumed as an artifact or metadata source.
 
 ## Repository protection and approval
 

@@ -62,6 +62,30 @@ Dependabot weekly scan
 - `hyperframes`, Remotion packages, React packages, and npm's pinned tool version have coordinated-version constraints. Grouping must not split synchronized families.
 - Existing full CI, nightly validation, SHA pinning, and dependency review provide a strong base for guarded patch auto-merge.
 
+## Approved architecture follow-up — 2026-07-28
+
+Post-implementation review identified a trust-origin boundary not captured in the initial research. Current GitHub documentation states that each workflow run uses the workflow version at the event-associated SHA or ref, and a `pull_request` event uses `refs/pull/<number>/merge`. Therefore a PR that updates the privileged workflow or its `dependabot/fetch-metadata` pin can execute the proposed revision before merge.
+
+The initial single-stage workflow is operationally possible: Dependabot workflows receive read-only tokens by default, GitHub documents increasing their access with explicit `permissions`, and GitHub's official Dependabot automation examples use `pull_request` with write scopes. The blocker is not token availability; it is that the privileged workflow definition is supplied by the PR merge ref.
+
+GitHub documents that a `workflow_run` handler must exist on the default branch and can receive write-capable authority after an unprivileged workflow. The approved architecture therefore separates:
+
+```text
+unprivileged pull_request observer
+  → completion signal only
+  → trusted default-branch workflow_run policy
+```
+
+The pinned `dependabot/fetch-metadata@v2.5.0` implementation was inspected at `21025c705c08248db411dc16f3619e6b5f9ea21a`. Its `getMessage` and branch/body helpers require `context.payload.pull_request`; it cannot consume a `workflow_run` payload directly. The trusted stage will instead re-query the observer run, associated PR, live PR, and all commits through GitHub APIs, then parse only API-returned metadata inline. This also permits validation of every commit rather than the metadata action's first-commit-only verification path.
+
+Additional primary sources:
+
+- [Workflows](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows) — event-associated workflow version.
+- [`pull_request` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request) — merge-ref context.
+- [`workflow_run` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run) — default-branch requirement and privileged follow-up behavior.
+- [Troubleshooting Dependabot on GitHub Actions](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-on-actions) — Dependabot token defaults and explicit permission elevation.
+- [`dependabot/fetch-metadata` v2.5.0 source](https://github.com/dependabot/fetch-metadata/tree/21025c705c08248db411dc16f3619e6b5f9ea21a) — event and commit-verification implementation.
+
 ## Sources
 
 1. [Automating Dependabot with GitHub Actions](https://docs.github.com/en/code-security/tutorials/secure-your-dependencies/automate-dependabot-with-actions) — GitHub Docs, official primary source.
