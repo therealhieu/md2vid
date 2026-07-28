@@ -8,6 +8,10 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
+import {
+  REMOTION_SCAFFOLD_DEPENDENCIES,
+  REMOTION_SCAFFOLD_DEV_DEPENDENCIES,
+} from "../../scripts/dependency_versions.ts";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "templates");
 const ROOT_TEMPLATES = [
@@ -41,21 +45,8 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
       still: "node render.ts --still",
       typecheck: "tsc --noEmit -p tsconfig.json",
     },
-    dependencies: {
-      "@remotion/bundler": "4.0.486",
-      "@remotion/cli": "4.0.486",
-      "@remotion/google-fonts": "4.0.486",
-      "@remotion/media": "4.0.486",
-      "@remotion/renderer": "4.0.486",
-      remotion: "4.0.486",
-      react: "19.0.0",
-      "react-dom": "19.0.0",
-    },
-    devDependencies: {
-      "@types/react": "^19.0.0",
-      "@types/react-dom": "^19.0.0",
-      typescript: "^5.7.0",
-    },
+    dependencies: { ...REMOTION_SCAFFOLD_DEPENDENCIES },
+    devDependencies: { ...REMOTION_SCAFFOLD_DEV_DEPENDENCIES },
     nextSteps: [
       "npm install",
       "review audio_request.json.example and generate narration",

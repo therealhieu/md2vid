@@ -6,12 +6,10 @@ import {
 import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import {
-  ensurePinnedHyperframesPatches,
-  PINNED_HYPERFRAMES_VERSION,
-} from "../frameworks/hyperframes/patches.ts";
+import { ensurePinnedHyperframesPatches } from "../frameworks/hyperframes/patches.ts";
+import { HYPERFRAMES_VERSION } from "./dependency_versions.ts";
 
-export const HYPERFRAMES_VERSION = PINNED_HYPERFRAMES_VERSION;
+export { HYPERFRAMES_VERSION };
 
 export interface HyperframesInstallation {
   packageRoot: string;

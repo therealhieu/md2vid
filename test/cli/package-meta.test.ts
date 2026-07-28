@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -167,7 +168,7 @@ test("historical deprecation guidance stays fixed after the active version advan
 
 test("public HyperFrames guidance documents canonical project-root-relative local GSAP", () => {
   for (const body of [readme, hyperframesStandard]) {
-    assert.match(body, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
+    assert.match(body, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@<version>\/dist\/gsap\.min\.js/);
     assert.match(body, /offline/i);
     assert.match(body, /gsapSrc/);
     assert.match(body, /network access[^.]*preview[^.]*render/i);
@@ -381,6 +382,7 @@ test("files[] is the exact public package allowlist", () => {
     "!engine/**/*.test.ts",
     "!frameworks/**/__tests__/**",
     "!frameworks/**/*.test.ts",
+    "!frameworks/hyperframes/templates/**",
   ]);
 });
 
@@ -480,7 +482,7 @@ test("prepublish wrapper fails closed without npm_execpath and forwards child fa
 });
 
 test("hyperframes is a hard-pinned runtime dependency", () => {
-  assert.equal(pkg.dependencies?.hyperframes, "0.7.26");
+  assert.equal(pkg.dependencies?.hyperframes, HYPERFRAMES_VERSION);
 });
 
 test("remotion + react + @remotion/* are optionalDependencies, not deps", () => {

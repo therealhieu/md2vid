@@ -39,6 +39,7 @@ import {
   DEFAULT_GSAP_SRC,
   ensureRuntime,
   gsapScriptSrcAttribute,
+  materializeGsapTemplate,
   validateGsapSrc,
 } from "./scaffold.ts";
 import { contrastRatio, parseCssColor, type CssColor } from "./visual_contract.ts";
@@ -138,7 +139,6 @@ export function buildCaptionsHtml(plan: BuildPlan, groups: CaptionGroup[], confi
   const { width, height } = plan.canvas;
   const total = plan.totalDuration;
   const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
-  const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "compositions/captions.html");
   const tokens = { ...DEFAULT_CAPTION_TOKENS, ...(config.captions?.tokens || {}) };
   requireCaptionBaselineContrast(tokens);
 
@@ -148,7 +148,7 @@ export function buildCaptionsHtml(plan: BuildPlan, groups: CaptionGroup[], confi
   skin = skin.replace(/^<!--[\s\S]*?-->\s*/, "");
 
   // Use the project's explicit GSAP source when configured; otherwise use the pinned CDN.
-  skin = skin.replaceAll(DEFAULT_GSAP_SRC, gsapAttribute);
+  skin = materializeGsapTemplate(skin, gsapSrc);
 
   // Hole 1: :root brand tokens.
   const tokenLines = Object.entries(tokens)

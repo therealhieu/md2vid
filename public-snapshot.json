@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
-  "count": 278,
-  "hash": "sha256:c39faa25d42d5b4d8863854f1156cfc269bc6cf7b53993819b511aac6cad5feb",
+  "count": 280,
+  "hash": "sha256:1e8538c7eba0ad67e20cc1ea6297f69d7a6540867c048e0e076ad6dd94292bff",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -60,8 +60,8 @@
     {
       "path": "bin/md2vid.ts",
       "mode": "100644",
-      "bytes": 3575,
-      "sha256": "4c59be580945aca869ecd0f85dfec4f54db3febdfd1e84df35236cb2da33c740"
+      "bytes": 3664,
+      "sha256": "d5743644b593063dff4f729ae1d6692bc660f096512f715b4a97f55a1b9ea865"
     },
     {
       "path": "docs/release.md",
@@ -102,8 +102,8 @@
     {
       "path": "docs/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 10395,
-      "sha256": "5dac5499b3761584859c96f08eb9309c745a64425d24740cf72ddddc03b96bcf"
+      "bytes": 10440,
+      "sha256": "d9e13141aaa6225631f14eb3272028ac51b49ed1de1a6da407ce544f845b86c4"
     },
     {
       "path": "docs/standards/frameworks/remotion.md",
@@ -288,14 +288,14 @@
     {
       "path": "frameworks/hyperframes/__tests__/emit.test.ts",
       "mode": "100644",
-      "bytes": 41446,
-      "sha256": "ef66c8a79de4c528db71d15ea15ddf088db100e45eeeb70f5523e07438e2b78f"
+      "bytes": 41393,
+      "sha256": "24eb37275a6d071bd651bb28376238773bd6e181b53ede1e94add8d0fd4436ef"
     },
     {
       "path": "frameworks/hyperframes/__tests__/patch-studio.test.ts",
       "mode": "100644",
-      "bytes": 4463,
-      "sha256": "399b33f890f647182def1cda94348002601799351e777ebac644257009f274d5"
+      "bytes": 4610,
+      "sha256": "6073a77933af7279dc677bc8555eaa2623361df692b069192f04824e1bc05150"
     },
     {
       "path": "frameworks/hyperframes/__tests__/verify.test.ts",
@@ -312,8 +312,8 @@
     {
       "path": "frameworks/hyperframes/emit.ts",
       "mode": "100644",
-      "bytes": 15028,
-      "sha256": "decd06503310a5eed8e37576c7aa1139ef1ba6ef726d7faf0c5e337ee8910bb0"
+      "bytes": 14958,
+      "sha256": "896219d927ed0731fb816c39657634c856993d367c70a7033f86a80eee57c8d6"
     },
     {
       "path": "frameworks/hyperframes/html.ts",
@@ -330,38 +330,38 @@
     {
       "path": "frameworks/hyperframes/patch-studio.ts",
       "mode": "100644",
-      "bytes": 5739,
-      "sha256": "dc3dbd50ca809a09f306dcc8fee0557a6dc9a12de4df11c5067d39bfd2f2ae29"
+      "bytes": 5777,
+      "sha256": "1097c2f2efadb32e28085eaf653b0689a7908551facaa3bc3795f12e6a66256a"
     },
     {
       "path": "frameworks/hyperframes/patches.ts",
       "mode": "100644",
-      "bytes": 7261,
-      "sha256": "a90865bb2bcd4555272f5a5344f0f7c1dd93f7effde9f4b91421bcf9faa57a6d"
+      "bytes": 7348,
+      "sha256": "4fd7a8a1d2bee8890979ded2c97e2d2ac5021665c77831d55e214285b2f0039a"
     },
     {
       "path": "frameworks/hyperframes/scaffold.ts",
       "mode": "100644",
-      "bytes": 5035,
-      "sha256": "4c036608a6fed05997e35144fcb6a492cec9c204493bf745415fced8d4d902c0"
+      "bytes": 5993,
+      "sha256": "abf99e5ed35280a5b8b31a092cf1ade2066bbcacade64f0559fed1c4242dc131"
     },
     {
       "path": "frameworks/hyperframes/templates/caption-skin.html",
       "mode": "100644",
-      "bytes": 7780,
-      "sha256": "2410dee8f170ab24bc67a213b8f0f29c45e29f4f89d642be1c8657a3371387c0"
+      "bytes": 7742,
+      "sha256": "2debdd7a0db80be99fa28ecebaf65f61573f7d629ffaa2758b372ea3ccb75acc"
     },
     {
       "path": "frameworks/hyperframes/templates/frame-shell.html",
       "mode": "100644",
-      "bytes": 6388,
-      "sha256": "d148c56fe3c45016cfbb0d3ca2a6a555bd19c692a0e66cb5122fb55303f96eee"
+      "bytes": 6350,
+      "sha256": "fac2e041247f9e524572cce6211b6556e15ddd513c9a1f7f665f23e4ddb66b3c"
     },
     {
       "path": "frameworks/hyperframes/templates/frame-template.html",
       "mode": "100644",
-      "bytes": 4775,
-      "sha256": "85175bb3f043155fdf0df4fcb14c9ee64a441b0493dc90a227b0cea953cb1e9a"
+      "bytes": 4737,
+      "sha256": "d74d839032a3813aa5a553ab014487651c28ce6f6cd157b241d19d3c781db82f"
     },
     {
       "path": "frameworks/hyperframes/templates/themes/claude.css",
@@ -426,8 +426,8 @@
     {
       "path": "frameworks/remotion/scaffold.ts",
       "mode": "100644",
-      "bytes": 3060,
-      "sha256": "71b1d81370d5e552ad45230a8726d9cc0660c8a5ecfe0f815680d38d9ea98534"
+      "bytes": 2885,
+      "sha256": "c6c14c0ce6af95503cf20d0ff54bc7aae9292ec213d81f9ca67ee484033c4f96"
     },
     {
       "path": "frameworks/remotion/templates/.gitkeep",
@@ -528,8 +528,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "bytes": 3125,
-      "sha256": "522ca3306d065decfa31012e8bbc2dbe0d26095e5053cd3b386c393bd31f0440"
+      "bytes": 3169,
+      "sha256": "8aea57e33953baac8f3aaa89073557a37f6d6b88f31da33c59069f6693f74cc3"
     },
     {
       "path": "postinstall.mjs",
@@ -540,8 +540,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "bytes": 10569,
-      "sha256": "4eb3d20fb083d11a2e4cd779ba1da5c2cc6fac441ec163bce95b11cabcb4a23e"
+      "bytes": 10627,
+      "sha256": "da67955d7dc8157be1261ca214a0d10e89d24cf3dbaa68d95ab330275cfa60fb"
     },
     {
       "path": "scripts/build.ts",
@@ -576,8 +576,14 @@
     {
       "path": "scripts/copy_dist_assets.ts",
       "mode": "100644",
-      "bytes": 2213,
-      "sha256": "278b2c10d39746c1bb2f49e384c4479cce989a4bbf2280eced19aa2885335b64"
+      "bytes": 2923,
+      "sha256": "4b06e5a076ce4d4a6893fae357046708926717ba7639eaea430a8d1319472fd0"
+    },
+    {
+      "path": "scripts/dependency_versions.ts",
+      "mode": "100644",
+      "bytes": 2592,
+      "sha256": "65243c5a8506452473ba271c36e137281f2d42837602f16ab2a8fd14aafb4bc8"
     },
     {
       "path": "scripts/git_environment.ts",
@@ -589,7 +595,7 @@
       "path": "scripts/hyperframes_cli.ts",
       "mode": "100644",
       "bytes": 4450,
-      "sha256": "b26e14f798a5f41ef63af802ac57088371458569eb22dcb0c2a997fa5f27b346"
+      "sha256": "d6f498edfc9899fe6e158fca89f5fd4367d914c8d54c2361449558c78b231324"
     },
     {
       "path": "scripts/install_skill.ts",
@@ -726,8 +732,8 @@
     {
       "path": "skill/md2vid/references/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 10395,
-      "sha256": "5dac5499b3761584859c96f08eb9309c745a64425d24740cf72ddddc03b96bcf"
+      "bytes": 10440,
+      "sha256": "d9e13141aaa6225631f14eb3272028ac51b49ed1de1a6da407ce544f845b86c4"
     },
     {
       "path": "skill/md2vid/references/standards/frameworks/remotion.md",
@@ -750,14 +756,14 @@
     {
       "path": "skill/md2vid/SKILL.md",
       "mode": "100644",
-      "bytes": 19196,
-      "sha256": "4550b6c3522e904c8f78b15ce1e43db88a856c3f5022e6438bdc03b77c3ab63a"
+      "bytes": 19213,
+      "sha256": "08f1cf5e3a78687d5e5108ec9d1c15cec22c5ef4e8d13b02bfeb1d97f95c5db2"
     },
     {
       "path": "test/boundaries.test.ts",
       "mode": "100644",
-      "bytes": 5899,
-      "sha256": "9d4e4885edddb5bc0c12774910803e95cd3cf45e443ffc066a5ef6901ae0b851"
+      "bytes": 6058,
+      "sha256": "5578e850587ba6b3fee9dd3bb7638295be24c0b2fa3127f1281e7f23d3894435"
     },
     {
       "path": "test/ci/public-snapshot-check.test.ts",
@@ -802,16 +808,22 @@
       "sha256": "5fe89367eebc7eeeb90746b969ea90fb91363255432ec42fbd4c332697f5fd38"
     },
     {
+      "path": "test/cli/dependency-versions.test.ts",
+      "mode": "100644",
+      "bytes": 4200,
+      "sha256": "bc79c474326b79516068cec9ff7b54aaa6f6c6421d743d04a50542c117c66064"
+    },
+    {
       "path": "test/cli/fixtures/smoke/01-smoke.html",
       "mode": "100644",
-      "bytes": 1694,
-      "sha256": "9c936d632c65f4e9fcbb557328b2f09cec36a030da41b7526e5fc9d9834d2a00"
+      "bytes": 1664,
+      "sha256": "e297e109e8148dfc4bfb7bed194fcc894babbe5c920a69e5878882e8c4a774fc"
     },
     {
       "path": "test/cli/fixtures/smoke/02-smoke.html",
       "mode": "100644",
-      "bytes": 1716,
-      "sha256": "2db9fe434e4a69581822080f09978bc9993265d4f9ee8fe1b6c2935f16b639e0"
+      "bytes": 1686,
+      "sha256": "ffedb1412351dbb610875c1ac3fc07aa82f5c3d1d3c26a0972778387ff4eea1a"
     },
     {
       "path": "test/cli/fixtures/smoke/assets/voice/followup.wav",
@@ -834,14 +846,14 @@
     {
       "path": "test/cli/hyperframes-cli.test.ts",
       "mode": "100644",
-      "bytes": 9138,
-      "sha256": "0550fe4f9cab11ea005eed0705c6ecb740f1e4a78b38a5fc9da4a36f985ab97d"
+      "bytes": 9316,
+      "sha256": "4498c5bbbf99ae9b55a9e4e410472c4e5ff1cc4135c356bb37840571ca37acb6"
     },
     {
       "path": "test/cli/hyperframes-self-heal.test.ts",
       "mode": "100644",
-      "bytes": 10464,
-      "sha256": "e8e2ac9677a1921d925973f8056615a1f2b8793285e135d699e5870606c28411"
+      "bytes": 10551,
+      "sha256": "949f49af44322789711f02931adb83dcdeed66a16b4f3895e801b475335c03eb"
     },
     {
       "path": "test/cli/install-skill.test.ts",
@@ -858,20 +870,20 @@
     {
       "path": "test/cli/pack.test.ts",
       "mode": "100644",
-      "bytes": 1437,
-      "sha256": "fee166e2c5123fdcb74bb0b9af5fa5bad1100debf038c1ead8aa09fccb2d4852"
+      "bytes": 1503,
+      "sha256": "9fcc6769b7b6e0ed93e1e3b47c529396bda2a42336901f652e21fa50cdc5d545"
     },
     {
       "path": "test/cli/package-meta.test.ts",
       "mode": "100644",
-      "bytes": 20767,
-      "sha256": "b7b09be5ca32c045197fb62bc282e9a709d04502b8b53abe83abb3faef1c4ee5"
+      "bytes": 20899,
+      "sha256": "d1c17215adce03125371f1ad0b04774ebeffcabdec02e03ae899bc73a41762d7"
     },
     {
       "path": "test/cli/postinstall.test.ts",
       "mode": "100644",
-      "bytes": 2934,
-      "sha256": "5a98fadaa7efdda1bdafe8bb6e7d1a1ffe5990f5de3b4da5e58093066b5df44a"
+      "bytes": 3026,
+      "sha256": "304f3762d6194e0eb8e1baae0b6b2db541b956abe42f20f340b9abd700017b9a"
     },
     {
       "path": "test/cli/project-layout.test.ts",
@@ -894,26 +906,26 @@
     {
       "path": "test/cli/router.test.ts",
       "mode": "100644",
-      "bytes": 23119,
-      "sha256": "9ae080cf17f50b010abe797d5d010d462766264d4466803a7dd436d45690a5f7"
+      "bytes": 23179,
+      "sha256": "33de8a8332a9a5dc1a584862d2b5977653942e6426d429f61176aa967fe11bfa"
     },
     {
       "path": "test/cli/run-exports.test.ts",
       "mode": "100644",
-      "bytes": 26599,
-      "sha256": "af0e146b0bea059ec241154e51097e0c3d6e0db9e2b3550828470e7a1542d2ef"
+      "bytes": 26744,
+      "sha256": "e6089289cd7ca79202f3a3d2e028812a67b0a2e3088cc4a0f61cfdf46bd6bd1e"
     },
     {
       "path": "test/cli/scaffold-decoupled.test.ts",
       "mode": "100644",
-      "bytes": 23332,
-      "sha256": "20becae357224c9087e34e52679d589fb1f3b669f1dfb32a1fb3d8b1cedeabfe"
+      "bytes": 23885,
+      "sha256": "818c0bae9e61998844446907185d5be2caca87cad8e2c8914c129c8eb2025a61"
     },
     {
       "path": "test/cli/scaffold-project.test.ts",
       "mode": "100644",
-      "bytes": 7278,
-      "sha256": "340c954b6e6cefda14875249a290a23a99a15d2777b07bc96427f91969e5ad46"
+      "bytes": 7378,
+      "sha256": "ebe19668c6f4ab6dfb81d99707953450817c85820b00ce315d5d8ed6240fae3c"
     },
     {
       "path": "test/cli/skill-commands.test.ts",
@@ -960,8 +972,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/expected/captions.html",
       "mode": "100644",
-      "bytes": 30808,
-      "sha256": "cb51f5b775091f56324b29dc64763bab14f1c487ac8ddb690e58ab9f5d5b7148"
+      "bytes": 30778,
+      "sha256": "d31d2eda14839ff8641630dcbfab9f2e5174d195a994c316abe07398dabac312"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/expected/cues.json",
@@ -972,8 +984,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/expected/index.html",
       "mode": "100644",
-      "bytes": 38562,
-      "sha256": "731cfdd7246205b3cb4960d5b9b23076319ea09567e510656b2269db9bd991af"
+      "bytes": 38532,
+      "sha256": "ff6f0db7e1ae1adb0f8d040730dd74f2bafada65c168c58323b97a1a57a99fa8"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/audio_meta.json",
@@ -984,8 +996,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/output.config.json",
       "mode": "100644",
-      "bytes": 107,
-      "sha256": "379e17092c429e7f1f0fdde5089e8ed39650de608c6450e7d66bfb9dbe010e5d"
+      "bytes": 77,
+      "sha256": "ad843183a4decdc50af75d00a8f83f7047871554b331fd8acc434216459e7b7d"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/video.config.json",
@@ -996,8 +1008,8 @@
     {
       "path": "test/golden/golden.test.ts",
       "mode": "100644",
-      "bytes": 4880,
-      "sha256": "e8144a9530697d76ee5751ac06285f3a4772f681a5397385cd9401531e54815b"
+      "bytes": 5164,
+      "sha256": "f48f14178d6ff097599e97074296394853dd3915b87f8afc9825524400eac04e"
     },
     {
       "path": "test/golden/README.md",
@@ -1032,20 +1044,20 @@
     {
       "path": "test/release/harness.test.ts",
       "mode": "100644",
-      "bytes": 68346,
-      "sha256": "f4b76a87118ce5c2a82ab5494dee2ad17a097a5e2d39e90b4f4894b099af54bb"
+      "bytes": 68792,
+      "sha256": "273ea76fb0d00843b0336c592389555fbdfb91a3dd4eb937b810f93352d9ee24"
     },
     {
       "path": "test/release/harness.ts",
       "mode": "100644",
-      "bytes": 74787,
-      "sha256": "57c4eb9c09dcab251a1f908d204bb6bc1c161ddbc02adc68d03439a0252ccc0b"
+      "bytes": 74853,
+      "sha256": "62b21936df5782fef879992b92389d357f97f26e1cb662a0e823267102f010b6"
     },
     {
       "path": "test/release/manifest.ts",
       "mode": "100644",
-      "bytes": 1913,
-      "sha256": "2c46e0d5924f65ee44e0f88615c5d1ef0ec2aacb03c7bda2adaeff16d8f719c6"
+      "bytes": 1952,
+      "sha256": "bf2232d338f325996ed99ae66714ca8377ce0902a3b4104d07b410a7f5121858"
     },
     {
       "path": "test/release/run.ts",
@@ -1062,8 +1074,8 @@
     {
       "path": "test/scaffold.test.ts",
       "mode": "100644",
-      "bytes": 5114,
-      "sha256": "fb08ade35160f0cda186fa8fa24533d55acd58d480a7b847b6f35862f2104461"
+      "bytes": 5141,
+      "sha256": "85ba250c0a1878a7cda4952e0d44424218fca31d59260057b6b0fa858854245c"
     },
     {
       "path": "test/visual/composed-visual-integrity.d.mts",

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { getAdapter, FRAMEWORKS } from "../frameworks/index.ts";
 import { makeWavForSafeDuration } from "./helpers/wav.ts";
+import { DEFAULT_GSAP_SRC } from "../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
@@ -114,7 +115,7 @@ test("build.mjs writes a versioned build_plan.json into shared/build/", () => {
     ]) {
       writeFileSync(
         join(output, "compositions", "frames", `${slug}.html`),
-        `<template data-composition-id="${slug}"><div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1"></div><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script></template>\n`,
+        `<template data-composition-id="${slug}"><div data-composition-id="${slug}" data-width="1920" data-height="1080" data-duration="1"></div><script src="${DEFAULT_GSAP_SRC}"></script><script>window.__timelines = window.__timelines || {}; window.__timelines["${slug}"] = gsap.timeline({ paused: true });</script></template>\n`,
       );
     }
     const inputs = join(FIXTURES, slug, "inputs");
@@ -125,7 +126,13 @@ test("build.mjs writes a versioned build_plan.json into shared/build/", () => {
       writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
     }
     copyFileSync(join(inputs, "video.config.json"), join(shared, "video.config.json"));
-    copyFileSync(join(inputs, "output.config.json"), join(output, "output.config.json"));
+    writeFileSync(
+      join(output, "output.config.json"),
+      readFileSync(join(inputs, "output.config.json"), "utf8").replaceAll(
+        "__MD2VID_DEFAULT_GSAP_SRC__",
+        DEFAULT_GSAP_SRC,
+      ),
+    );
 
     execFileSync("node", [join(REPO_ROOT, "scripts", "build.ts"), output], { stdio: "pipe" });
 

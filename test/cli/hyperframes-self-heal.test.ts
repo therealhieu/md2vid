@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { runHyperframes, resolveHyperframesInstallation } from "../../scripts/hyperframes_cli.ts";
 import { ensurePinnedHyperframesPatches } from "../../frameworks/hyperframes/patches.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -44,7 +45,7 @@ function fakeInstallation(options: { malformedStudio?: boolean } = {}): FakeInst
   writeFileSync(meta, "// package resolution anchor\n");
   writeFileSync(join(packageRoot, "package.json"), JSON.stringify({
     name: "hyperframes",
-    version: "0.7.26",
+    version: HYPERFRAMES_VERSION,
     bin: { hyperframes: "dist/cli.js" },
   }));
   writeFileSync(

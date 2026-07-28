@@ -21,7 +21,14 @@ test("release package manifest covers executable, assets, postinstall, and all r
   assert.ok(REQUIRED_PACKED_FILES.includes("README.md"));
   assert.ok(REQUIRED_PACKED_FILES.includes("LICENSE"));
   assert.equal(REQUIRED_PACKED_FILES.filter((path) => path.startsWith("skill/md2vid/references/standards/")).length, 7);
-  assert.deepEqual(FORBIDDEN_PACKED_PREFIXES, ["outputs/", "test/", "node_modules/", "docs/superpowers/", "examples/"]);
+  assert.deepEqual(FORBIDDEN_PACKED_PREFIXES, [
+    "outputs/",
+    "test/",
+    "node_modules/",
+    "docs/superpowers/",
+    "examples/",
+    "frameworks/hyperframes/templates/",
+  ]);
   const removedGsapVendorFile = ["vendor", ["gsap", "min", "js"].join(".")].join("/");
   assert.deepEqual(FORBIDDEN_PACKED_FILES, [
     `frameworks/hyperframes/templates/${removedGsapVendorFile}`,

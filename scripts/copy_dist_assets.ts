@@ -11,9 +11,22 @@
 //
 // Run after `tsc -p tsconfig.dist.json`. Idempotent: overwrites into dist/.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_GSAP_SRC,
+  GSAP_SRC_TOKEN,
+  materializeGsapTemplate,
+} from "../frameworks/hyperframes/scaffold.ts";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(REPO_ROOT, "dist");
@@ -33,6 +46,22 @@ function frameworkTemplateDirs(): string[] {
 // Only standards/ ships — internal docs/superpowers/ planning archives stay out.
 const COPIES: string[] = [...frameworkTemplateDirs(), join("docs", "standards")];
 
+function materializeHyperframesTemplates(): void {
+  const root = join(DIST, "frameworks", "hyperframes", "templates");
+  for (const name of [
+    "caption-skin.html",
+    "frame-shell.html",
+    "frame-template.html",
+  ]) {
+    const path = join(root, name);
+    const body = readFileSync(path, "utf8");
+    if (!body.includes(GSAP_SRC_TOKEN)) {
+      throw new Error(`copy_dist_assets: missing GSAP token in ${path}`);
+    }
+    writeFileSync(path, materializeGsapTemplate(body, DEFAULT_GSAP_SRC));
+  }
+}
+
 mkdirSync(DIST, { recursive: true });
 for (const rel of COPIES) {
   const src = join(REPO_ROOT, rel);
@@ -40,4 +69,5 @@ for (const rel of COPIES) {
   cpSync(src, join(DIST, rel), { recursive: true });
   console.log(`  + dist/${rel}`);
 }
+materializeHyperframesTemplates();
 console.log("OK copied template + doc assets into dist/");

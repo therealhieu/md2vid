@@ -1,19 +1,26 @@
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
+import {
+  DEFAULT_GSAP_SRC,
+  GSAP_VERSION,
+} from "../../scripts/dependency_versions.ts";
+
+export { DEFAULT_GSAP_SRC, GSAP_VERSION };
+export const GSAP_SRC_TOKEN = "__MD2VID_GSAP_SRC__";
+const CANONICAL_GSAP_CDN =
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@(\d+\.\d+\.\d+)\/dist\/gsap\.min\.js$/;
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "templates");
 const CAPTION_SKIN_TEMPLATE = join(TEMPLATES, "caption-skin.html");
-
-export const DEFAULT_GSAP_SRC = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -23,6 +30,20 @@ function escapeHtmlAttribute(value: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll("`", "&#96;");
+}
+
+export function materializeGsapTemplate(
+  template: string,
+  gsapSrc: string = DEFAULT_GSAP_SRC,
+): string {
+  const tokenCount = template.split(GSAP_SRC_TOKEN).length - 1;
+  const defaultCount = template.split(DEFAULT_GSAP_SRC).length - 1;
+  const count = tokenCount + defaultCount;
+  if (count !== 1) {
+    throw new Error(`expected exactly one GSAP source placeholder, found ${count}`);
+  }
+  const placeholder = tokenCount === 1 ? GSAP_SRC_TOKEN : DEFAULT_GSAP_SRC;
+  return template.replace(placeholder, escapeHtmlAttribute(gsapSrc));
 }
 
 export function gsapSrcForDocument(gsapSrc: string, _documentPath: string): string {
@@ -44,8 +65,11 @@ export function validateGsapSrc(videoDir: string, input: unknown): string {
   const gsapSrc = input === undefined ? DEFAULT_GSAP_SRC : input;
   if (gsapSrc === DEFAULT_GSAP_SRC) return gsapSrc;
   if (typeof gsapSrc !== "string" || gsapSrc.trim().length === 0) {
-    throw new Error("invalid gsapSrc: expected the pinned CDN URL or a non-empty project-relative file");
+    throw new Error(
+      "invalid gsapSrc: expected an exact canonical GSAP CDN URL or a non-empty project-relative file",
+    );
   }
+  if (CANONICAL_GSAP_CDN.test(gsapSrc)) return gsapSrc;
   if (isAbsolute(gsapSrc) || win32.isAbsolute(gsapSrc) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(gsapSrc)) {
     throw new Error(`invalid gsapSrc: expected a project-relative file (${gsapSrc})`);
   }
@@ -112,8 +136,10 @@ function writeIfMissing(path: string, content: string): void {
   if (!existsSync(path)) writeFileSync(path, content);
 }
 
-function copyIfMissing(source: string, destination: string): void {
-  if (!existsSync(destination)) copyFileSync(source, destination);
+function writeMaterializedIfMissing(source: string, destination: string): void {
+  if (existsSync(destination)) return;
+  const template = readFileSync(source, "utf8");
+  writeFileSync(destination, materializeGsapTemplate(template));
 }
 
 export function ensureRuntime(videoDir: string, _slug: string): void {
@@ -135,7 +161,10 @@ export function ensureRuntime(videoDir: string, _slug: string): void {
     }, null, 2)}\n`,
   );
   writeIfMissing(join(videoDir, "caption-overrides.json"), "[]\n");
-  copyIfMissing(CAPTION_SKIN_TEMPLATE, join(videoDir, ".hyperframes", "caption-skin.html"));
+  writeMaterializedIfMissing(
+    CAPTION_SKIN_TEMPLATE,
+    join(videoDir, ".hyperframes", "caption-skin.html"),
+  );
 }
 
 export function writeScaffoldRuntime(stageDir: string, slug: string): void {

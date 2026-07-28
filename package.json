@@ -42,7 +42,8 @@
     "!engine/**/__tests__/**",
     "!engine/**/*.test.ts",
     "!frameworks/**/__tests__/**",
-    "!frameworks/**/*.test.ts"
+    "!frameworks/**/*.test.ts",
+    "!frameworks/hyperframes/templates/**"
   ],
   "engines": {
     "node": ">=22.18"

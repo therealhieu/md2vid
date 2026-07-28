@@ -16,6 +16,7 @@ import { runHyperframes } from "../scripts/hyperframes_cli.ts";
 import { run as patchRun } from "../frameworks/hyperframes/patch-studio.ts";
 import { run as installSkillRun } from "../scripts/install_skill.ts";
 import { run as upgradeRun } from "../scripts/upgrade.ts";
+import { HYPERFRAMES_VERSION } from "../scripts/dependency_versions.ts";
 import { readPackageMetadata } from "../scripts/package_root.ts";
 import { assertSupportedPlatform } from "../scripts/platform_support.ts";
 import { isMainModule } from "../scripts/main-guard.ts";
@@ -51,7 +52,7 @@ function helpText(): string {
     "  regroup <dir> [--max-chars 54]                   rebalance caption lines",
     "  transcribe <dir>                                 word timings into audio_meta.json",
     "  verify <dir> [--max-chars N]                     neutral + framework checks",
-    "  hyperframes <command> [args]                       run package-owned hyperframes@0.7.26",
+    `  hyperframes <command> [args]                       run package-owned hyperframes@${HYPERFRAMES_VERSION}`,
     "  patch-studio                                     patch the installed HyperFrames Studio",
     "  install-skill                                    install the personal /md2vid skill",
     "  upgrade                                          update the global CLI and refresh the skill",

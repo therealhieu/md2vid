@@ -97,6 +97,18 @@ test("source HyperFrames templates are version-independent", () => {
   }
 });
 
+test("materialized distribution templates accept one configured GSAP source", () => {
+  const built = `<script src="${DEFAULT_GSAP_SRC}"></script>`;
+  assert.equal(
+    materializeGsapTemplate(built, "assets/gsap/gsap.min.js"),
+    '<script src="assets/gsap/gsap.min.js"></script>',
+  );
+  assert.throws(
+    () => materializeGsapTemplate("<script></script>"),
+    /expected exactly one GSAP source placeholder/,
+  );
+});
+
 test("Remotion and React package families stay synchronized", () => {
   for (const [name, value] of Object.entries(REMOTION_SCAFFOLD_DEPENDENCIES)) {
     if (name.startsWith("@remotion/") || name === "remotion") {

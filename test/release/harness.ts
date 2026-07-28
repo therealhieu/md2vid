@@ -25,6 +25,10 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { readPackageMetadata } from "../../scripts/package_root.ts";
+import {
+  DEFAULT_GSAP_SRC,
+  GSAP_VERSION,
+} from "../../scripts/dependency_versions.ts";
 import { readPinnedHyperframesPatchState } from "../../frameworks/hyperframes/patches.ts";
 import { isNpmVersionNotFound } from "../../scripts/release_preflight.ts";
 import { isStrictSha512Integrity } from "../../scripts/release_contract.ts";
@@ -1694,7 +1698,7 @@ async function assertHyperframesBrowserExecution(
     }
 
     assert.ok(execution, "timed out waiting for main and captions timelines");
-    assert.equal(execution.gsapVersion, "3.14.2", "browser must execute real pinned GSAP");
+    assert.equal(execution.gsapVersion, GSAP_VERSION, "browser must execute real pinned GSAP");
     assert.match(execution.frameTimelineIds[0], /^01-smoke(?:__hf1)?$/);
     assert.match(execution.frameTimelineIds[1], /^02-smoke(?:__hf1)?$/);
     const sampleAt = (time: number) => {
@@ -1817,7 +1821,7 @@ export async function runFrameworkSmoke(
       writeFileSync(
         framePath,
         readFileSync(framePath, "utf8").replace(
-          "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+          "__MD2VID_DEFAULT_GSAP_SRC__",
           gsapSrc,
         ),
       );

@@ -16,6 +16,7 @@ import {
   resolveHyperframesInstallation,
   runHyperframes,
 } from "../../scripts/hyperframes_cli.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 interface FakePackageOptions {
   depth?: "source" | "compiled";
@@ -25,7 +26,7 @@ interface FakePackageOptions {
 
 function fakePackage({
   depth = "compiled",
-  version = "0.7.26",
+  version = HYPERFRAMES_VERSION,
   bin = { hyperframes: "dist/cli.js" },
 }: FakePackageOptions = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "md2vid-hf-owned-")));
@@ -87,7 +88,7 @@ for (const depth of ["source", "compiled"] as const) {
         pathToFileURL(fixture.md2vidModule).href,
       );
       assert.deepEqual(found, {
-        version: "0.7.26",
+        version: HYPERFRAMES_VERSION,
         packageRoot: fixture.packageRoot,
         packageJsonPath: join(fixture.packageRoot, "package.json"),
         cliEntry: join(fixture.packageRoot, "dist", "cli.js"),
@@ -113,11 +114,13 @@ test("supports a string package bin entry", () => {
 });
 
 test("rejects a mismatched package-owned HyperFrames version", () => {
-  const fixture = fakePackage({ version: "0.7.66" });
+  const fixture = fakePackage({ version: "999.999.999" });
   try {
     assert.throws(
       () => resolveHyperframesInstallation(pathToFileURL(fixture.md2vidModule).href),
-      /FAIL \[hyperframes-cli\]: expected hyperframes@0\.7\.26, found 0\.7\.66/,
+      new RegExp(
+        `FAIL \\[hyperframes-cli\\]: expected hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}, found 999\\.999\\.999`,
+      ),
     );
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });

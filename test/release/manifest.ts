@@ -41,6 +41,7 @@ export const FORBIDDEN_PACKED_PREFIXES = [
   "node_modules/",
   "docs/superpowers/",
   "examples/",
+  "frameworks/hyperframes/templates/",
 ] as const;
 
 const removedGsapVendorFile = ["vendor", ["gsap", "min", "js"].join(".")].join("/");

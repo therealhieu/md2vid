@@ -12,8 +12,9 @@ import {
   promoteManagedFiles,
   type ManagedFileTransactionDependencies,
 } from "../../scripts/managed_file_transaction.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
-export const PINNED_HYPERFRAMES_VERSION = "0.7.26";
+export const PINNED_HYPERFRAMES_VERSION = HYPERFRAMES_VERSION;
 
 const STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
 const STUDIO_PATCH_1 = "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;";
