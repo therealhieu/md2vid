@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -29,6 +30,7 @@ const packageJson = JSON.parse(
 type WorkflowPolicyChecker = (yaml: string) => void;
 const WORKFLOW_POLICY_CHECKERS: Record<string, WorkflowPolicyChecker> = {
   "ci.yml": assertSafeWorkflowPolicy,
+  "dependabot-auto-merge-observer.yml": assertDependabotObserverPolicy,
   "dependabot-auto-merge.yml": assertDependabotAutoMergePolicy,
   "nightly.yml": assertNightlyPolicy,
   "release.yml": assertReleasePolicy,
@@ -43,6 +45,9 @@ const EXPECTED_JOB_RUNNERS: Record<string, Record<string, string | null>> = {
     "pr-minimum": null,
     "pr-latest": null,
     "main-full": null,
+  },
+  "dependabot-auto-merge-observer.yml": {
+    "observe-dependabot": "ubuntu-latest",
   },
   "dependabot-auto-merge.yml": {
     "approve-and-enable-auto-merge": "ubuntu-latest",
@@ -263,23 +268,23 @@ function assertSafeWorkflowPolicy(yaml: string): void {
   );
 }
 
-function assertDependabotAutoMergePolicy(yaml: string): void {
-  assertPinnedUses(yaml);
+function exactKeys(value: WorkflowRecord, keys: string[]): void {
+  assert.deepEqual(Object.keys(value).sort(), [...keys].sort());
+}
+
+function assertDependabotObserverPolicy(yaml: string): void {
   const { value } = parseWorkflow(yaml);
-  assert.equal(value.name, "Dependabot auto-merge");
+  assert.equal(value.name, "Dependabot auto-merge observer");
   assert.deepEqual(value.on, { pull_request: null });
   assert.deepEqual(value.permissions, {});
+  exactKeys(value, ["name", "on", "permissions", "jobs"]);
 
-  const job = parsedJob(value, "approve-and-enable-auto-merge");
+  const job = parsedJob(value, "observe-dependabot");
+  exactKeys(job, ["if", "runs-on", "permissions", "steps"]);
   assert.equal(job["runs-on"], "ubuntu-latest");
-  assert.deepEqual(job.permissions, {
-    contents: "write",
-    "pull-requests": "write",
-  });
-
-  const condition = String(job.if).replace(/\s+/g, " ").trim();
+  assert.deepEqual(job.permissions, {});
   assert.equal(
-    condition,
+    String(job.if).replace(/\s+/g, " ").trim(),
     [
       "github.actor == 'dependabot[bot]'",
       "github.repository == 'therealhieu/md2vid'",
@@ -287,55 +292,140 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
       "github.event.pull_request.base.ref == 'main'",
     ].join(" && "),
   );
-  assert.doesNotMatch(condition, /\|\|/);
+
+  const steps = parsedSteps(job, "observe-dependabot");
+  assert.equal(steps.length, 1);
+  exactKeys(steps[0], ["name", "shell", "run"]);
+  assert.equal(steps[0].name, "Complete observation");
+  assert.equal(steps[0].shell, "bash");
+  assert.equal(steps[0].run, "true");
+  assert.doesNotMatch(yaml, /uses:|actions\/|artifact|cache|checkout|npm|node\s+[^-]|scripts\//i);
+}
+
+function assertDependabotAutoMergePolicy(yaml: string): void {
+  const { value } = parseWorkflow(yaml);
+  assert.equal(value.name, "Dependabot auto-merge");
+  assert.deepEqual(value.on, {
+    workflow_run: {
+      workflows: ["Dependabot auto-merge observer"],
+      types: ["completed"],
+    },
+  });
+  assert.deepEqual(value.permissions, {});
+  assert.deepEqual(value.concurrency, {
+    group: "dependabot-auto-merge-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}",
+    "cancel-in-progress": true,
+  });
+  exactKeys(value, ["name", "on", "permissions", "concurrency", "jobs"]);
+
+  const job = parsedJob(value, "approve-and-enable-auto-merge");
+  exactKeys(job, ["if", "runs-on", "permissions", "steps"]);
+  assert.equal(job["runs-on"], "ubuntu-latest");
+  assert.deepEqual(job.permissions, {
+    contents: "write",
+    "pull-requests": "write",
+  });
+  assert.equal(
+    String(job.if).replace(/\s+/g, " ").trim(),
+    [
+      "github.repository == 'therealhieu/md2vid'",
+      "github.event.workflow_run.event == 'pull_request'",
+      "github.event.workflow_run.name == 'Dependabot auto-merge observer'",
+      "github.event.workflow_run.conclusion == 'success'",
+      "github.event.workflow_run.actor.login == 'dependabot[bot]'",
+    ].join(" && "),
+  );
 
   const steps = parsedSteps(job, "approve-and-enable-auto-merge");
-  const metadata = steps.find(
-    (step) => step.name === "Fetch Dependabot metadata",
+  assert.deepEqual(
+    steps.map((step) => step.name),
+    [
+      "Fetch trusted observer and PR state",
+      "Validate Dependabot patch group policy",
+      "Approve eligible update",
+      "Request native squash auto-merge",
+    ],
   );
-  const policy = steps.find(
-    (step) => step.name === "Validate patch group policy",
-  );
-  const approve = steps.find(
-    (step) => step.name === "Approve eligible update",
-  );
-  const merge = steps.find(
-    (step) => step.name === "Request native squash auto-merge",
-  );
-  assert.ok(metadata);
-  assert.ok(policy);
-  assert.ok(approve);
-  assert.ok(merge);
-
-  assert.equal(metadata.id, "metadata");
-  assert.match(
-    String(metadata.uses),
-    /^dependabot\/fetch-metadata@[a-f0-9]{40}$/,
-  );
-  assert.equal(approve.if, "steps.policy.outputs.eligible == 'true'");
-  assert.equal(merge.if, "steps.policy.outputs.eligible == 'true'");
-  assert.match(String(approve.run), /gh pr review "\$PR_URL" --approve/);
-  assert.match(String(merge.run), /gh pr merge "\$PR_URL" --auto --squash/);
-  assert.doesNotMatch(String(merge.run), /--admin|--merge|--rebase/);
-
-  for (const step of [metadata, policy, approve, merge]) {
+  for (const step of steps) {
     assert.equal(Object.hasOwn(step, "continue-on-error"), false);
+    assert.equal(Object.hasOwn(step, "uses"), false);
+    assert.doesNotMatch(String(step.run ?? ""), /\|\|\s*true|set\s+\+e/);
   }
-  assert.doesNotMatch(
-    `${String(approve.run)}\n${String(merge.run)}`,
-    /\|\|\s*true|set\s+\+e/,
+
+  const state = steps[0];
+  exactKeys(state, ["name", "id", "shell", "env", "run"]);
+  assert.equal(state.id, "state");
+  assert.equal(state.shell, "bash");
+  assert.deepEqual(state.env, {
+    GH_TOKEN: "${{ github.token }}",
+    REPOSITORY: "therealhieu/md2vid",
+    RUN_ID: "${{ github.event.workflow_run.id }}",
+  });
+  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID"/);
+  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID\/pull_requests"/);
+  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER"/);
+  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER\/commits\?per_page=100"/);
+  assert.doesNotMatch(String(state.run), /POST|PATCH|PUT|DELETE|checkout|npm|node_modules|scripts\//i);
+
+  const policy = steps[1];
+  exactKeys(policy, ["name", "id", "shell", "env", "run"]);
+  assert.equal(policy.id, "policy");
+  assert.equal(policy.shell, "bash");
+  assert.deepEqual(policy.env, {
+    RUN_FILE: "${{ steps.state.outputs.run_file }}",
+    ASSOCIATED_FILE: "${{ steps.state.outputs.associated_file }}",
+    PR_FILE: "${{ steps.state.outputs.pr_file }}",
+    COMMITS_FILE: "${{ steps.state.outputs.commits_file }}",
+    RUN_ID: "${{ github.event.workflow_run.id }}",
+  });
+  const script = dependabotPolicyScript(yaml);
+  assert.match(String(policy.run), /^node --input-type=module <<'NODE'/);
+  assert.match(String(policy.run), /\n\s*NODE\s*$/);
+  assert.equal((String(policy.run).match(/node --input-type=module/g) ?? []).length, 1);
+  assert.doesNotMatch(script, /from ["']node:(?:child_process|http|https|net|tls|url|process)["']|fetch\(|spawn\(|exec\(|https?\./);
+  assert.match(script, /const patchUpdateType = "version-update:semver-patch";/);
+  assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/runtime-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
+  assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/dev-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
+  assert.match(script, /branch: \/\^dependabot\\\/github_actions\\\/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
+  assert.match(script, /const runtimeDependencies = new Set\(\[/);
+  assert.match(script, /const developmentDependencies = new Set\(\[/);
+  assert.match(script, /policy\.allowed === null \|\| names\.every/);
+
+  const approve = steps[2];
+  exactKeys(approve, ["name", "if", "shell", "env", "run"]);
+  assert.equal(approve.if, "steps.policy.outputs.eligible == 'true'");
+  assert.equal(approve.shell, "bash");
+  assert.deepEqual(approve.env, {
+    GH_TOKEN: "${{ github.token }}",
+    REPOSITORY: "therealhieu/md2vid",
+    PR_NUMBER: "${{ steps.policy.outputs.pr_number }}",
+    EXPECTED_HEAD_SHA: "${{ steps.policy.outputs.expected_head_sha }}",
+  });
+  assert.equal(
+    approve.run,
+    "set -euo pipefail\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\n[[ \"$EXPECTED_HEAD_SHA\" =~ ^[a-f0-9]{40}$ ]]\ncurrent_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)\ntest \"$current_head\" = \"$EXPECTED_HEAD_SHA\"\ngh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE -f commit_id=\"$EXPECTED_HEAD_SHA\"",
   );
 
-  assert.doesNotMatch(yaml, /pull_request_target/);
-  assert.doesNotMatch(yaml, /actions\/checkout@/);
-  assert.doesNotMatch(
-    yaml,
-    /\bnpm\s+(?:ci|install|run)|\bcorepack\b|node_modules|dist\/bin|scripts\/[A-Za-z0-9_.-]+\.ts/,
+  const merge = steps[3];
+  exactKeys(merge, ["name", "if", "shell", "env", "run"]);
+  assert.equal(merge.if, "steps.policy.outputs.eligible == 'true'");
+  assert.equal(merge.shell, "bash");
+  assert.deepEqual(merge.env, {
+    GH_TOKEN: "${{ github.token }}",
+    REPOSITORY: "therealhieu/md2vid",
+    PR_NUMBER: "${{ steps.policy.outputs.pr_number }}",
+    EXPECTED_HEAD_SHA: "${{ steps.policy.outputs.expected_head_sha }}",
+  });
+  assert.equal(
+    merge.run,
+    "set -euo pipefail\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\n[[ \"$EXPECTED_HEAD_SHA\" =~ ^[a-f0-9]{40}$ ]]\ncurrent_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)\ntest \"$current_head\" = \"$EXPECTED_HEAD_SHA\"\ngh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash --match-head-commit \"$EXPECTED_HEAD_SHA\"",
   );
+
+  assert.doesNotMatch(yaml, /pull_request_target|actions\/checkout@|uses:\s|npm\s+(?:ci|install|run)|corepack|node_modules|dist\/bin|scripts\/[A-Za-z0-9_.-]+\.ts|--admin|--merge|--rebase/);
 }
 
 function dependabotPolicyScript(yaml: string): string {
-  const body = stepBody(yaml, "Validate patch group policy");
+  const body = stepBody(yaml, "Validate Dependabot patch group policy");
   const match = body.match(
     /node --input-type=module <<'NODE'\n([\s\S]*?)\n\s*NODE\s*$/,
   );
@@ -343,32 +433,91 @@ function dependabotPolicyScript(yaml: string): string {
   return match[1];
 }
 
+type PolicyFixture = {
+  run: WorkflowRecord;
+  associated: WorkflowRecord[];
+  pr: WorkflowRecord;
+  commits: WorkflowRecord[];
+};
+
+function makePolicyFixture(
+  group: string,
+  names: string[],
+  updateType = "version-update:semver-patch",
+): PolicyFixture {
+  const head = `dependabot/${group === "actions-patches" ? "github_actions" : "npm_and_yarn"}/${group}-abc123`;
+  const sha = "a".repeat(40);
+  const message = [
+    `Bumps the ${group} group with ${names.length} updates.`,
+    "",
+    "---",
+    "updated-dependencies:",
+    ...names.flatMap((name) => [
+      `- dependency-name: ${name}`,
+      "  dependency-type: direct:development",
+      `  update-type: ${updateType}`,
+      `  dependency-group: ${group}`,
+    ]),
+    "...",
+    "",
+    "Signed-off-by: dependabot[bot] <support@github.com>",
+  ].join("\\n");
+  const run = {
+    id: 42,
+    name: "Dependabot auto-merge observer",
+    event: "pull_request",
+    conclusion: "success",
+    actor: { login: "dependabot[bot]" },
+    repository: { full_name: "therealhieu/md2vid" },
+    head_branch: head,
+  };
+  const associated = [{
+    number: 123,
+    head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
+    base: { ref: "main", repo: { full_name: "therealhieu/md2vid" } },
+  }];
+  const pr = {
+    number: 123,
+    state: "open",
+    user: { login: "dependabot[bot]" },
+    base: { ref: "main", repo: { full_name: "therealhieu/md2vid" } },
+    head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
+    commits: 1,
+    body: "Dependabot update.",
+  };
+  const commits = [{
+    sha,
+    author: { login: "dependabot[bot]" },
+    commit: { message, verification: { verified: true } },
+  }];
+  return { run, associated, pr, commits };
+}
+
 function runDependabotPolicy(
   yaml: string,
-  input: {
-    head: string;
-    updateType: string;
-    names: string;
-  },
-): { status: number | null; eligible: string | undefined } {
+  fixture: PolicyFixture,
+): { status: number | null; values: Record<string, string> } {
   const dir = mkdtempSync(join(tmpdir(), "md2vid-dependabot-policy-"));
   const output = join(dir, "output");
+  const write = (name: string, value: unknown) => {
+    const path = join(dir, name);
+    writeFileSync(path, JSON.stringify(value));
+    return path;
+  };
   try {
-    const result = spawnSync(
-      process.execPath,
-      ["--input-type=module"],
-      {
-        input: dependabotPolicyScript(yaml),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          GITHUB_OUTPUT: output,
-          HEAD_REF: input.head,
-          UPDATE_TYPE: input.updateType,
-          DEPENDENCY_NAMES: input.names,
-        },
+    const result = spawnSync(process.execPath, ["--input-type=module"], {
+      input: dependabotPolicyScript(yaml),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: output,
+        RUN_ID: "42",
+        RUN_FILE: write("run.json", fixture.run),
+        ASSOCIATED_FILE: write("associated.json", fixture.associated),
+        PR_FILE: write("pr.json", fixture.pr),
+        COMMITS_FILE: write("commits.json", fixture.commits),
       },
-    );
+    });
     const values = existsSync(output)
       ? Object.fromEntries(
           readFileSync(output, "utf8")
@@ -378,7 +527,7 @@ function runDependabotPolicy(
             .map((line) => line.split("=", 2)),
         )
       : {};
-    return { status: result.status, eligible: values.eligible };
+    return { status: result.status, values };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -676,115 +825,167 @@ test("Dependabot defines exact weekly patch groups", () => {
   assert.doesNotMatch(body, /update-types:[\s\S]{0,80}-\s+"?(?:minor|major)"?/);
 });
 
-test("Dependabot auto-merge policy fails closed", () => {
+test("Dependabot trusted policy constants equal repository metadata", () => {
+  const script = dependabotPolicyScript(workflow("dependabot-auto-merge.yml"));
+  const setValues = (name: string): string[] => {
+    const match = script.match(new RegExp(`const ${name} = new Set\\((\\[[^;]+\\])\\);`));
+    assert.ok(match, `missing ${name}`);
+    return JSON.parse(match[1]) as string[];
+  };
+  assert.deepEqual(
+    setValues("runtimeDependencies").sort(),
+    [
+      ...Object.keys(packageJson.dependencies),
+      ...Object.keys(packageJson.optionalDependencies),
+    ].sort(),
+  );
+  assert.deepEqual(
+    setValues("developmentDependencies").sort(),
+    Object.keys(packageJson.devDependencies).sort(),
+  );
+  assert.equal((script.match(/version-update:semver-patch/g) ?? []).length, 1);
+  assert.equal((script.match(/runtime-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
+  assert.equal((script.match(/dev-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
+  assert.equal((script.match(/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
+});
+
+test("Dependabot trusted policy accepts only exact grouped patches", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
-  const patch = "version-update:semver-patch";
   const runtimeNames = [
     ...Object.keys(packageJson.dependencies),
     ...Object.keys(packageJson.optionalDependencies),
   ];
   const devNames = Object.keys(packageJson.devDependencies);
-
   const valid = [
-    {
-      head: "dependabot/npm_and_yarn/runtime-patches-abc123",
-      updateType: patch,
-      names: runtimeNames.join(","),
-    },
-    {
-      head: "dependabot/npm_and_yarn/dev-patches-abc123",
-      updateType: patch,
-      names: devNames.join(","),
-    },
-    {
-      head: "dependabot/github_actions/actions-patches-abc123",
-      updateType: patch,
-      names: "actions/checkout,actions/setup-node",
-    },
+    makePolicyFixture("runtime-patches", runtimeNames),
+    makePolicyFixture("dev-patches", devNames),
+    makePolicyFixture("actions-patches", ["actions/checkout", "actions/setup-node"]),
   ];
-  for (const input of valid) {
-    assert.deepEqual(runDependabotPolicy(yaml, input), {
+  for (const fixture of valid) {
+    assert.deepEqual(runDependabotPolicy(yaml, fixture), {
       status: 0,
-      eligible: "true",
+      values: {
+        eligible: "true",
+        group: String((fixture.commits[0].commit as WorkflowRecord).message).match(/dependency-group: ([^\n]+)/)?.[1] ?? "",
+        pr_number: "123",
+        expected_head_sha: "a".repeat(40),
+      },
     });
   }
 
   const invalid = [
-    { ...valid[0], updateType: "version-update:semver-minor" },
-    { ...valid[0], updateType: "version-update:semver-major" },
-    { ...valid[0], head: "dependabot/npm_and_yarn/unknown-patches-abc123" },
-    { ...valid[0], head: "dependabot/npm_and_yarn/runtime-patchesevil" },
-    { ...valid[0], names: `${runtimeNames.join(",")},unknown-runtime` },
-    { ...valid[1], names: `${devNames.join(",")},unknown-development` },
+    makePolicyFixture("runtime-patches", runtimeNames, "version-update:semver-minor"),
+    makePolicyFixture("runtime-patches", runtimeNames, "version-update:semver-major"),
+    makePolicyFixture("runtime-patches", runtimeNames, "security-update:semver-patch"),
+    makePolicyFixture("runtime-patches", [...runtimeNames, "unknown-runtime"]),
+    makePolicyFixture("dev-patches", [...devNames, "unknown-development"]),
   ];
-  for (const input of invalid) {
-    assert.deepEqual(runDependabotPolicy(yaml, input), {
-      status: 0,
-      eligible: "false",
-    });
+  const unknownGroup = makePolicyFixture("runtime-patches", runtimeNames);
+  (unknownGroup.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
+  (unknownGroup.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
+  unknownGroup.run.head_branch = "dependabot/npm_and_yarn/unknown-patches-abc123";
+  invalid.push(unknownGroup);
+  const nearPrefix = makePolicyFixture("runtime-patches", runtimeNames);
+  (nearPrefix.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
+  (nearPrefix.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
+  nearPrefix.run.head_branch = "dependabot/npm_and_yarn/runtime-patchesevil";
+  invalid.push(nearPrefix);
+
+  for (const fixture of invalid) {
+    const result = runDependabotPolicy(yaml, fixture);
+    assert.equal(result.status, 0);
+    assert.equal(result.values.eligible, "false");
   }
 
-  const empty = runDependabotPolicy(yaml, {
-    head: valid[0].head,
-    updateType: patch,
-    names: "",
-  });
-  assert.notEqual(empty.status, 0);
-  assert.equal(empty.eligible, undefined);
+  const empty = makePolicyFixture("runtime-patches", []);
+  const emptyResult = runDependabotPolicy(yaml, empty);
+  assert.notEqual(emptyResult.status, 0);
+  assert.equal(emptyResult.values.eligible, undefined);
 });
 
-test("Dependabot auto-merge rejects broadened authority", () => {
+test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
+  const names = Object.keys(packageJson.dependencies);
+  const invalid: PolicyFixture[] = [];
+  const mutate = (change: (fixture: PolicyFixture) => void) => {
+    const fixture = makePolicyFixture("runtime-patches", names);
+    change(fixture);
+    invalid.push(fixture);
+  };
+  mutate((fixture) => { fixture.run.id = 43; });
+  mutate((fixture) => { (fixture.run.actor as WorkflowRecord).login = "other"; });
+  mutate((fixture) => { (fixture.run.repository as WorkflowRecord).full_name = "other/repo"; });
+  mutate((fixture) => { fixture.run.event = "push"; });
+  mutate((fixture) => { fixture.run.name = "Other workflow"; });
+  mutate((fixture) => { fixture.run.conclusion = "failure"; });
+  mutate((fixture) => { fixture.associated.push(structuredClone(fixture.associated[0])); });
+  mutate((fixture) => { (fixture.associated[0].head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { (fixture.pr.user as WorkflowRecord).login = "other"; });
+  mutate((fixture) => { (fixture.pr.base as WorkflowRecord).ref = "develop"; });
+  mutate((fixture) => { ((fixture.pr.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
+  mutate((fixture) => { fixture.pr.body = "Maintainer changes:\nChanged by maintainer"; });
+  mutate((fixture) => { fixture.pr.commits = 2; fixture.commits.push(structuredClone(fixture.commits[0])); });
+  mutate((fixture) => { (fixture.commits[0].author as WorkflowRecord).login = "maintainer"; });
+  mutate((fixture) => { ((fixture.commits[0].commit as WorkflowRecord).verification as WorkflowRecord).verified = false; });
+  mutate((fixture) => { fixture.commits[0].sha = "b".repeat(40); });
+
+  for (const fixture of invalid) {
+    const result = runDependabotPolicy(yaml, fixture);
+    assert.notEqual(result.status, 0);
+    assert.equal(result.values.eligible, undefined);
+  }
+});
+
+test("Dependabot observer rejects authority and execution broadening", () => {
+  const yaml = workflow("dependabot-auto-merge-observer.yml");
   const mutations = [
     yaml.replace("github.actor == 'dependabot[bot]'", "github.actor != ''"),
-    yaml.replace(
-      "github.event.pull_request.base.ref == 'main'",
-      "github.event.pull_request.base.ref != ''",
-    ),
-    yaml.replace(
-      "github.event.pull_request.base.ref == 'main'",
-      "github.event.pull_request.base.ref == 'main' || github.actor == 'other-bot'",
-    ),
-    yaml.replace(
-      "pull-requests: write",
-      "actions: write\n      pull-requests: write",
-    ),
-    yaml.replace(
-      "      - name: Fetch Dependabot metadata",
-      "      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Fetch Dependabot metadata",
-    ),
-    yaml.replace(
-      'gh pr merge "$PR_URL" --auto --squash',
-      'gh pr merge "$PR_URL" --admin --squash',
-    ),
-    yaml.replace(
-      "      - name: Approve eligible update",
-      "      - name: Approve eligible update\n        continue-on-error: true",
-    ),
-    yaml.replace(
-      'gh pr merge "$PR_URL" --auto --squash',
-      'gh pr merge "$PR_URL" --auto --squash || true',
-    ),
+    yaml.replace("github.repository == 'therealhieu/md2vid'", "github.repository != ''"),
+    yaml.replace("github.event.pull_request.user.login == 'dependabot[bot]'", "github.event.pull_request.user.login != ''"),
+    yaml.replace("github.event.pull_request.base.ref == 'main'", "github.event.pull_request.base.ref != ''"),
+    yaml.replace("permissions: {}", "permissions: { contents: write }"),
+    yaml.replace('run: "true"', "uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4"),
+    yaml.replace('run: "true"', "run: node ./evil.mjs"),
+    yaml.replace("      - name: Complete observation", "      - run: gh api --method POST /user/repos\n      - name: Complete observation"),
   ];
+  for (const [index, mutated] of mutations.entries()) {
+    assert.notEqual(mutated, yaml, `observer mutation ${index} must modify workflow`);
+    assert.throws(() => assertDependabotObserverPolicy(mutated));
+  }
+});
 
-  for (const mutated of mutations) {
+test("Dependabot privileged workflow rejects every broadened boundary", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const mutations = [
+    yaml.replace("workflow_run:", "pull_request:"),
+    yaml.replace("Dependabot auto-merge observer", "Other observer"),
+    yaml.replace("types:\n      - completed", "types:\n      - requested"),
+    yaml.replace("github.repository == 'therealhieu/md2vid'", "github.repository != ''"),
+    yaml.replace("github.event.workflow_run.event == 'pull_request'", "github.event.workflow_run.event != ''"),
+    yaml.replace("github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.conclusion != ''"),
+    yaml.replace("github.event.workflow_run.actor.login == 'dependabot[bot]'", "github.event.workflow_run.actor.login != ''"),
+    yaml.replace("cancel-in-progress: true", "cancel-in-progress: false"),
+    yaml.replace("pull-requests: write", "actions: write\n      pull-requests: write"),
+    yaml.replace("      - name: Fetch trusted observer and PR state", "      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Fetch trusted observer and PR state"),
+    yaml.replace("      - name: Fetch trusted observer and PR state", "      - uses: ./.github/actions/local\n      - name: Fetch trusted observer and PR state"),
+    yaml.replace("      - name: Fetch trusted observer and PR state", "      - run: gh api --method DELETE repos/therealhieu/md2vid\n      - name: Fetch trusted observer and PR state"),
+    yaml.replace("      - name: Fetch trusted observer and PR state", "      - run: node ./evil.mjs\n      - name: Fetch trusted observer and PR state"),
+    yaml.replace("--method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\"", "--method POST \"repos/$REPOSITORY/actions/runs/$RUN_ID\""),
+    yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
+    yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
+    yaml.replace('"hyperframes"]);', '"hyperframes", "left-pad"]);'),
+    yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE -f commit_id=\"$EXPECTED_HEAD_SHA\"", "gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE"),
+    yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\"", "gh api --method POST \"repos/$REPOSITORY/issues/$PR_NUMBER/comments\"\n          gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\""),
+    yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", "--match-head-commit \"$EXPECTED_HEAD_SHA\" --delete-branch"),
+    yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", ""),
+    yaml.replace("steps.policy.outputs.eligible == 'true'", "always()"),
+    yaml.replace("      - name: Approve eligible update", "      - name: Request native squash auto-merge\n        run: true\n      - name: Approve eligible update"),
+    yaml.replace("set -euo pipefail", "set +e"),
+  ];
+  for (const [index, mutated] of mutations.entries()) {
+    assert.notEqual(mutated, yaml, `privileged mutation ${index} must modify workflow`);
     assert.throws(() => assertDependabotAutoMergePolicy(mutated));
   }
-
-  const forcedTrue = yaml.replace(
-    "const eligible =",
-    "const eligible = true ||",
-  );
-  assert.throws(() => {
-    assert.equal(
-      runDependabotPolicy(forcedTrue, {
-        head: "dependabot/npm_and_yarn/runtime-patches-abc123",
-        updateType: "version-update:semver-major",
-        names: Object.keys(packageJson.dependencies).join(","),
-      }).eligible,
-      "false",
-    );
-  });
 });
 
 test("nightly policy rejects missing or unsupported runners, extra audits, write authority, and cancellation", () => {
