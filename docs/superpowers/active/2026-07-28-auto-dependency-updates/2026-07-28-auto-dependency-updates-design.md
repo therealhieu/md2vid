@@ -2,7 +2,7 @@
 
 ## Summary
 
-Configure weekly grouped Dependabot patch updates for npm runtime/optional dependencies, npm development dependencies, and GitHub Actions. A guarded workflow will approve eligible Dependabot patch pull requests and request GitHub native squash auto-merge. Required checks, dependency review, and protected-branch rules remain the authority that permits or blocks the merge.
+Configure weekly grouped Dependabot patch updates for npm runtime/optional dependencies, npm development dependencies, and GitHub Actions. A guarded workflow requests GitHub native squash auto-merge for eligible Dependabot patch pull requests without creating a review or approval side effect. Required checks, dependency review, and protected-branch rules remain the authority that permits or blocks the merge.
 
 ## Approved architecture decision — 2026-07-28
 
@@ -17,7 +17,7 @@ Dependabot PR
   → successful completion only
   → privileged workflow_run defined on default-branch content
   → trusted GitHub API re-query and complete commit/provenance validation
-  → commit-bound approval
+  → head-bound auto-merge request
   → live-head recheck
   → --auto --squash --match-head-commit
 ```
@@ -25,6 +25,12 @@ Dependabot PR
 The observer is intentionally not a source of metadata. The privileged stage re-queries the live PR and its commits. `dependabot/fetch-metadata@v2.5.0` is not retained because its pinned implementation requires `context.payload.pull_request`, while `workflow_run` supplies `workflow_run` payload data. Trusted checkout-free API queries and inline parsing replace it. No external action runs in the privileged stage.
 
 This decision is an approved exception to the original `pull_request`-only requirement. The original requirement, its concrete security reason, and this replacement must remain separately traceable in the goal, research, and plan artifacts.
+
+## Approved no-review remediation — 2026-07-28
+
+The user explicitly decided that a green eligible patch should auto-merge without approval. The former one-approval protection deadlocked normal pull requests because `therealhieu` is the repository's only collaborator and GitHub forbids self-approval. The live `main` rule is therefore zero required approvals, with strict enforcement of the five required checks and all other protections unchanged.
+
+The trusted workflow is merge-request-only: after the trusted observer query, complete live PR/commit/provenance/policy validation, and an immediate exact-head recheck, it requests native squash auto-merge with `--match-head-commit`. It must not create a review, call the reviews API, carry approval-specific environment values or guards, or add any other side effect. `actions: read` remains required for observer-run queries; `default_workflow_permissions` remains `read`; after this remediation merges, `can_approve_pull_request_reviews` is disabled and the real canary is rerun.
 
 ## Goals
 
@@ -94,7 +100,7 @@ Dependabot PR
        ├── event/live head and repository binding
        ├── verified single Dependabot commit
        ├── patch-only metadata + exact group policy
-       └── commit-bound review + head-bound merge request
+       └── live-head recheck + head-bound merge request
   → native squash auto-merge
   → protected main branch
 ```
@@ -177,12 +183,12 @@ GitHub settings
 ┌───────────────────────▼───────────────────────┐
 │ dependabot-auto-merge.yml                     │
 │ Re-query live state, verify exact head and    │
-│ metadata, approve commit, request auto-merge  │
+│ metadata, recheck head, request auto-merge    │
 └───────────────────────┬───────────────────────┘
                         │ pending auto-merge
 ┌───────────────────────▼───────────────────────┐
 │ Main protection / ruleset                     │
-│ Enforce pull request, approval, and checks     │
+│ Enforce pull request and strict checks         │
 └───────────────────────┬───────────────────────┘
                         │ conditions pass
                     squash merge
@@ -195,8 +201,8 @@ GitHub settings
 | `.github/dependabot.yml` | Create weekly patch groups and conventional titles | Decide whether validation passed |
 | `.github/workflows/ci.yml` | Validate every PR with read-only permissions | Approve or merge PRs |
 | `.github/workflows/dependabot-auto-merge-observer.yml` | Emit a successful Dependabot PR completion signal with no write authority | Check out code, emit artifacts/caches, or provide metadata to the privileged stage |
-| `.github/workflows/dependabot-auto-merge.yml` | From trusted default-branch `workflow_run` content, re-query and bind observer/live PR state, verify commit provenance and exact metadata policy, approve the exact commit, and request head-bound auto-merge | Check out or execute PR code, consume observer artifacts, or perform unmodeled side effects |
-| Main protection/ruleset | Enforce pull request, approval, required checks, and branch integrity | Bypass failed or missing checks |
+| `.github/workflows/dependabot-auto-merge.yml` | From trusted default-branch `workflow_run` content, re-query and bind observer/live PR state, verify commit provenance and exact metadata policy, recheck the exact live head, and request head-bound auto-merge | Submit a review or approval, check out or execute PR code, consume observer artifacts, or perform any other side effect |
+| Main protection/ruleset | Enforce pull request, strict required checks, and branch integrity with zero required approvals | Bypass failed or missing checks |
 | Workflow contract tests | Verify policy structure and security invariants | Freeze routine versions without a deliberate contract reason |
 
 The auto-merge workflow accepts a PR only when all of these conditions are true:
@@ -215,7 +221,7 @@ AND head branch identifies runtime-patches, dev-patches, or actions-patches
 AND metadata dependency names satisfy that group's policy
 ```
 
-Its only merge side effects are approving the eligible PR and requesting native squash auto-merge. GitHub remains responsible for deciding when the PR is mergeable.
+Its only side effect is requesting native squash auto-merge bound to the exact validated live head. GitHub remains responsible for deciding when the PR is mergeable.
 
 ## Data flow
 
@@ -254,13 +260,12 @@ Eligible grouped patch PR against main
   │                                            │
   └──────── merge-policy path ─────────────────┤
     verify actor/repository/base/metadata/group │
-    → approve PR                               │
     → request native squash auto-merge         │
                                                │
                     GitHub waits ◄─────────────┘
                       │
              required checks pass
-             + required approval exists
+             + branch rules pass
                       │
                       ▼
                  merge to main
@@ -268,9 +273,9 @@ Eligible grouped patch PR against main
 
 The observer uses the `pull_request` event with no write permissions and emits only a successful completion signal. The merge-policy workflow retains top-level `permissions: {}`. Its trusted `workflow_run` job is defined on the default branch and grants exactly `actions: read`, `contents: write`, and `pull-requests: write`; `actions: read` is job-scoped only to query the triggering observer run and its associated PRs before the live PR is re-queried through trusted GitHub APIs. It does not use `pull_request_target`, check out the PR, install dependencies, or execute changed code. The untrusted observer run is never consumed as an artifact or metadata source.
 
-## Repository protection and approval
+## Repository protection and merge authority
 
-**Purpose** — Preserve fully unattended eligible patch merges while requiring repository-enforced validation and review conditions.
+**Purpose** — Preserve fully unattended eligible patch merges while requiring repository-enforced validation and branch-integrity conditions.
 
 **Current state**
 
@@ -286,17 +291,19 @@ main
 ```text
 main rules
   ├── require pull request
-  ├── require one approval
-  ├── require stable CI checks
+  ├── require zero approvals
+  ├── require five strict stable CI checks
+  ├── enforce admins and conversation resolution
   ├── block force pushes
   └── block branch deletion
 
 GitHub Actions settings
   ├── allow native auto-merge
-  └── allow Actions to approve pull requests
+  ├── keep default workflow permissions read-only
+  └── disallow Actions pull-request approvals
 ```
 
-The guarded workflow supplies the required approval only for eligible Dependabot patch PRs. Other pull requests continue to require a human approval. Repository settings are a rollout prerequisite and must be verified through the GitHub API after configuration.
+The guarded workflow requests native auto-merge only for eligible Dependabot patch PRs and submits no review. Other pull requests may merge when the same branch rules and required checks pass; the removed approval requirement avoids the only-collaborator self-approval deadlock. Repository settings are a rollout prerequisite and must be verified through the GitHub API after configuration.
 
 Required-check names must be chosen from stable CI job/check names. A required check must not be conditional in a way that leaves an expected check permanently pending for an eligible pull request.
 
@@ -318,11 +325,11 @@ Dependabot PR
 ```text
 Dependabot PR
   │
-  ├─ policy mismatch ───────────────→ no approval; no auto-merge
+  ├─ policy mismatch ───────────────→ no auto-merge request
   ├─ metadata unavailable ──────────→ workflow fails; PR stays open
-  ├─ CI/title/review failure ───────→ required check blocks merge
+  ├─ CI/title/dependency-review failure → required check blocks merge
   ├─ conflict or stale branch ──────→ GitHub blocks merge
-  ├─ approval/API failure ──────────→ workflow fails; PR stays open
+  ├─ merge API failure ─────────────→ workflow fails; PR stays open
   └─ every condition succeeds ──────→ native squash auto-merge
 ```
 
@@ -333,10 +340,10 @@ Dependabot PR
 | Dependency review finds a high-severity risk | Required check fails | Investigate, update, or exclude the dependency |
 | One package breaks a grouped PR | Entire group remains open | Diagnose, recreate selectively, or add a narrow temporary exclusion |
 | PR title violates policy | Required title check fails | Correct Dependabot naming configuration |
-| Auto-merge or Actions approval is disabled | Approval or merge command fails | Complete rollout prerequisites |
+| Native auto-merge is disabled | Merge command fails | Complete rollout prerequisites |
 | Merge conflict or stale state exists | GitHub blocks merge | Dependabot rebase/recreate or manual resolution |
 
-The merge workflow must not suppress approval or merge-command failures.
+The merge workflow must not suppress observer-query, validation, live-head, or merge-command failures.
 
 ## Testing and rollout
 
@@ -364,17 +371,17 @@ Local contract tests
   ├── actor/repository/base guards
   ├── least-privilege permissions
   ├── immutable action pins
-  ├── approval + native squash auto-merge
+  ├── no review API + head-bound native squash auto-merge
   ├── no PR-code execution in merge job
   └── synchronized-version invariants
 
 Remote rollout verification
-  ├── enable auto-merge
-  ├── allow Actions approval
-  ├── protect main / create ruleset
-  ├── require one approval
-  ├── require stable CI checks
-  └── observe one Dependabot patch canary
+  ├── keep native auto-merge enabled
+  ├── disable Actions approval permission
+  ├── preserve protected main
+  ├── require zero approvals
+  ├── require five strict stable CI checks
+  └── rerun one Dependabot patch canary
 ```
 
 ### Configuration tests
@@ -394,7 +401,8 @@ Remote rollout verification
 - Assert narrow write permissions on the merge job.
 - Assert all external actions use full 40-character SHAs.
 - Assert the merge workflow contains no checkout or project-code execution.
-- Assert the workflow approves the PR and requests `--auto --squash`.
+- Assert the workflow contains no approval step, review API call, or other review side effect.
+- Assert it requests exactly `--auto --squash --match-head-commit` after an immediate live-head recheck.
 - Assert it never performs an immediate unconditional merge.
 
 ### Brittle-test cleanup
@@ -406,21 +414,20 @@ Exact Action SHA assertions should become invariant checks for the expected upst
 1. Add or update local contract tests.
 2. Add the Dependabot grouping and merge-policy workflow.
 3. Run type-checks and the full test suite.
-4. Enable native repository auto-merge.
-5. Allow GitHub Actions to approve pull requests.
-6. Protect `main` or add a ruleset with one approval and stable required checks.
-7. Query repository settings to verify the remote policy.
-8. Observe the first eligible Dependabot patch PR as a canary.
-9. Treat the feature as active only after the canary is approved automatically, waits for checks, and squash-merges successfully.
+4. Preserve native repository auto-merge and protected `main` with zero required approvals and five strict required checks.
+5. After the no-review remediation merges, disable GitHub Actions pull-request approvals while preserving read-only default workflow permissions.
+6. Query repository settings to verify the remote policy and every unchanged branch protection.
+7. Rerun an eligible Dependabot patch PR as a canary.
+8. Treat the feature as active only after the canary receives a head-bound auto-merge request, waits for all required checks, and squash-merges successfully without a workflow-created review.
 
 ## Acceptance criteria
 
 - Weekly Dependabot patch updates are grouped into runtime/optional, development, and Actions pull requests.
 - Minor and major updates remain manual.
 - Generated Dependabot titles pass the repository title policy.
-- Only Dependabot patch PRs against `main` in the expected repository receive automated approval and native auto-merge.
+- Only Dependabot patch PRs against `main` in the expected repository receive a native auto-merge request; no workflow-created review or approval is permitted.
 - The merge workflow never checks out or executes PR code.
 - Required CI and dependency-review checks block failed updates.
-- `main` requires one approval and required checks before merging.
+- `main` requires zero approvals, five strict required checks, admin enforcement, conversation resolution, and no force pushes or deletion before merging.
 - Eligible patch PRs squash-merge without human action only after all protections pass.
 - Tests validate policy invariants without pinning routine dependency-update values unnecessarily.
