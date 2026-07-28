@@ -387,6 +387,12 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   });
   const script = dependabotPolicyScript(yaml);
   assert.doesNotMatch(script, /EVENT_HEAD_REPOSITORY|eventHeadRepository/);
+  assert.match(script, /const repositoryId = 1309960592;/);
+  assert.match(script, /const repositoryUrl = "https:\/\/api\.github\.com\/repos\/therealhieu\/md2vid";/);
+  assert.match(script, /const trustedRepository = run\.repository;/);
+  assert.match(script, /observedHeadRepo\?\.id !== trustedRepository\.id/);
+  assert.match(script, /observedBaseRepo\?\.url !== trustedRepository\.url/);
+  assert.doesNotMatch(script, /observed(?:Head|Base)Repo\?\.full_name/);
   assert.match(String(policy.run), /^node --input-type=module <<'NODE'/);
   assert.match(String(policy.run), /\n\s*NODE\s*$/);
   assert.equal((String(policy.run).match(/node --input-type=module/g) ?? []).length, 1);
@@ -518,18 +524,23 @@ function makePolicyFixture(
     "",
     "Signed-off-by: dependabot[bot] <support@github.com>",
   ].join("\n");
+  const repository = {
+    id: 1309960592,
+    url: "https://api.github.com/repos/therealhieu/md2vid",
+    name: "md2vid",
+  };
   const run = {
     id: 42,
     name: "Dependabot auto-merge observer",
     event: "pull_request",
     conclusion: "success",
     actor: { login: "dependabot[bot]" },
-    repository: { full_name: "therealhieu/md2vid" },
+    repository: { ...repository, full_name: "therealhieu/md2vid" },
     head_branch: head,
     pull_requests: [{
       number: 123,
-      head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
-      base: { ref: "main", repo: { full_name: "therealhieu/md2vid" } },
+      head: { ref: head, sha, repo: { ...repository } },
+      base: { ref: "main", repo: { ...repository } },
     }],
   };
   const event = {
@@ -995,13 +1006,16 @@ test("Dependabot trusted policy accepts only exact grouped patches", () => {
   assert.equal(emptyResult.values.eligible, undefined);
 });
 
-test("Dependabot trusted policy accepts absent event repository but rejects repository mismatches", () => {
+test("Dependabot trusted policy accepts observed repo id/url/name schema and rejects repository mismatches", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
   const names = [
     ...Object.keys(packageJson.dependencies),
     ...Object.keys(packageJson.optionalDependencies),
   ];
   const fixture = makePolicyFixture("runtime-patches", names);
+  const observed = (fixture.run.pull_requests as WorkflowRecord[])[0];
+  assert.equal(Object.hasOwn((observed.head as WorkflowRecord).repo as WorkflowRecord, "full_name"), false);
+  assert.equal(Object.hasOwn((observed.base as WorkflowRecord).repo as WorkflowRecord, "full_name"), false);
 
   assert.deepEqual(runDependabotPolicy(yaml, fixture), {
     status: 0,
@@ -1013,11 +1027,39 @@ test("Dependabot trusted policy accepts absent event repository but rejects repo
     },
   });
 
-  const wrongObservedRepository = makePolicyFixture("runtime-patches", names);
-  (((wrongObservedRepository.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo";
-  const observedResult = runDependabotPolicy(yaml, wrongObservedRepository);
-  assert.notEqual(observedResult.status, 0);
-  assert.equal(observedResult.values.eligible, undefined);
+  const observedRepoMutations = [
+    (repo: WorkflowRecord) => { repo.id = 1; },
+    (repo: WorkflowRecord) => { repo.url = "https://api.github.com/repos/therealhieu/other"; },
+    (repo: WorkflowRecord) => { repo.name = "other"; },
+  ];
+  for (const mutateRepo of observedRepoMutations) {
+    for (const side of ["head", "base"] as const) {
+      const wrongObservedRepository = makePolicyFixture("runtime-patches", names);
+      const observed = (wrongObservedRepository.run.pull_requests as WorkflowRecord[])[0];
+      mutateRepo((observed[side] as WorkflowRecord).repo as WorkflowRecord);
+      const observedResult = runDependabotPolicy(yaml, wrongObservedRepository);
+      assert.notEqual(observedResult.status, 0);
+      assert.equal(observedResult.values.eligible, undefined);
+    }
+  }
+
+  const mismatchedObservedRepositories = makePolicyFixture("runtime-patches", names);
+  (((mismatchedObservedRepositories.run.pull_requests as WorkflowRecord[])[0].base as WorkflowRecord).repo as WorkflowRecord).id = 1;
+  const mismatchResult = runDependabotPolicy(yaml, mismatchedObservedRepositories);
+  assert.notEqual(mismatchResult.status, 0);
+  assert.equal(mismatchResult.values.eligible, undefined);
+
+  const wrongTrustedRepositoryId = makePolicyFixture("runtime-patches", names);
+  (wrongTrustedRepositoryId.run.repository as WorkflowRecord).id = 1;
+  const trustedIdResult = runDependabotPolicy(yaml, wrongTrustedRepositoryId);
+  assert.notEqual(trustedIdResult.status, 0);
+  assert.equal(trustedIdResult.values.eligible, undefined);
+
+  const wrongTrustedRepositoryUrl = makePolicyFixture("runtime-patches", names);
+  (wrongTrustedRepositoryUrl.run.repository as WorkflowRecord).url = "https://api.github.com/repos/therealhieu/other";
+  const trustedUrlResult = runDependabotPolicy(yaml, wrongTrustedRepositoryUrl);
+  assert.notEqual(trustedUrlResult.status, 0);
+  assert.equal(trustedUrlResult.values.eligible, undefined);
 
   const wrongLiveRepository = makePolicyFixture("runtime-patches", names);
   ((wrongLiveRepository.pr.base as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo";
