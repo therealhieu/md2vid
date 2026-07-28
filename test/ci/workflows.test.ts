@@ -376,6 +376,10 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     PR_FILE: "${{ steps.state.outputs.pr_file }}",
     COMMITS_FILE: "${{ steps.state.outputs.commits_file }}",
     RUN_ID: "${{ github.event.workflow_run.id }}",
+    EVENT_PR_NUMBER: "${{ github.event.workflow_run.pull_requests[0].number }}",
+    EVENT_HEAD_REF: "${{ github.event.workflow_run.pull_requests[0].head.ref }}",
+    EVENT_HEAD_SHA: "${{ github.event.workflow_run.pull_requests[0].head.sha }}",
+    EVENT_HEAD_REPOSITORY: "${{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}",
   });
   const script = dependabotPolicyScript(yaml);
   assert.match(String(policy.run), /^node --input-type=module <<'NODE'/);
@@ -448,6 +452,7 @@ function dependabotPolicyScript(yaml: string): string {
 }
 
 type PolicyFixture = {
+  event: WorkflowRecord;
   run: WorkflowRecord;
   associated: WorkflowRecord[];
   pr: WorkflowRecord;
@@ -485,6 +490,10 @@ function makePolicyFixture(
     repository: { full_name: "therealhieu/md2vid" },
     head_branch: head,
   };
+  const event = {
+    number: 123,
+    head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
+  };
   const associated = [{
     number: 123,
     head: { ref: head, sha, repo: { full_name: "therealhieu/md2vid" } },
@@ -504,7 +513,7 @@ function makePolicyFixture(
     author: { login: "dependabot[bot]" },
     commit: { message, verification: { verified: true } },
   }];
-  return { run, associated, pr, commits };
+  return { event, run, associated, pr, commits };
 }
 
 function runDependabotPolicy(
@@ -526,6 +535,10 @@ function runDependabotPolicy(
         ...process.env,
         GITHUB_OUTPUT: output,
         RUN_ID: "42",
+        EVENT_PR_NUMBER: String(fixture.event.number),
+        EVENT_HEAD_REF: String((fixture.event.head as WorkflowRecord).ref),
+        EVENT_HEAD_SHA: String((fixture.event.head as WorkflowRecord).sha),
+        EVENT_HEAD_REPOSITORY: String(((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name),
         RUN_FILE: write("run.json", fixture.run),
         ASSOCIATED_FILE: write("associated.json", fixture.associated),
         PR_FILE: write("pr.json", fixture.pr),
@@ -897,11 +910,13 @@ test("Dependabot trusted policy accepts only exact grouped patches", () => {
   const unknownGroup = makePolicyFixture("runtime-patches", runtimeNames);
   (unknownGroup.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
   (unknownGroup.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
+  (unknownGroup.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
   unknownGroup.run.head_branch = "dependabot/npm_and_yarn/unknown-patches-abc123";
   invalid.push(unknownGroup);
   const nearPrefix = makePolicyFixture("runtime-patches", runtimeNames);
   (nearPrefix.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
   (nearPrefix.associated[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
+  (nearPrefix.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
   nearPrefix.run.head_branch = "dependabot/npm_and_yarn/runtime-patchesevil";
   invalid.push(nearPrefix);
 
@@ -932,6 +947,10 @@ test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   mutate((fixture) => { fixture.run.event = "push"; });
   mutate((fixture) => { fixture.run.name = "Other workflow"; });
   mutate((fixture) => { fixture.run.conclusion = "failure"; });
+  mutate((fixture) => { fixture.event.number = 124; });
+  mutate((fixture) => { (fixture.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/other"; });
+  mutate((fixture) => { (fixture.event.head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { ((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
   mutate((fixture) => { fixture.associated.push(structuredClone(fixture.associated[0])); });
   mutate((fixture) => { (fixture.associated[0].head as WorkflowRecord).sha = "b".repeat(40); });
   mutate((fixture) => { (fixture.pr.user as WorkflowRecord).login = "other"; });

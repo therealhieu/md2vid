@@ -65,6 +65,10 @@ jobs:
           PR_FILE: ${{ steps.state.outputs.pr_file }}
           COMMITS_FILE: ${{ steps.state.outputs.commits_file }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
+          EVENT_HEAD_REPOSITORY: ${{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}
         run: |-
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
@@ -156,6 +160,15 @@ jobs:
           if (!output) fail("GITHUB_OUTPUT is unavailable");
           const runId = Number(process.env.RUN_ID);
           if (!Number.isSafeInteger(runId) || runId < 1) fail("run ID is invalid");
+          const eventPrNumber = Number(process.env.EVENT_PR_NUMBER);
+          const eventHeadRef = process.env.EVENT_HEAD_REF ?? "";
+          const eventHeadSha = process.env.EVENT_HEAD_SHA ?? "";
+          const eventHeadRepository = process.env.EVENT_HEAD_REPOSITORY ?? "";
+          if (!Number.isSafeInteger(eventPrNumber) || eventPrNumber < 1 ||
+              !/^dependabot\/(?:npm_and_yarn|github_actions)\/[a-z0-9-]+$/.test(eventHeadRef) ||
+              !/^[a-f0-9]{40}$/.test(eventHeadSha) || eventHeadRepository !== repository) {
+            fail("workflow_run PR identity is invalid");
+          }
           const run = readJson(process.env.RUN_FILE, "observer run");
           const associated = readJson(process.env.ASSOCIATED_FILE, "associated pull requests");
           const pr = readJson(process.env.PR_FILE, "live pull request");
@@ -168,14 +181,14 @@ jobs:
           }
           if (!Array.isArray(associated) || associated.length !== 1) fail("observer run must map to exactly one PR");
           const observed = associated[0];
-          if (!Number.isSafeInteger(observed?.number) || observed.number < 1 || observed.number !== pr.number) {
+          if (!Number.isSafeInteger(observed?.number) || observed.number !== eventPrNumber || observed.number !== pr.number) {
             fail("associated PR number is invalid");
           }
-          const expectedHeadSha = observed?.head?.sha;
-          if (!/^[a-f0-9]{40}$/.test(expectedHeadSha ?? "")) fail("observed head SHA is invalid");
-          if (run.head_branch !== observed?.head?.ref || observed?.head?.repo?.full_name !== repository ||
+          const expectedHeadSha = eventHeadSha;
+          if (observed?.head?.sha !== eventHeadSha || observed?.head?.ref !== eventHeadRef ||
+              observed?.head?.repo?.full_name !== eventHeadRepository || run.head_branch !== eventHeadRef ||
               observed?.base?.ref !== "main" || observed?.base?.repo?.full_name !== repository) {
-            fail("observer PR identity is invalid");
+            fail("observer PR identity changed after the event");
           }
           if (pr.state !== "open" || pr.user?.login !== dependabot || pr.base?.ref !== "main" ||
               pr.base?.repo?.full_name !== repository || pr.head?.repo?.full_name !== repository ||
