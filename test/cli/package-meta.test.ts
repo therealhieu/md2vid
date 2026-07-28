@@ -375,6 +375,8 @@ test("files[] is the exact public package allowlist", () => {
     "docs/standards",
     "skill",
     "bin",
+    "scripts/dependency_versions.ts",
+    "scripts/package_root.ts",
     "postinstall.mjs",
     "README.md",
     "LICENSE",

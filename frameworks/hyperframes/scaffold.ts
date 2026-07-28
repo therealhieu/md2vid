@@ -20,7 +20,20 @@ export const GSAP_SRC_TOKEN = "__MD2VID_GSAP_SRC__";
 const CANONICAL_GSAP_CDN =
   /^https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@([^/]+)\/dist\/gsap\.min\.js$/;
 
-const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "templates");
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const SOURCE_TEMPLATES = join(MODULE_DIR, "templates");
+const PACKED_DIST_TEMPLATES = join(
+  MODULE_DIR,
+  "..",
+  "..",
+  "dist",
+  "frameworks",
+  "hyperframes",
+  "templates",
+);
+const TEMPLATES = existsSync(SOURCE_TEMPLATES)
+  ? SOURCE_TEMPLATES
+  : PACKED_DIST_TEMPLATES;
 const CAPTION_SKIN_TEMPLATE = join(TEMPLATES, "caption-skin.html");
 
 function escapeHtmlAttribute(value: string): string {

@@ -8,6 +8,8 @@ export const REQUIRED_PACKED_FILES = [
   "dist/scripts/install_skill.js",
   "dist/scripts/upgrade.js",
   "dist/scripts/package_root.js",
+  "scripts/dependency_versions.ts",
+  "scripts/package_root.ts",
   "dist/scripts/platform_support.js",
   "dist/scripts/project_layout.js",
   "dist/scripts/scaffold_project.js",
