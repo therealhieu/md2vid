@@ -117,6 +117,29 @@ function assertPinnedUses(yaml: string): void {
   }
 }
 
+function actionPins(yaml: string, action: string): string[] {
+  const escaped = action.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [...yaml.matchAll(
+    new RegExp(
+      `uses:\\s+${escaped}@([a-f0-9]{40})\\s+#\\s+(v\\d+(?:\\.\\d+)*)\\s*$`,
+      "gm",
+    ),
+  )].map((match) => `${match[1]} ${match[2]}`);
+}
+
+function assertConsistentActionPin(
+  workflowNames: string[],
+  action: string,
+): void {
+  const pins = workflowNames.flatMap((name) => actionPins(workflow(name), action));
+  assert.ok(pins.length > 0, `missing ${action}`);
+  assert.equal(
+    new Set(pins).size,
+    1,
+    `${action} must use one immutable SHA and version comment`,
+  );
+}
+
 function assertCheckoutHardening(yaml: string): void {
   const lines = yaml.split("\n");
   for (const [index, line] of lines.entries()) {
@@ -305,7 +328,7 @@ function assertNightlyPolicy(yaml: string): void {
   const resolver = jobBody(yaml, "resolve-latest-node", "native-matrix");
   assert.match(resolver, /runs-on: ubuntu-latest/);
   assert.match(resolver, /permissions: \{\}/);
-  assert.match(resolver, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4/);
+  assert.match(resolver, /actions\/setup-node@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(resolver, /node-version: node/);
   assert.match(resolver, /version=\$\(node -p 'process\.versions\.node'\)/);
   assert.match(resolver, /version: \$\{\{ steps\.node\.outputs\.version \}\}/);
@@ -351,6 +374,14 @@ test("validation, CI, and nightly workflows exist", () => {
     assert.equal(existsSync(workflowPath(name)), true, `missing ${name}`);
   }
   assert.equal(existsSync(dependabotPath), true, "missing dependabot.yml");
+});
+
+test("shared external actions use one immutable pin across workflows", () => {
+  const active = ["ci.yml", "nightly.yml", "release.yml", "validate.yml"];
+  assertConsistentActionPin(active, "actions/setup-node");
+  assertConsistentActionPin(active, "actions/checkout");
+  assertConsistentActionPin(active, "actions/upload-artifact");
+  assertConsistentActionPin(active, "actions/download-artifact");
 });
 
 test("workflow policy inventory covers and checks every active workflow file", () => {
@@ -927,10 +958,10 @@ function assertActionlintQueueSuppression(body?: string): void {
 
 function assertReleaseToolchain(body: string, ref: RegExp): void {
   const checkout = body.match(/- name: Check out verified commit[\s\S]*?(?=\n      - name:|$)/)?.[0] ?? "";
-  assert.match(checkout, /actions\/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4/);
+  assert.match(checkout, /actions\/checkout@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(checkout, ref);
   assert.match(checkout, /persist-credentials:\s*false/);
-  assert.match(body, /actions\/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4/);
+  assert.match(body, /actions\/setup-node@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(body, /node-version:\s*\$\{\{ needs\.preflight\.outputs\.node_version \}\}/);
   assert.match(body, /npm install --global "\$package_manager"/);
   assert.match(body, /test "\$\(npm --version\)" = "\$expected"/);
@@ -1132,7 +1163,7 @@ test("release obtains a new or retained immutable artifact before upload", () =>
   assert.match(body, /npm run release:pack -- --output release-artifact/);
   const download = stepBody(body, "Download retained release artifact");
   assert.match(download, /if:\s*needs\.preflight\.outputs\.registry_state == 'existing' && steps\.current-artifact\.outputs\.reuse != 'true'/);
-  assert.match(download, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(download, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(download, /artifact-ids:\s*\$\{\{ needs\.preflight\.outputs\.artifact_id \}\}/);
   assert.match(download, /run-id:\s*\$\{\{ needs\.preflight\.outputs\.artifact_run_id \}\}/);
   assert.doesNotMatch(download, /^\s+name:/m);
@@ -1204,7 +1235,7 @@ test("release verifies one exact current-run tarball on every supported OS", () 
   assertReleaseVerificationMatrix(yaml);
   assertReleaseArtifactVerificationRequired(yaml);
   assert.match(body, /^    runs-on:\s*\$\{\{ matrix\.runner \}\}\s*$/m);
-  assert.match(body, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(body, /name:\s*\$\{\{ needs\.preflight\.outputs\.artifact_name \}\}/);
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
   assert.ok(body.indexOf("Check out verified commit") < body.indexOf("Download current release artifact"), "checkout cleanup must run before artifact download");
@@ -1231,7 +1262,7 @@ test("release publication uses OIDC only and publishes the verified tarball", ()
   const yaml = workflow("release.yml");
   const body = releaseJob(yaml, "publish-npm");
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
-  assert.match(body, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4/);
+  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
   assert.match(stepBody(body, "Install publication verification dependencies"), /^\s+run:\s*npm ci --ignore-scripts\s*$/m);
   assert.match(body, /--metadata-only/);
   assert.match(body, /node scripts\/release_preflight\.ts publish-check/);
