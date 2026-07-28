@@ -212,6 +212,9 @@ function validateException(value: unknown, today: number): { exception?: AuditEx
   if (typeof value.reason !== "string" || value.reason.trim() === "" || value.reason !== value.reason.trim()) {
     return { error: `invalid exception ${renderedTuple}: reason must be a non-empty trimmed string` };
   }
+  if (/\bhyperframes@\d+\.\d+\.\d+\b/i.test(value.reason)) {
+    return { error: `invalid exception ${renderedTuple}: reason must not pin the md2vid HyperFrames version` };
+  }
   if (typeof value.owner !== "string" || !OWNER.test(value.owner)) {
     return { error: `invalid exception ${renderedTuple}: owner must be a GitHub login or owner/team slug` };
   }
