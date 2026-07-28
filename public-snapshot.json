@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 282,
-  "hash": "sha256:6ec5a9818b5e895908463a187518c5654dd63129f0eb7f627ea720f4f160fc4d",
+  "hash": "sha256:cafc61a845a824f88436a2e296f1d3fdf89371a5de31618a80e5d5c52da1e514",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -804,8 +804,8 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 98225,
-      "sha256": "18885298c34668f7e29b28464aaacf0db39db90a12338e857d59dc37db0dd21b"
+      "bytes": 98208,
+      "sha256": "147f2f5e1043bf0a913738c37bf7501f1740725ce9afb7db03b9dd674dacbdbb"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
