@@ -44,7 +44,7 @@ jobs:
           PR_FILE="$STATE_DIR/pr.json"
           COMMITS_FILE="$STATE_DIR/commits.json"
           gh api --method GET "repos/$REPOSITORY/actions/runs/$RUN_ID" > "$RUN_FILE"
-          PR_NUMBER=$(jq -er 'if .pull_requests | type == "array" and length == 1 and (.[0].number | type) == "number" then .[0].number else error("observer run must map to exactly one PR") end' "$RUN_FILE")
+          PR_NUMBER=$(jq -er '.pull_requests as $prs | if ($prs | type == "array") and ($prs | length == 1) and (($prs[0].number | type) == "number") and ($prs[0].number >= 1) then $prs[0].number else error("observer run must map to exactly one PR") end' "$RUN_FILE")
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" > "$PR_FILE"
           gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$COMMITS_FILE"

@@ -364,7 +364,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   });
   assert.equal(
     state.run,
-    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\nPR_NUMBER=$(jq -er 'if .pull_requests | type == \"array\" and length == 1 and (.[0].number | type) == \"number\" then .[0].number else error(\"observer run must map to exactly one PR\") end' \"$RUN_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\n{\n  printf 'run_file=%s\\n' \"$RUN_FILE\"\n  printf 'pr_file=%s\\n' \"$PR_FILE\"\n  printf 'commits_file=%s\\n' \"$COMMITS_FILE\"\n} >> \"$GITHUB_OUTPUT\"",
+    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\nPR_NUMBER=$(jq -er '.pull_requests as $prs | if ($prs | type == \"array\") and ($prs | length == 1) and (($prs[0].number | type) == \"number\") and ($prs[0].number >= 1) then $prs[0].number else error(\"observer run must map to exactly one PR\") end' \"$RUN_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\n{\n  printf 'run_file=%s\\n' \"$RUN_FILE\"\n  printf 'pr_file=%s\\n' \"$PR_FILE\"\n  printf 'commits_file=%s\\n' \"$COMMITS_FILE\"\n} >> \"$GITHUB_OUTPUT\"",
   );
   assert.equal(
     (String(state.run).match(/gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID"/g) ?? []).length,
@@ -454,6 +454,39 @@ function dependabotPolicyScript(yaml: string): string {
   );
   assert.ok(match, "missing trusted inline policy script");
   return match[1];
+}
+
+function dependabotRunPrNumberJqExpression(yaml: string): string {
+  const state = parsedSteps(
+    parsedJob(parseWorkflow(yaml).value, "request-auto-merge"),
+    "request-auto-merge",
+  )[0];
+  const match = String(state.run).match(/PR_NUMBER=\$\(jq -er '([^']+)' "\$RUN_FILE"\)/);
+  assert.ok(match, "missing trusted run pull_requests extraction expression");
+  return match[1];
+}
+
+function runDependabotPrNumberExtraction(
+  yaml: string,
+  run: unknown,
+): { status: number | null; stdout: string; stderr: string } {
+  const dir = mkdtempSync(join(tmpdir(), "md2vid-dependabot-run-pr-"));
+  const runFile = join(dir, "run.json");
+  try {
+    writeFileSync(runFile, JSON.stringify(run));
+    const result = spawnSync("jq", [
+      "-er",
+      dependabotRunPrNumberJqExpression(yaml),
+      runFile,
+    ], { encoding: "utf8" });
+    return {
+      status: result.status,
+      stdout: result.stdout.trim(),
+      stderr: result.stderr.trim(),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 type PolicyFixture = {
@@ -853,6 +886,30 @@ test("Dependabot defines exact weekly patch groups", () => {
   assert.equal(Object.hasOwn(npm, "ignore"), false);
   assert.equal(Object.hasOwn(actions, "ignore"), false);
   assert.doesNotMatch(body, /update-types:[\s\S]{0,80}-\s+"?(?:minor|major)"?/);
+});
+
+test("Dependabot trusted run PR extraction accepts one numeric run-object PR", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  assert.deepEqual(
+    runDependabotPrNumberExtraction(yaml, { pull_requests: [{ number: 123 }] }),
+    { status: 0, stdout: "123", stderr: "" },
+  );
+
+  const invalid = [
+    {},
+    { pull_requests: null },
+    { pull_requests: { number: 123 } },
+    { pull_requests: [] },
+    { pull_requests: [{ number: 123 }, { number: 124 }] },
+    { pull_requests: [{ number: "123" }] },
+    { pull_requests: [{ number: 0 }] },
+    { pull_requests: [{ number: -1 }] },
+  ];
+  for (const run of invalid) {
+    const result = runDependabotPrNumberExtraction(yaml, run);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /observer run must map to exactly one PR|Cannot index|boolean/);
+  }
 });
 
 test("Dependabot trusted policy constants equal repository metadata", () => {
