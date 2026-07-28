@@ -738,6 +738,53 @@ Verifier evidence retained on 2026-07-28: the single read-only verifier returned
 
   Use the configured git identity and do not push or change remote settings.
 
+### Task 5.3: Correlate trusted runs from supported workflow-run metadata [Mode A standalone]
+
+#### Confirmed canary failure — 2026-07-28
+
+The real grouped Dependabot canary PR #25 confirmed a workflow-run/PR correlation defect in the trusted default-branch stage, not a repository permission issue.
+
+Evidence:
+
+- Observer run `30341879923`, rerun attempt `2`, succeeded for the real grouped Dependabot PR #25.
+- Trusted run `30355942906` had effective `GITHUB_TOKEN` permissions `actions: read`, `contents: write`, and `pull-requests: write`.
+- `GET repos/therealhieu/md2vid/actions/runs/30341879923` succeeds under those permissions, and the workflow-run JSON includes the documented `pull_requests` field.
+- The next command, `GET repos/therealhieu/md2vid/actions/runs/30341879923/pull_requests`, returns `HTTP 404` with both the workflow token and a user token because that subendpoint is unsupported.
+- Official GitHub workflow-run REST documentation exposes associated pull requests on the workflow-run object itself via `pull_requests`; Context7 quota was unavailable when this was verified, and the official docs search confirmed the run-object field.
+
+Remediation:
+
+- Keep the no-review architecture, remote policy, unprivileged observer, trusted default-branch `workflow_run` origin, run metadata validation, event/live PR/head/repository cross-checks, complete commit provenance validation, live-head recheck, and exact `gh pr merge --auto --squash --match-head-commit` side effect.
+- Remove the unsupported associated-pull-requests subendpoint call and its `ASSOCIATED_FILE` handoff.
+- Correlate exactly one numeric PR from the trusted observer `RUN_FILE` object's `.pull_requests` array.
+- Fail closed when `.pull_requests` is missing, empty, multiple, or malformed, then continue to re-query the live PR and commits before any merge request.
+- Preserve current workflow permissions exactly: `actions: read`, `contents: write`, and `pull-requests: write`; do not add checkout, artifacts, installs, builds, caches, project execution, or any review/approval side effect.
+
+**Files:**
+- Modify: `test/ci/workflows.test.ts`
+- Modify: `.github/workflows/dependabot-auto-merge.yml`
+- Regenerate if required: `public-snapshot.json`
+
+- [x] **Step 1: Record the confirmed failure before code changes**
+
+  This section records the canary run IDs, effective permissions, supported run-object `pull_requests` field, unsupported subendpoint, and remediation while preserving the no-review architecture and remote policy.
+
+- [x] **Step 2: RED — contract supported run-object correlation**
+
+  In `test/ci/workflows.test.ts`, require exactly one Actions run GET, forbid `/actions/runs/$RUN_ID/pull_requests`, require trusted `RUN_FILE` `.pull_requests` correlation, require exactly one associated pull request with a numeric `number`, and retain event/live cross-checks. Run the focused workflow test and capture RED against the current workflow.
+
+- [x] **Step 3: GREEN — remove the unsupported subendpoint**
+
+  In `.github/workflows/dependabot-auto-merge.yml`, remove `ASSOCIATED_FILE` and the second API call. Derive `PR_NUMBER` from `RUN_FILE` `.pull_requests`, pass only needed files and outputs, and fail closed on missing, multiple, or malformed PR entries. Preserve live PR and commits re-query, run metadata validation, event PR/head/repository cross-checks, exact provenance/head checks, no-review exact merge command, no checkout/artifacts/project execution, and current permissions.
+
+- [x] **Step 4: Strengthen mutations**
+
+  Add or update mutation coverage for reintroduced unsupported endpoint usage, absent/multiple/malformed run `pull_requests`, and correlation mismatches without weakening existing authority, trust-origin, commit-provenance, multi-commit, and head-rotation coverage.
+
+- [x] **Step 5: Verify and commit**
+
+  Regenerate the public snapshot if required. Run focused workflow tests, Actionlint, pinned snapshot check, full check, `release:check`, scoped diff checks, and working-tree diff checks. Commit conventionally with the configured identity. Do not push or change remote settings.
+
 ### Task 6: Preserve protections and prove the no-review canary [Tester: yes]
 
 #### Live canary deviation — 2026-07-28
