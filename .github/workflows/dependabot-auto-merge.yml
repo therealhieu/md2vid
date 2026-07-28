@@ -65,7 +65,6 @@ jobs:
           EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           EVENT_HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
           EVENT_HEAD_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
-          EVENT_HEAD_REPOSITORY: ${{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}
         run: |-
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
@@ -160,10 +159,9 @@ jobs:
           const eventPrNumber = Number(process.env.EVENT_PR_NUMBER);
           const eventHeadRef = process.env.EVENT_HEAD_REF ?? "";
           const eventHeadSha = process.env.EVENT_HEAD_SHA ?? "";
-          const eventHeadRepository = process.env.EVENT_HEAD_REPOSITORY ?? "";
           if (!Number.isSafeInteger(eventPrNumber) || eventPrNumber < 1 ||
               !/^dependabot\/(?:npm_and_yarn|github_actions)\/[a-z0-9-]+$/.test(eventHeadRef) ||
-              !/^[a-f0-9]{40}$/.test(eventHeadSha) || eventHeadRepository !== repository) {
+              !/^[a-f0-9]{40}$/.test(eventHeadSha)) {
             fail("workflow_run PR identity is invalid");
           }
           const run = readJson(process.env.RUN_FILE, "observer run");
@@ -187,7 +185,7 @@ jobs:
           }
           const expectedHeadSha = eventHeadSha;
           if (observed?.head?.sha !== eventHeadSha || observed?.head?.ref !== eventHeadRef ||
-              observed?.head?.repo?.full_name !== eventHeadRepository || run.head_branch !== eventHeadRef ||
+              observed?.head?.repo?.full_name !== repository || run.head_branch !== eventHeadRef ||
               observed?.base?.ref !== "main" || observed?.base?.repo?.full_name !== repository) {
             fail("observer PR identity changed after the event");
           }

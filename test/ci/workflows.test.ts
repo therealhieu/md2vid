@@ -384,9 +384,9 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     EVENT_PR_NUMBER: "${{ github.event.workflow_run.pull_requests[0].number }}",
     EVENT_HEAD_REF: "${{ github.event.workflow_run.pull_requests[0].head.ref }}",
     EVENT_HEAD_SHA: "${{ github.event.workflow_run.pull_requests[0].head.sha }}",
-    EVENT_HEAD_REPOSITORY: "${{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}",
   });
   const script = dependabotPolicyScript(yaml);
+  assert.doesNotMatch(script, /EVENT_HEAD_REPOSITORY|eventHeadRepository/);
   assert.match(String(policy.run), /^node --input-type=module <<'NODE'/);
   assert.match(String(policy.run), /\n\s*NODE\s*$/);
   assert.equal((String(policy.run).match(/node --input-type=module/g) ?? []).length, 1);
@@ -556,6 +556,7 @@ function makePolicyFixture(
 function runDependabotPolicy(
   yaml: string,
   fixture: PolicyFixture,
+  options: { eventHeadRepository?: string } = {},
 ): { status: number | null; values: Record<string, string> } {
   const dir = mkdtempSync(join(tmpdir(), "md2vid-dependabot-policy-"));
   const output = join(dir, "output");
@@ -575,7 +576,9 @@ function runDependabotPolicy(
         EVENT_PR_NUMBER: String(fixture.event.number),
         EVENT_HEAD_REF: String((fixture.event.head as WorkflowRecord).ref),
         EVENT_HEAD_SHA: String((fixture.event.head as WorkflowRecord).sha),
-        EVENT_HEAD_REPOSITORY: String(((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name),
+        ...(options.eventHeadRepository === undefined
+          ? {}
+          : { EVENT_HEAD_REPOSITORY: options.eventHeadRepository }),
         RUN_FILE: write("run.json", fixture.run),
         PR_FILE: write("pr.json", fixture.pr),
         COMMITS_FILE: write("commits.json", fixture.commits),
@@ -992,6 +995,37 @@ test("Dependabot trusted policy accepts only exact grouped patches", () => {
   assert.equal(emptyResult.values.eligible, undefined);
 });
 
+test("Dependabot trusted policy accepts absent event repository but rejects repository mismatches", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const names = [
+    ...Object.keys(packageJson.dependencies),
+    ...Object.keys(packageJson.optionalDependencies),
+  ];
+  const fixture = makePolicyFixture("runtime-patches", names);
+
+  assert.deepEqual(runDependabotPolicy(yaml, fixture), {
+    status: 0,
+    values: {
+      eligible: "true",
+      group: "runtime-patches",
+      pr_number: "123",
+      expected_head_sha: "a".repeat(40),
+    },
+  });
+
+  const wrongObservedRepository = makePolicyFixture("runtime-patches", names);
+  (((wrongObservedRepository.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo";
+  const observedResult = runDependabotPolicy(yaml, wrongObservedRepository);
+  assert.notEqual(observedResult.status, 0);
+  assert.equal(observedResult.values.eligible, undefined);
+
+  const wrongLiveRepository = makePolicyFixture("runtime-patches", names);
+  ((wrongLiveRepository.pr.base as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo";
+  const liveResult = runDependabotPolicy(yaml, wrongLiveRepository);
+  assert.notEqual(liveResult.status, 0);
+  assert.equal(liveResult.values.eligible, undefined);
+});
+
 test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
   const names = Object.keys(packageJson.dependencies);
@@ -1010,7 +1044,6 @@ test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   mutate((fixture) => { fixture.event.number = 124; });
   mutate((fixture) => { (fixture.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/other"; });
   mutate((fixture) => { (fixture.event.head as WorkflowRecord).sha = "b".repeat(40); });
-  mutate((fixture) => { ((fixture.event.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
   mutate((fixture) => { delete fixture.run.pull_requests; });
   mutate((fixture) => { fixture.run.pull_requests = []; });
   mutate((fixture) => { (fixture.run.pull_requests as WorkflowRecord[]).push(structuredClone((fixture.run.pull_requests as WorkflowRecord[])[0])); });
