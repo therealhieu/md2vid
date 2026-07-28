@@ -21,8 +21,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const HYPERFRAMES_CLI = join(REPO_ROOT, "scripts", "hyperframes_cli.ts");
 
-const STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
-const STUDIO_ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
+const LEGACY_STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
+const LEGACY_STUDIO_ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
+const CURRENT_STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(tr.getState().isEditMode||l)return;";
+const CURRENT_STUDIO_ANCHOR_2 = "if(!p)return;l=!0;const A=p;fetch(";
 const STUDIO_MARKER = "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;";
 const CLI_ANCHOR = 'const subCompositionHosts = trackedCompositionHosts.filter((host) => host.hasAttribute("data-composition-src"));';
 const CLI_MARKER = 'host.removeAttribute("data-composition-src")';
@@ -35,26 +37,44 @@ interface FakeInstallation {
   studio: string;
 }
 
-function fakeInstallation(options: { malformedStudio?: boolean } = {}): FakeInstallation {
+function fakeInstallation(options: {
+  malformedStudio?: boolean;
+  layout?: "dist" | "bin";
+  anchorVariant?: "legacy" | "current";
+  extraStudioFiles?: number;
+} = {}): FakeInstallation {
   const root = mkdtempSync(join(tmpdir(), "md2vid-hyperframes-self-heal-"));
   const packageRoot = join(root, "node_modules", "hyperframes");
-  const cli = join(packageRoot, "dist", "cli.js");
-  const studio = join(packageRoot, "dist", "studio", "assets", "index-test.js");
+  const cli = join(packageRoot, "bin", "hyperframes.mjs");
+  const studio = join(
+    packageRoot,
+    options.layout === "bin" ? "bin" : "dist",
+    "studio",
+    "assets",
+    "index-test.js",
+  );
   const meta = join(root, "runner.mjs");
+  mkdirSync(dirname(cli), { recursive: true });
   mkdirSync(dirname(studio), { recursive: true });
   writeFileSync(meta, "// package resolution anchor\n");
   writeFileSync(join(packageRoot, "package.json"), JSON.stringify({
     name: "hyperframes",
     version: HYPERFRAMES_VERSION,
-    bin: { hyperframes: "dist/cli.js" },
+    bin: { hyperframes: "./bin/hyperframes.mjs" },
   }));
   writeFileSync(
     cli,
     `function packageCliFixture(trackedCompositionHosts) {\n  ${CLI_ANCHOR}\n  return subCompositionHosts;\n}\nconsole.log(process.argv.slice(2).join("|"));\n`,
   );
+  const anchors = options.anchorVariant === "current"
+    ? [CURRENT_STUDIO_ANCHOR_1, CURRENT_STUDIO_ANCHOR_2]
+    : [LEGACY_STUDIO_ANCHOR_1, LEGACY_STUDIO_ANCHOR_2];
   writeFileSync(studio, options.malformedStudio
-    ? `${STUDIO_ANCHOR_1}\n`
-    : `${STUDIO_ANCHOR_1}\n${STUDIO_ANCHOR_2}\n`);
+    ? `${anchors[0]}\n`
+    : `${anchors[0]}\n${anchors[1]}\n`);
+  for (let i = 0; i < (options.extraStudioFiles ?? 0); i += 1) {
+    writeFileSync(join(dirname(studio), `index-extra-${i}.js`), `${anchors[0]}\n${anchors[1]}\n`);
+  }
   return { root, metaUrl: pathToFileURL(meta).href, packageRoot, cli, studio };
 }
 
@@ -100,6 +120,91 @@ test("HyperFrames proxy applies only the required caption-loop patch before spaw
     assert.equal(code, 0);
     assert.equal(spawned, true);
   } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy patches legacy bin/studio/assets layout", () => {
+  const fixture = fakeInstallation({ layout: "bin" });
+  let spawned = false;
+  try {
+    const code = runHyperframes(["lint"], {
+      metaUrl: fixture.metaUrl,
+      spawn() {
+        spawned = true;
+        assert.match(readFileSync(fixture.studio, "utf8"), /hfLast/);
+        return successResult();
+      },
+    });
+    assert.equal(code, 0);
+    assert.equal(spawned, true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy patches current dist/studio/assets layout with current anchors", () => {
+  const fixture = fakeInstallation({ anchorVariant: "current" });
+  let spawned = false;
+  try {
+    const code = runHyperframes(["lint"], {
+      metaUrl: fixture.metaUrl,
+      spawn() {
+        spawned = true;
+        assert.match(readFileSync(fixture.studio, "utf8"), /hfLast/);
+        return successResult();
+      },
+    });
+    assert.equal(code, 0);
+    assert.equal(spawned, true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy fails closed when multiple Studio bundles match", () => {
+  const fixture = fakeInstallation({ extraStudioFiles: 1 });
+  let spawned = false;
+  const errors: string[] = [];
+  const originalError = console.error;
+  try {
+    console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+    const code = runHyperframes(["lint"], {
+      metaUrl: fixture.metaUrl,
+      spawn() {
+        spawned = true;
+        return successResult();
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(spawned, false);
+    assert.match(errors.join("\n"), /caption-loop bundle matched 2 file\(s\), expected 1/);
+  } finally {
+    console.error = originalError;
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy fails closed when no Studio bundle matches", () => {
+  const fixture = fakeInstallation();
+  let spawned = false;
+  const errors: string[] = [];
+  const originalError = console.error;
+  try {
+    writeFileSync(fixture.studio, "console.log('unknown bundle');\n");
+    console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+    const code = runHyperframes(["lint"], {
+      metaUrl: fixture.metaUrl,
+      spawn() {
+        spawned = true;
+        return successResult();
+      },
+    });
+    assert.equal(code, 1);
+    assert.equal(spawned, false);
+    assert.match(errors.join("\n"), /caption-loop bundle matched 0 file\(s\), expected 1/);
+  } finally {
+    console.error = originalError;
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -189,7 +294,7 @@ test("mixed patched and pristine anchors fail closed before spawn", () => {
   const originalError = console.error;
   try {
     assert.equal(runHyperframes(["lint"], { metaUrl: fixture.metaUrl, spawn: successResult }), 0);
-    const partiallyDuplicated = `${readFileSync(fixture.studio, "utf8")}\n${STUDIO_ANCHOR_1}\n`;
+    const partiallyDuplicated = `${readFileSync(fixture.studio, "utf8")}\n${LEGACY_STUDIO_ANCHOR_1}\n`;
     writeFileSync(fixture.studio, partiallyDuplicated);
     console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
     assert.equal(runHyperframes(["snapshot"], {

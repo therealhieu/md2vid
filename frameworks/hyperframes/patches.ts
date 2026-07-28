@@ -16,10 +16,22 @@ import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 export const PINNED_HYPERFRAMES_VERSION = HYPERFRAMES_VERSION;
 
-const STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
-const STUDIO_PATCH_1 = "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;";
-const STUDIO_ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
-const STUDIO_PATCH_2 = "if(!g)return;if(hfLast===g)return;hfLast=g;l=!0;const A=g;fetch(";
+const STUDIO_PATCH_VARIANTS = [
+  {
+    name: "legacy",
+    anchor1: "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;",
+    patch1: "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;",
+    anchor2: "if(!g)return;l=!0;const A=g;fetch(",
+    patch2: "if(!g)return;if(hfLast===g)return;hfLast=g;l=!0;const A=g;fetch(",
+  },
+  {
+    name: "current",
+    anchor1: "let l=!1;const c=()=>{if(tr.getState().isEditMode||l)return;",
+    patch1: "let l=!1,hfLast=null;const c=()=>{if(tr.getState().isEditMode||l)return;",
+    anchor2: "if(!p)return;l=!0;const A=p;fetch(",
+    patch2: "if(!p)return;if(hfLast===p)return;hfLast=p;l=!0;const A=p;fetch(",
+  },
+] as const;
 
 export interface PinnedHyperframesInstallation {
   packageRoot: string;
@@ -73,25 +85,62 @@ function replaceExact(source: string, anchor: string, patch: string, label: stri
   return { body: source.replace(anchor, patch), changed: true };
 }
 
+function variantMarkerCount(
+  source: string,
+  variant: typeof STUDIO_PATCH_VARIANTS[number],
+): number {
+  return [variant.anchor1, variant.patch1, variant.anchor2, variant.patch2]
+    .reduce((count, marker) => count + countOccurrences(source, marker), 0);
+}
+
+function selectStudioPatchVariant(source: string): typeof STUDIO_PATCH_VARIANTS[number] {
+  const variants = STUDIO_PATCH_VARIANTS.filter((variant) => variantMarkerCount(source, variant) > 0);
+  if (variants.length !== 1) {
+    throw new Error(`caption-loop anchor variant matched ${variants.length} variant(s), expected 1`);
+  }
+  return variants[0];
+}
+
 function patchStudioSource(source: string): { body: string; changed: boolean } {
-  const first = replaceExact(source, STUDIO_ANCHOR_1, STUDIO_PATCH_1, "caption-loop anchor-1");
-  const second = replaceExact(first.body, STUDIO_ANCHOR_2, STUDIO_PATCH_2, "caption-loop anchor-2");
+  const variant = selectStudioPatchVariant(source);
+  const first = replaceExact(source, variant.anchor1, variant.patch1, "caption-loop anchor-1");
+  const second = replaceExact(first.body, variant.anchor2, variant.patch2, "caption-loop anchor-2");
   return { body: second.body, changed: first.changed || second.changed };
 }
 
-function resolveStudioBundle(cliEntry: string): string {
-  const assetsDir = join(dirname(cliEntry), "studio", "assets");
-  const candidates = readdirSync(assetsDir)
-    .filter((name) => name.startsWith("index-") && name.endsWith(".js"))
-    .map((name) => join(assetsDir, name));
+function resolveStudioAssetsDirs(installation: PinnedHyperframesInstallation): string[] {
+  const dirs = [
+    join(dirname(installation.cliEntry), "studio", "assets"),
+    join(installation.packageRoot, "dist", "studio", "assets"),
+  ];
+  return [...new Set(dirs)];
+}
+
+function readStudioAssetCandidates(assetsDir: string): string[] {
+  try {
+    return readdirSync(assetsDir)
+      .filter((name) => name.startsWith("index-") && name.endsWith(".js"))
+      .map((name) => join(assetsDir, name));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function sourceHasKnownStudioPatchMarkers(source: string): boolean {
+  return STUDIO_PATCH_VARIANTS.some((variant) => variantMarkerCount(source, variant) > 0);
+}
+
+function resolveStudioBundle(installation: PinnedHyperframesInstallation): string {
+  const assetsDirs = resolveStudioAssetsDirs(installation);
+  const candidates = assetsDirs.flatMap(readStudioAssetCandidates);
   const hits = candidates.filter((path) => {
     const source = readFileSync(path, "utf8");
-    return [STUDIO_ANCHOR_1, STUDIO_PATCH_1, STUDIO_ANCHOR_2, STUDIO_PATCH_2]
-      .some((needle) => source.includes(needle));
+    return sourceHasKnownStudioPatchMarkers(source);
   });
   if (hits.length !== 1) {
     throw new Error(
-      `caption-loop bundle matched ${hits.length} file(s), expected 1 in ${assetsDir}`,
+      `caption-loop bundle matched ${hits.length} file(s), expected 1 in ${assetsDirs.join(", ")}`,
     );
   }
   return hits[0];
@@ -164,12 +213,13 @@ function withPatchLock<T>(packageRoot: string, operation: () => T): T {
 export function readPinnedHyperframesPatchState(
   installation: PinnedHyperframesInstallation,
 ): HyperframesPatchState {
-  const studioBundle = resolveStudioBundle(installation.cliEntry);
+  const studioBundle = resolveStudioBundle(installation);
   const studioSource = readFileSync(studioBundle, "utf8");
   return {
     studioBundle,
-    captionLoopApplied: studioSource.includes(STUDIO_PATCH_1) &&
-      studioSource.includes(STUDIO_PATCH_2),
+    captionLoopApplied: STUDIO_PATCH_VARIANTS.some((variant) =>
+      studioSource.includes(variant.patch1) && studioSource.includes(variant.patch2)
+    ),
   };
 }
 
@@ -184,7 +234,7 @@ export function ensurePinnedHyperframesPatches(
   }
 
   return withPatchLock(installation.packageRoot, () => {
-    const studioBundle = resolveStudioBundle(installation.cliEntry);
+    const studioBundle = resolveStudioBundle(installation);
     const studio = patchStudioSource(readFileSync(studioBundle, "utf8"));
     const result = { studioBundle, captionLoopChanged: studio.changed };
     if (!studio.changed) return result;
