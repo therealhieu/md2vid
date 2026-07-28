@@ -106,6 +106,22 @@ test("canonical stable versions reject leading-zero package pins", async () => {
   }
 });
 
+test("root Remotion dependency family is synchronized and mutation-checked", async () => {
+  for (const [name, value] of Object.entries(pkg.optionalDependencies)) {
+    if (name === "remotion" || name.startsWith("@remotion/")) {
+      assert.equal(value, REMOTION_VERSION, `${name} must match remotion`);
+    }
+  }
+  for (const name of ["@remotion/media", "@remotion/google-fonts"]) {
+    const manifest = structuredClone(pkg);
+    manifest.optionalDependencies[name] = "999.999.999";
+    await assert.rejects(
+      () => importAuthority(manifest),
+      new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} must match remotion`),
+    );
+  }
+});
+
 test("generated framework manifests use synchronized package versions", () => {
   assert.equal(
     hyperframesScaffoldSpec("ignored").outputConfig.gsapSrc,

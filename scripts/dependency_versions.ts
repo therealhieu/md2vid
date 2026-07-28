@@ -44,6 +44,14 @@ function exactVersion(section: DependencySection, name: string): string {
 
 export const HYPERFRAMES_VERSION = exactVersion("dependencies", "hyperframes");
 export const REMOTION_VERSION = exactVersion("optionalDependencies", "remotion");
+
+for (const name of Object.keys(pkg.optionalDependencies ?? {})) {
+  if (name !== "remotion" && !name.startsWith("@remotion/")) continue;
+  if (dependencyValue("optionalDependencies", name) !== REMOTION_VERSION) {
+    throw new Error(`${name} must match remotion@${REMOTION_VERSION}`);
+  }
+}
+
 export const REACT_VERSION = exactVersion("optionalDependencies", "react");
 export const GSAP_VERSION = exactVersion("devDependencies", "gsap");
 export const REACT_TYPES_VERSION = dependencyValue("devDependencies", "@types/react");
