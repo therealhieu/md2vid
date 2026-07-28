@@ -45,6 +45,10 @@ The live canary root cause is the trusted policy's dependency on the nested work
 
 The actual Dependabot commit body metadata fields are ordered as `dependency-name`, `dependency-version`, `dependency-type`, `update-type`, `dependency-group`. The implementation must keep the event PR number/ref/SHA requirements and preserve the existing repository and provenance guards, but it must accept `dependency-version` as part of the trusted metadata contract. Tests must first go RED against the current workflow by proving a real metadata fixture including `dependency-version` fails in the existing parser, and by proving the existing repo/head/provenance guards still fail on bad inputs.
 
+## Task 5.7 canary evidence — 2026-07-28
+
+The rebased real grouped Dependabot canary PR #25 title is `chore(deps): bump the runtime-patches group across 1 directory with 4 updates`. The `pr-title` required check failed solely because the generated title is longer than the CI workflow's 72-character maximum; its conventional prefix, spacing, and no-trailing-punctuation grammar otherwise match the repository rule. This proves valid Dependabot-generated grouped patch PRs for the configured groups cannot merge unless `pr-title` keeps ordinary PR rules while adding a narrow Dependabot grouped-title exception tied to Dependabot authorship, exact configured group branch families, and exact configured group names.
+
 ## Group: `dependabot-automation`
 
 Tasks 4–5 form one policy scope. Preserve both commits, then run one combined review/remediation/verifier cycle.

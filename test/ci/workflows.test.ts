@@ -632,6 +632,49 @@ function runDependabotPolicy(
   }
 }
 
+function prTitleStep(yaml: string): WorkflowRecord {
+  const job = parsedJob(parseWorkflow(yaml).value, "pr-title");
+  const steps = parsedSteps(job, "pr-title");
+  assert.equal(steps.length, 1);
+  return steps[0];
+}
+
+type PrTitleInput = {
+  title: string;
+  actor?: string;
+  author?: string;
+  headRef?: string;
+};
+
+function runPrTitlePolicy(
+  yaml: string,
+  { title, actor = "therealhieu", author = "therealhieu", headRef = "feature/example" }: PrTitleInput,
+): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync("bash", ["-euo", "pipefail", "-c", String(prTitleStep(yaml).run)], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PR_TITLE: title,
+      PR_ACTOR: actor,
+      PR_AUTHOR: author,
+      PR_HEAD_REF: headRef,
+    },
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim(),
+  };
+}
+
+function assertPrTitleAccepted(yaml: string, input: PrTitleInput): void {
+  assert.deepEqual(runPrTitlePolicy(yaml, input), { status: 0, stdout: "", stderr: "" });
+}
+
+function assertPrTitleRejected(yaml: string, input: PrTitleInput): void {
+  assert.notEqual(runPrTitlePolicy(yaml, input).status, 0, input.title);
+}
+
 function assertActiveJobsPolicy(name: string, yaml: string): void {
   assert.ok(
     Object.hasOwn(EXPECTED_JOB_RUNNERS, name),
@@ -852,6 +895,85 @@ test("all workflow actions are pinned and workflows avoid forbidden authority an
   for (const name of ["validate.yml", "ci.yml", "nightly.yml"]) {
     assertSafeWorkflowPolicy(workflow(name));
   }
+});
+
+test("CI pr-title passes title, actor, author, and branch to the validator", () => {
+  const step = prTitleStep(workflow("ci.yml"));
+  assert.deepEqual(step.env, {
+    PR_TITLE: "${{ github.event.pull_request.title }}",
+    PR_ACTOR: "${{ github.actor }}",
+    PR_AUTHOR: "${{ github.event.pull_request.user.login }}",
+    PR_HEAD_REF: "${{ github.event.pull_request.head.ref }}",
+  });
+});
+
+test("CI pr-title keeps ordinary PRs conventional and at most 72 characters", () => {
+  const yaml = workflow("ci.yml");
+  assertPrTitleAccepted(yaml, {
+    title: `fix(cli): ${"a".repeat(62)}`,
+  });
+  assertPrTitleRejected(yaml, {
+    title: `fix(cli): ${"a".repeat(63)}`,
+  });
+  assertPrTitleRejected(yaml, {
+    title: "bugfix(cli): reject non-conventional type",
+  });
+  assertPrTitleRejected(yaml, {
+    title: "fix(cli): reject trailing punctuation.",
+  });
+});
+
+test("CI pr-title allows only exact grouped Dependabot patch titles for configured groups", () => {
+  const yaml = workflow("ci.yml");
+  const bot = "dependabot[bot]";
+  const valid = [
+    {
+      title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates",
+      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump the dev-patches group across 2 directories with 3 updates",
+      headRef: "dependabot/npm_and_yarn/dev-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump the actions-patches group across 1 directory with 2 updates",
+      headRef: "dependabot/github_actions/actions-patches-abc123",
+    },
+  ];
+  for (const input of valid) {
+    assertPrTitleAccepted(yaml, { ...input, actor: bot, author: bot });
+  }
+});
+
+test("CI pr-title rejects broad Dependabot and long-title exemptions", () => {
+  const yaml = workflow("ci.yml");
+  const bot = "dependabot[bot]";
+  const groupedRuntime = {
+    title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates",
+    actor: bot,
+    author: bot,
+    headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
+  };
+  const invalid: PrTitleInput[] = [
+    { ...groupedRuntime, actor: "therealhieu" },
+    { ...groupedRuntime, author: "therealhieu" },
+    { ...groupedRuntime, headRef: "dependabot/npm_and_yarn/unknown-patches-abc123" },
+    { ...groupedRuntime, title: "chore(deps): bump the unknown-patches group across 1 directory with 4 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump hyperframes from 0.7.26 to 0.7.27" },
+    { ...groupedRuntime, title: `chore(deps): ${"not a grouped patch title ".repeat(4)}` },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group with 4 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 0 directories with 4 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directories with 4 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 1 update" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates." },
+    {
+      title: "chore(deps): bump the dev-patches group across 1 directory with 4 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
+    },
+  ];
+  for (const input of invalid) assertPrTitleRejected(yaml, input);
 });
 
 test("nightly runs one exact latest Node across the native matrix", () => {
