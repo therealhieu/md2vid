@@ -49,6 +49,10 @@ The actual Dependabot commit body metadata fields are ordered as `dependency-nam
 
 The rebased real grouped Dependabot canary PR #25 title is `chore(deps): bump the runtime-patches group across 1 directory with 4 updates`. The `pr-title` required check failed solely because the generated title is longer than the CI workflow's 72-character maximum; its conventional prefix, spacing, and no-trailing-punctuation grammar otherwise match the repository rule. This proves valid Dependabot-generated grouped patch PRs for the configured groups cannot merge unless `pr-title` keeps ordinary PR rules while adding a narrow Dependabot grouped-title exception tied to Dependabot authorship, exact configured group branch families, and exact configured group names.
 
+## Task 5.8 canary evidence — 2026-07-29
+
+The rebased real grouped Dependabot canary PR #25 now updates HyperFrames to 0.7.78 and fails all required validation jobs during npm postinstall because `patch-studio` scans `node_modules/hyperframes/bin/studio/assets`, but the packed HyperFrames 0.7.78 package contains Studio assets under `dist/studio/assets`, including `dist/studio/assets/index-BSZrK0bx.js`, and contains no `bin/studio/assets` directory. The same bundle still contains the caption-loop bug, but the exact minified anchors changed from `Qn`/`g` to `tr`/`p`: old anchor pair `let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;` and `if(!g)return;l=!0;const A=g;fetch(`; current anchor pair `let l=!1;const c=()=>{if(tr.getState().isEditMode||l)return;` and `if(!p)return;l=!0;const A=p;fetch(`. The remediation must support only the legacy and current exact known anchor variants, resolve exactly one Studio bundle from either the legacy CLI-relative assets directory or `packageRoot/dist/studio/assets`, patch exactly one bundle, and keep fail-closed behavior for unknown or multiple layouts/anchors.
+
 ## Group: `dependabot-automation`
 
 Tasks 4–5 form one policy scope. Preserve both commits, then run one combined review/remediation/verifier cycle.

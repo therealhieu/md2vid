@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Patches an upstream HyperFrames Studio bug (present 0.7.26 → 0.7.37):
+// Patches an upstream HyperFrames Studio bug (present 0.7.26 → 0.7.78):
 //
 // The Studio effect ACe auto-targets any composition whose id/src contains
 // "caption", fetches its file, and calls xCe()->yCe() to build an editable
@@ -20,16 +20,13 @@
 // Asserts each anchor matches exactly once, so it fails loudly if a future
 // bundle changes shape (rather than silently corrupting or no-op'ing).
 
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
-import { createRequire } from "node:module";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseCommand } from "../../scripts/cli_args.ts";
 import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 import { resolveHyperframesInstallation } from "../../scripts/hyperframes_cli.ts";
 import { isMainModule } from "../../scripts/main-guard.ts";
-import { ensurePinnedHyperframesPatches } from "./patches.ts";
-
-const require = createRequire(import.meta.url);
+import { ensurePinnedHyperframesPatches, patchPinnedStudioBundleSource } from "./patches.ts";
 
 const fail = (message: string, bundlePath?: string): number => {
   console.error(`FAIL [patch-studio]: hyperframes@${HYPERFRAMES_VERSION} ${message}`);
@@ -37,41 +34,8 @@ const fail = (message: string, bundlePath?: string): number => {
   return 1;
 };
 
-const ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
-const PATCH_1 = "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;";
-
-const ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
-const PATCH_2 = "if(!g)return;if(hfLast===g)return;hfLast=g;l=!0;const A=g;fetch(";
-
 export function resolveStudioAssetsDir(cliPath: string): string {
   return join(dirname(cliPath), "studio", "assets");
-}
-
-// Locate the Studio SPA bundle. The filename carries a content hash
-// (index-<hash>.js) that changes across builds, so we scan the assets dir for
-// the one file that contains our anchor rather than hardcoding the hash.
-function resolveBundle() {
-  const cliPath = require.resolve("hyperframes/dist/cli.js");
-  const assetsDir = resolveStudioAssetsDir(cliPath);
-  const candidates = readdirSync(assetsDir)
-    .filter((f) => f.startsWith("index-") && f.endsWith(".js"))
-    .map((f) => join(assetsDir, f));
-  const hits = candidates.filter((p) => {
-    const s = readFileSync(p, "utf8");
-    return s.includes(ANCHOR_1) || s.includes(PATCH_1);
-  });
-  if (hits.length !== 1) {
-    throw new Error(
-      `expected 1 Studio bundle containing the caption effect, found ${hits.length} in ${assetsDir}. Bundle layout changed — patch needs review.`,
-    );
-  }
-  return hits[0];
-}
-
-function countOccurrences(haystack: string, needle: string) {
-  let n = 0, i = 0;
-  while ((i = haystack.indexOf(needle, i)) !== -1) { n++; i += needle.length; }
-  return n;
 }
 
 const USAGE = "Usage: md2vid patch-studio [bundle-path]";
@@ -106,12 +70,7 @@ export function run(argv: string[]): number {
     }
   }
 
-  let bundlePath: string;
-  try {
-    bundlePath = parsed.positionals[0] || resolveBundle();
-  } catch (e: unknown) {
-    return fail((e as Error).message);
-  }
+  const bundlePath = parsed.positionals[0];
 
   let src: string;
   try {
@@ -120,22 +79,16 @@ export function run(argv: string[]): number {
     return fail(`could not read bundle: ${(e as Error).message}`, bundlePath);
   }
 
-  if (src.includes(PATCH_1) && src.includes(PATCH_2)) {
+  let patched: string;
+  try {
+    patched = patchPinnedStudioBundleSource(src);
+  } catch (e: unknown) {
+    return fail(`${(e as Error).message}. Bundle shape changed — patch needs review.`, bundlePath);
+  }
+
+  if (patched === src) {
     console.log(`[patch] already applied: ${bundlePath}`);
     return 0;
-  }
-
-  for (const [label, anchor] of [["anchor-1", ANCHOR_1], ["anchor-2", ANCHOR_2]]) {
-    const c = countOccurrences(src, anchor);
-    if (c !== 1) {
-      return fail(`${label} matched ${c} time(s), expected 1. Bundle shape changed — patch needs review.`, bundlePath);
-    }
-  }
-
-  const patched = src.replace(ANCHOR_1, PATCH_1).replace(ANCHOR_2, PATCH_2);
-
-  if (patched === src || !patched.includes(PATCH_1) || !patched.includes(PATCH_2)) {
-    return fail("replacement did not take effect", bundlePath);
   }
 
   try {
