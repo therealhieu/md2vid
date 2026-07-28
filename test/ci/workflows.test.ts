@@ -361,11 +361,10 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     REPOSITORY: "therealhieu/md2vid",
     RUN_ID: "${{ github.event.workflow_run.id }}",
   });
-  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID"/);
-  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/actions\/runs\/\$RUN_ID\/pull_requests"/);
-  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER"/);
-  assert.match(String(state.run), /gh api --method GET "repos\/\$REPOSITORY\/pulls\/\$PR_NUMBER\/commits\?per_page=100"/);
-  assert.doesNotMatch(String(state.run), /POST|PATCH|PUT|DELETE|checkout|npm|node_modules|scripts\//i);
+  assert.equal(
+    state.run,
+    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nASSOCIATED_FILE=\"$STATE_DIR/associated.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$ASSOCIATED_FILE\"\nPR_NUMBER=$(jq -er 'if type == \"array\" and length == 1 and (.[0].number | type) == \"number\" then .[0].number else error(\"observer run must map to exactly one PR\") end' \"$ASSOCIATED_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\nprintf 'run_file=%s\\n' \"$RUN_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'associated_file=%s\\n' \"$ASSOCIATED_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'pr_file=%s\\n' \"$PR_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'commits_file=%s\\n' \"$COMMITS_FILE\" >> \"$GITHUB_OUTPUT\"",
+  );
 
   const policy = steps[1];
   exactKeys(policy, ["name", "id", "shell", "env", "run"]);
