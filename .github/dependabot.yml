@@ -7,6 +7,24 @@ updates:
       day: "monday"
       time: "04:17"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      runtime-patches:
+        patterns:
+          - "hyperframes"
+          - "@remotion/google-fonts"
+          - "@remotion/media"
+          - "react"
+          - "react-dom"
+          - "remotion"
+        update-types:
+          - "patch"
+      dev-patches:
+        dependency-type: "development"
+        update-types:
+          - "patch"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -14,3 +32,11 @@ updates:
       day: "monday"
       time: "04:23"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions-patches:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"

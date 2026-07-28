@@ -24,13 +24,13 @@ import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { parseCommand } from "../../scripts/cli_args.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 import { resolveHyperframesInstallation } from "../../scripts/hyperframes_cli.ts";
 import { isMainModule } from "../../scripts/main-guard.ts";
 import { ensurePinnedHyperframesPatches } from "./patches.ts";
 
 const require = createRequire(import.meta.url);
 
-const HYPERFRAMES_VERSION = "0.7.26";
 const fail = (message: string, bundlePath?: string): number => {
   console.error(`FAIL [patch-studio]: hyperframes@${HYPERFRAMES_VERSION} ${message}`);
   if (bundlePath) console.error(`FAIL [patch-studio]: bundle ${bundlePath}`);

@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { makeWavForSafeDuration } from "../helpers/wav.ts";
+import { DEFAULT_GSAP_SRC } from "../../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -44,8 +45,14 @@ const ARTIFACTS = [
   { fixture: "captions.html", built: join("hyperframes", "compositions", "captions.html") },
 ];
 
+function materializeDefaultGsapSrc(body: string): string {
+  return body.replaceAll("__MD2VID_DEFAULT_GSAP_SRC__", DEFAULT_GSAP_SRC);
+}
+
 function readExpected(slug: string, name: string) {
-  return readFileSync(join(FIXTURES, slug, "expected", name), "utf8");
+  return materializeDefaultGsapSrc(
+    readFileSync(join(FIXTURES, slug, "expected", name), "utf8"),
+  );
 }
 
 // Seed a temp dir from fixtures/<slug>/inputs/, run build + regroup (the exact
@@ -62,7 +69,7 @@ function buildChainIntoTemp(slug: string) {
   ]) {
     writeFileSync(
       join(output, "compositions", "frames", `${frameSlug}.html`),
-      `<template data-composition-id="${frameSlug}"><div data-composition-id="${frameSlug}" data-width="1920" data-height="1080" data-duration="1"></div><script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script><script>window.__timelines = window.__timelines || {}; window.__timelines["${frameSlug}"] = gsap.timeline({ paused: true });</script></template>\n`,
+      `<template data-composition-id="${frameSlug}"><div data-composition-id="${frameSlug}" data-width="1920" data-height="1080" data-duration="1"></div><script src="${DEFAULT_GSAP_SRC}"></script><script>window.__timelines = window.__timelines || {}; window.__timelines["${frameSlug}"] = gsap.timeline({ paused: true });</script></template>\n`,
     );
   }
 
@@ -74,7 +81,12 @@ function buildChainIntoTemp(slug: string) {
     writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
   }
   copyFileSync(join(inputs, "video.config.json"), join(shared, "video.config.json"));
-  copyFileSync(join(inputs, "output.config.json"), join(output, "output.config.json"));
+  writeFileSync(
+    join(output, "output.config.json"),
+    materializeDefaultGsapSrc(
+      readFileSync(join(inputs, "output.config.json"), "utf8"),
+    ),
+  );
 
   execFileSync("node", [join(SCRIPTS, "build.ts"), output], { stdio: "pipe" });
   execFileSync(

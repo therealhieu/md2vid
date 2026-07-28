@@ -26,6 +26,7 @@ import {
 import { extractTemplateById, replaceTemplateById } from "../html.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
 import { contrastRatio, parseCssColor } from "../visual_contract.ts";
+import { DEFAULT_GSAP_SRC } from "../../../scripts/dependency_versions.ts";
 
 const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 });
 const VOICE02 = Buffer.from(VOICE01);
@@ -49,7 +50,7 @@ function makePlan() {
   };
 }
 
-function authoredFrame(slug: string, gsapSrc = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js") {
+function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
   return `<!doctype html>
 <html><body>
   <template data-composition-id="${slug}">
@@ -105,7 +106,7 @@ test("default emit uses the pinned CDN and does not scaffold local GSAP bytes", 
 
     const index = readFileSync(join(output, "index.html"), "utf8");
     const captions = readFileSync(join(output, "compositions", "captions.html"), "utf8");
-    const pinned = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+    const pinned = DEFAULT_GSAP_SRC;
     assert.equal(index.match(new RegExp(pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length, 1);
     assert.ok(captions.includes(`<script src="${pinned}">`));
     assert.doesNotMatch(index, new RegExp(`<template[^>]*>[\\s\\S]*?<script src="${pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">`));
@@ -173,7 +174,7 @@ test("captionsOnly emits staged standalone and embedded caption artifacts with t
 
     const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
     const index = readFileSync(join(stagedOutput, "index.html"), "utf8");
-    assert.match(captions, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
+    assert.ok(captions.includes(`<script src="${DEFAULT_GSAP_SRC}">`));
     assert.match(index, /<template id="captions-template"/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
@@ -326,7 +327,7 @@ test("full emit embeds sanitized frame and caption templates while preserving au
   const { tmp, shared, output } = setup();
   try {
     const plan = makePlan();
-    const pinned = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+    const pinned = DEFAULT_GSAP_SRC;
     const firstFrame = join(output, "compositions", "frames", "01-a.html");
     const authored = authoredFrame("01-a").replace(
       `<script src="${pinned}"></script>`,
@@ -343,7 +344,10 @@ test("full emit embeds sanitized frame and caption templates while preserving au
     assert.match(index, /<template id="01-a-template" data-composition-id="01-a">/);
     assert.match(index, /<template id="captions-template" data-composition-id="captions"/);
     assert.match(index, /https:\/\/example\.test\/not-the-configured-gsap\.js/);
-    assert.equal(index.match(/https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/g)?.length, 1);
+    assert.equal(
+      index.match(new RegExp(DEFAULT_GSAP_SRC.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length,
+      1,
+    );
     assert.equal(readFileSync(firstFrame, "utf8"), authoredBefore, "full emit must not rewrite authored frames");
     assert.match(readFileSync(join(output, "compositions", "captions.html"), "utf8"), new RegExp(pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {

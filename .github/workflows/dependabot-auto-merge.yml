@@ -1,0 +1,252 @@
+name: Dependabot auto-merge
+
+"on":
+  workflow_run:
+    workflows:
+      - Dependabot auto-merge observer
+    types:
+      - completed
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  approve-and-enable-auto-merge:
+    if: >-
+      github.repository == 'therealhieu/md2vid' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.name == 'Dependabot auto-merge observer' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch trusted observer and PR state
+        id: state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: therealhieu/md2vid
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |-
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          STATE_DIR="$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID"
+          test ! -e "$STATE_DIR"
+          mkdir -m 700 "$STATE_DIR"
+          RUN_FILE="$STATE_DIR/run.json"
+          ASSOCIATED_FILE="$STATE_DIR/associated.json"
+          PR_FILE="$STATE_DIR/pr.json"
+          COMMITS_FILE="$STATE_DIR/commits.json"
+          gh api --method GET "repos/$REPOSITORY/actions/runs/$RUN_ID" > "$RUN_FILE"
+          gh api --method GET "repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests" > "$ASSOCIATED_FILE"
+          PR_NUMBER=$(jq -er 'if type == "array" and length == 1 and (.[0].number | type) == "number" then .[0].number else error("observer run must map to exactly one PR") end' "$ASSOCIATED_FILE")
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" > "$PR_FILE"
+          gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$COMMITS_FILE"
+          {
+            printf 'run_file=%s\n' "$RUN_FILE"
+            printf 'associated_file=%s\n' "$ASSOCIATED_FILE"
+            printf 'pr_file=%s\n' "$PR_FILE"
+            printf 'commits_file=%s\n' "$COMMITS_FILE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate Dependabot patch group policy
+        id: policy
+        shell: bash
+        env:
+          RUN_FILE: ${{ steps.state.outputs.run_file }}
+          ASSOCIATED_FILE: ${{ steps.state.outputs.associated_file }}
+          PR_FILE: ${{ steps.state.outputs.pr_file }}
+          COMMITS_FILE: ${{ steps.state.outputs.commits_file }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_HEAD_REF: ${{ github.event.workflow_run.pull_requests[0].head.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.pull_requests[0].head.sha }}
+          EVENT_HEAD_REPOSITORY: ${{ github.event.workflow_run.pull_requests[0].head.repo.full_name }}
+        run: |-
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const repository = "therealhieu/md2vid";
+          const observerName = "Dependabot auto-merge observer";
+          const dependabot = "dependabot[bot]";
+          const patchUpdateType = "version-update:semver-patch";
+          const runtimeDependencies = new Set(["hyperframes", "@remotion/google-fonts", "@remotion/media", "react", "react-dom", "remotion"]);
+          const developmentDependencies = new Set(["@types/node", "@types/react", "@types/react-dom", "gsap", "typescript", "yaml"]);
+          const policies = [
+            {
+              group: "runtime-patches",
+              branch: /^dependabot\/npm_and_yarn\/runtime-patches(?:-[a-z0-9]+)?$/,
+              allowed: runtimeDependencies,
+            },
+            {
+              group: "dev-patches",
+              branch: /^dependabot\/npm_and_yarn\/dev-patches(?:-[a-z0-9]+)?$/,
+              allowed: developmentDependencies,
+            },
+            {
+              group: "actions-patches",
+              branch: /^dependabot\/github_actions\/actions-patches(?:-[a-z0-9]+)?$/,
+              allowed: null,
+            },
+          ];
+
+          const fail = (message) => {
+            throw new Error(`Dependabot policy: ${message}`);
+          };
+          const readJson = (path, label) => {
+            if (!path) fail(`${label} path is unavailable`);
+            try {
+              return JSON.parse(readFileSync(path, "utf8"));
+            } catch {
+              return fail(`${label} is not valid JSON`);
+            }
+          };
+          const parseScalar = (source, label) => {
+            const value = source.trim();
+            if (value.startsWith('"')) {
+              try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed !== "string" || parsed.length === 0) fail(`${label} is invalid`);
+                return parsed;
+              } catch {
+                return fail(`${label} is invalid`);
+              }
+            }
+            if (value.startsWith("'") && value.endsWith("'")) {
+              const parsed = value.slice(1, -1).replaceAll("''", "'");
+              if (!parsed) fail(`${label} is invalid`);
+              return parsed;
+            }
+            if (!/^[A-Za-z0-9@/_.:+-]+$/.test(value)) fail(`${label} is invalid`);
+            return value;
+          };
+          const parseDependencies = (message) => {
+            const fragment = String(message).match(/(?:^|\n)---\n([\s\S]*?)\n\.\.\.(?:\n|$)/)?.[1];
+            if (!fragment) fail("commit metadata fragment is missing");
+            const lines = fragment.split("\n");
+            if (lines.shift() !== "updated-dependencies:") fail("updated-dependencies metadata is missing");
+            const entries = [];
+            let current;
+            for (const line of lines) {
+              const dependency = line.match(/^- dependency-name: (.+)$/);
+              if (dependency) {
+                current = { "dependency-name": parseScalar(dependency[1], "dependency name") };
+                entries.push(current);
+                continue;
+              }
+              const field = line.match(/^  (dependency-type|update-type|dependency-group): (.+)$/);
+              if (!field || !current || Object.hasOwn(current, field[1])) fail("dependency metadata is malformed");
+              current[field[1]] = parseScalar(field[2], field[1]);
+            }
+            if (entries.length === 0) fail("dependency metadata is empty");
+            for (const entry of entries) {
+              const keys = Object.keys(entry).sort();
+              const expected = ["dependency-group", "dependency-name", "dependency-type", "update-type"];
+              if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+                fail("dependency metadata fields are incomplete");
+              }
+            }
+            return entries;
+          };
+
+          const output = process.env.GITHUB_OUTPUT;
+          if (!output) fail("GITHUB_OUTPUT is unavailable");
+          const runId = Number(process.env.RUN_ID);
+          if (!Number.isSafeInteger(runId) || runId < 1) fail("run ID is invalid");
+          const eventPrNumber = Number(process.env.EVENT_PR_NUMBER);
+          const eventHeadRef = process.env.EVENT_HEAD_REF ?? "";
+          const eventHeadSha = process.env.EVENT_HEAD_SHA ?? "";
+          const eventHeadRepository = process.env.EVENT_HEAD_REPOSITORY ?? "";
+          if (!Number.isSafeInteger(eventPrNumber) || eventPrNumber < 1 ||
+              !/^dependabot\/(?:npm_and_yarn|github_actions)\/[a-z0-9-]+$/.test(eventHeadRef) ||
+              !/^[a-f0-9]{40}$/.test(eventHeadSha) || eventHeadRepository !== repository) {
+            fail("workflow_run PR identity is invalid");
+          }
+          const run = readJson(process.env.RUN_FILE, "observer run");
+          const associated = readJson(process.env.ASSOCIATED_FILE, "associated pull requests");
+          const pr = readJson(process.env.PR_FILE, "live pull request");
+          const commits = readJson(process.env.COMMITS_FILE, "pull request commits");
+
+          if (run.id !== runId || run.name !== observerName || run.event !== "pull_request" ||
+              run.conclusion !== "success" || run.actor?.login !== dependabot ||
+              run.repository?.full_name !== repository) {
+            fail("observer run identity is invalid");
+          }
+          if (!Array.isArray(associated) || associated.length !== 1) fail("observer run must map to exactly one PR");
+          const observed = associated[0];
+          if (!Number.isSafeInteger(observed?.number) || observed.number !== eventPrNumber || observed.number !== pr.number) {
+            fail("associated PR number is invalid");
+          }
+          const expectedHeadSha = eventHeadSha;
+          if (observed?.head?.sha !== eventHeadSha || observed?.head?.ref !== eventHeadRef ||
+              observed?.head?.repo?.full_name !== eventHeadRepository || run.head_branch !== eventHeadRef ||
+              observed?.base?.ref !== "main" || observed?.base?.repo?.full_name !== repository) {
+            fail("observer PR identity changed after the event");
+          }
+          if (pr.state !== "open" || pr.user?.login !== dependabot || pr.base?.ref !== "main" ||
+              pr.base?.repo?.full_name !== repository || pr.head?.repo?.full_name !== repository ||
+              pr.head?.ref !== observed.head.ref || pr.head?.sha !== expectedHeadSha) {
+            fail("live PR identity or head changed");
+          }
+          if (/Maintainer changes/m.test(String(pr.body ?? ""))) fail("maintainer changes are present");
+          if (pr.commits !== 1 || !Array.isArray(commits) || commits.length !== 1) {
+            fail("PR must contain exactly one verified Dependabot commit");
+          }
+          const commit = commits[0];
+          if (commit.sha !== expectedHeadSha || commit.author?.login !== dependabot ||
+              commit.commit?.verification?.verified !== true) {
+            fail("Dependabot commit provenance is invalid");
+          }
+
+          const policy = policies.find(({ branch }) => branch.test(pr.head.ref));
+          const entries = parseDependencies(commit.commit.message);
+          const names = entries.map((entry) => entry["dependency-name"]);
+          if (new Set(names).size !== names.length) fail("dependency metadata contains duplicates");
+          const eligible = policy !== undefined && entries.every((entry) => entry["dependency-group"] === policy.group) &&
+            entries.every((entry) => entry["update-type"] === patchUpdateType) &&
+            (policy.allowed === null || names.every((name) => policy.allowed.has(name)));
+
+          appendFileSync(output, `eligible=${eligible}\n`);
+          appendFileSync(output, `group=${policy?.group ?? "none"}\n`);
+          appendFileSync(output, `pr_number=${pr.number}\n`);
+          appendFileSync(output, `expected_head_sha=${expectedHeadSha}\n`);
+          NODE
+
+      - name: Approve eligible update
+        if: steps.policy.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: therealhieu/md2vid
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}
+        run: |-
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          current_head=$(gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          test "$current_head" = "$EXPECTED_HEAD_SHA"
+          gh api --method POST "repos/$REPOSITORY/pulls/$PR_NUMBER/reviews" -f event=APPROVE -f commit_id="$EXPECTED_HEAD_SHA"
+
+      - name: Request native squash auto-merge
+        if: steps.policy.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: therealhieu/md2vid
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}
+        run: |-
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          current_head=$(gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          test "$current_head" = "$EXPECTED_HEAD_SHA"
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --squash --match-head-commit "$EXPECTED_HEAD_SHA"

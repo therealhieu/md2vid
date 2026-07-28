@@ -119,7 +119,7 @@ Do not substitute `npx` automatically: registry resolution may download a differ
 | `md2vid transcribe <dir>` | Word timings into `audio_meta.json` |
 | `md2vid regroup <dir> [--max-chars 54]` | Readable caption lines |
 | `md2vid verify <dir>` | Neutral caption invariants + framework-specific verify |
-| `md2vid hyperframes <command> [args]` | Run the package-owned HyperFrames CLI (pinned to `0.7.26`) |
+| `md2vid hyperframes <command> [args]` | Run the exact package-owned HyperFrames CLI declared by this md2vid release |
 | `md2vid install-skill` | Repair or refresh this skill in `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/md2vid` without updating the CLI package |
 | `md2vid upgrade` | Update the global npm CLI to `md2vid@latest` and refresh the copied skill |
 

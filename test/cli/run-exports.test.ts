@@ -17,6 +17,7 @@ import { plan } from "../../engine/plan.ts";
 import { transcribeVoices } from "../../engine/transcribe.ts";
 import { run as buildScriptRun } from "../../scripts/build.ts";
 import { makePcmWav, makeWavForSafeDuration } from "../helpers/wav.ts";
+import { DEFAULT_GSAP_SRC } from "../../scripts/dependency_versions.ts";
 
 const ONE_SECOND_WAV = makePcmWav({ sampleRate: 48_000, sampleFrames: 48_000 });
 
@@ -24,7 +25,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
 const SCRIPTS = join(REPO_ROOT, "scripts");
 const FIXTURES = join(REPO_ROOT, "test", "golden", "fixtures", "hash-table-example", "inputs");
-const PINNED_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+const PINNED_GSAP = DEFAULT_GSAP_SRC;
 
 function authoredFrame(slug: string): string {
   return `<template data-composition-id="${slug}">
@@ -49,7 +50,13 @@ function seedVideo() {
     writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
   }
   copyFileSync(join(FIXTURES, "video.config.json"), join(shared, "video.config.json"));
-  copyFileSync(join(FIXTURES, "output.config.json"), join(output, "output.config.json"));
+  writeFileSync(
+    join(output, "output.config.json"),
+    readFileSync(join(FIXTURES, "output.config.json"), "utf8").replaceAll(
+      "__MD2VID_DEFAULT_GSAP_SRC__",
+      DEFAULT_GSAP_SRC,
+    ),
+  );
   for (const slug of [
     "01-cover",
     "02-core-idea",

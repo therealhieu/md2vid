@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 const LAUNCHER = resolve(import.meta.dirname, "..", "..", "postinstall.mjs");
 
@@ -56,7 +57,7 @@ test("compiled patch failure is preserved and never retries the source path", ()
     mkdirSync(join(root, "frameworks", "hyperframes"), { recursive: true });
     writeFileSync(
       join(root, "dist", "bin", "md2vid.js"),
-      `console.error("FAIL [patch-studio]: hyperframes@0.7.26 anchor-2 matched 0"); process.exit(1);`,
+      `console.error("FAIL [patch-studio]: hyperframes@${HYPERFRAMES_VERSION} anchor-2 matched 0"); process.exit(1);`,
     );
     writeFileSync(
       join(root, "frameworks", "hyperframes", "patch-studio.ts"),

@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { runHyperframes, resolveHyperframesInstallation } from "../../scripts/hyperframes_cli.ts";
 import { ensurePinnedHyperframesPatches } from "../../frameworks/hyperframes/patches.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -44,7 +45,7 @@ function fakeInstallation(options: { malformedStudio?: boolean } = {}): FakeInst
   writeFileSync(meta, "// package resolution anchor\n");
   writeFileSync(join(packageRoot, "package.json"), JSON.stringify({
     name: "hyperframes",
-    version: "0.7.26",
+    version: HYPERFRAMES_VERSION,
     bin: { hyperframes: "dist/cli.js" },
   }));
   writeFileSync(
@@ -166,7 +167,13 @@ test("anchor mismatch fails before spawn and leaves every bundle unchanged", () 
     });
     assert.equal(code, 1);
     assert.equal(spawned, false);
-    assert.match(errors.join("\n"), /FAIL \[hyperframes-cli\].*hyperframes@0\.7\.26.*caption-loop anchor-2.*anchor matched 0.*expected 1/is);
+    assert.match(
+      errors.join("\n"),
+      new RegExp(
+        `FAIL \\[hyperframes-cli\\].*hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}.*caption-loop anchor-2.*anchor matched 0.*expected 1`,
+        "is",
+      ),
+    );
     assert.deepEqual(readFileSync(fixture.studio), before.studio);
     assert.deepEqual(readFileSync(fixture.cli), before.cli);
   } finally {

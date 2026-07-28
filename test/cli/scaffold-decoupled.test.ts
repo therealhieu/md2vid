@@ -15,6 +15,16 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+import {
+  DEFAULT_GSAP_SRC,
+  REMOTION_SCAFFOLD_DEPENDENCIES,
+  REMOTION_SCAFFOLD_DEV_DEPENDENCIES,
+} from "../../scripts/dependency_versions.ts";
+import {
+  GSAP_SRC_TOKEN,
+  materializeGsapTemplate,
+  validateGsapSrc,
+} from "../../frameworks/hyperframes/scaffold.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -193,16 +203,18 @@ test("generated Remotion source is content-neutral", () => {
   }
 });
 
-test("canonical HyperFrames templates use the TS default GSAP source", async () => {
-  const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
+test("canonical HyperFrames templates use one stable GSAP token", () => {
   for (const name of ["caption-skin.html", "frame-shell.html", "frame-template.html"]) {
     const template = readFileSync(
       join(REPO_ROOT, "frameworks", "hyperframes", "templates", name),
       "utf8",
     );
-    const gsapSources = [...template.matchAll(/<script\s+src="([^"]*gsap[^"]*)"/gi)]
-      .map((match) => match[1]);
-    assert.deepEqual(gsapSources, [DEFAULT_GSAP_SRC], `${name} GSAP source drifted`);
+    assert.equal(
+      template.split(GSAP_SRC_TOKEN).length - 1,
+      1,
+      `${name} must contain one GSAP token`,
+    );
+    assert.equal(template.includes(DEFAULT_GSAP_SRC), false, `${name} must stay version-independent`);
   }
   const emitSource = readFileSync(
     join(REPO_ROOT, "frameworks", "hyperframes", "emit.ts"),
@@ -242,12 +254,11 @@ test("canonical HyperFrames frame template nests frame styles inside the composi
   assert.doesNotMatch(template.slice(template.indexOf("<template>"), rootStart), /<style\b/i);
 });
 
-test("canonical HyperFrames frame template keeps runtime scripts inside the composition root", async () => {
-  const { DEFAULT_GSAP_SRC } = await import("../../frameworks/hyperframes/scaffold.ts");
-  const template = readFileSync(
+test("canonical HyperFrames frame template keeps runtime scripts inside the composition root", () => {
+  const template = materializeGsapTemplate(readFileSync(
     join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
     "utf8",
-  );
+  ));
   const templateStart = template.indexOf("<template>");
   const rootStart = template.indexOf('<div id="root" data-composition-id="NN-slug"', templateStart);
   const rootOpenEnd = template.indexOf(">", rootStart) + 1;
@@ -287,12 +298,33 @@ test("GSAP script helper preserves project-root-relative sources in every docume
   );
 });
 
+test("GSAP source validation preserves exact canonical historical CDN pins", () => {
+  const root = mkdtempSync(join(tmpdir(), "gsap-source-validation-"));
+  try {
+    const historical =
+      "https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js";
+    assert.equal(validateGsapSrc(root, historical), historical);
+
+    for (const invalid of [
+      "https://cdn.jsdelivr.net/npm/gsap/dist/gsap.min.js",
+      "https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js?x=1",
+      "https://cdn.jsdelivr.net/npm/gsap@03.14.1/dist/gsap.min.js",
+      "https://example.com/npm/gsap@3.14.1/dist/gsap.min.js",
+      "//cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js",
+    ]) {
+      assert.throws(() => validateGsapSrc(root, invalid), /invalid gsapSrc/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts", async () => {
   const { scaffoldSpec } = await import("../../frameworks/hyperframes/scaffold.ts");
   assert.deepEqual(scaffoldSpec("ignored"), {
     outputConfig: {
       framework: "hyperframes",
-      gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      gsapSrc: DEFAULT_GSAP_SRC,
       visualContract: {
         version: 1,
         projectTheme: "light",
@@ -352,21 +384,8 @@ test("Remotion scaffoldSpec is the sole exact package manifest source", async ()
       still: "node render.ts --still",
       typecheck: "tsc --noEmit -p tsconfig.json",
     },
-    dependencies: {
-      "@remotion/bundler": "4.0.486",
-      "@remotion/cli": "4.0.486",
-      "@remotion/google-fonts": "4.0.486",
-      "@remotion/media": "4.0.486",
-      "@remotion/renderer": "4.0.486",
-      remotion: "4.0.486",
-      react: "19.0.0",
-      "react-dom": "19.0.0",
-    },
-    devDependencies: {
-      "@types/react": "^19.0.0",
-      "@types/react-dom": "^19.0.0",
-      typescript: "^5.7.0",
-    },
+    dependencies: { ...REMOTION_SCAFFOLD_DEPENDENCIES },
+    devDependencies: { ...REMOTION_SCAFFOLD_DEV_DEPENDENCIES },
     nextSteps: REMOTION_NEXT_STEPS,
   });
 });

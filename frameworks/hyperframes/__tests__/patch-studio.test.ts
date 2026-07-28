@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveStudioAssetsDir, run } from "../patch-studio.ts";
+import { HYPERFRAMES_VERSION } from "../../../scripts/dependency_versions.ts";
 
 const ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)return;";
 const ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
@@ -34,7 +35,10 @@ test("malformed bundle failure names stage, version, anchor count, and path", ()
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
     assert.match(body, /FAIL \[patch-studio\]/);
-    assert.match(body, /hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(`hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`),
+    );
     assert.match(body, /anchor-2 matched 0/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
@@ -52,7 +56,12 @@ test("missing explicit bundle reports a normalized read failure", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /read bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
@@ -71,7 +80,12 @@ test("unreadable explicit bundle reports a normalized read failure", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /read bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
@@ -91,7 +105,12 @@ test("bundle write failure reports a normalized diagnostic", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /write patched bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {

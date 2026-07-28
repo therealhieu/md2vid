@@ -11,18 +11,22 @@ import {
 } from "../../scripts/scaffold_project.ts";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
 import { DEFAULT_GSAP_SRC, ensureRuntime } from "../../frameworks/hyperframes/scaffold.ts";
+import {
+  HYPERFRAMES_VERSION,
+  TYPESCRIPT_VERSION,
+} from "../../scripts/dependency_versions.ts";
 
 const spec: FrameworkScaffoldSpec = {
   outputConfig: {
     framework: "hyperframes",
-    gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+    gsapSrc: DEFAULT_GSAP_SRC,
   },
   frameworkCheck: "md2vid hyperframes lint",
   packageScripts: {
     dev: "md2vid hyperframes preview --no-open",
   },
-  dependencies: { hyperframes: "0.7.26" },
-  devDependencies: { typescript: "^5.7.0" },
+  dependencies: { hyperframes: HYPERFRAMES_VERSION },
+  devDependencies: { typescript: TYPESCRIPT_VERSION },
   nextSteps: ["author frames"],
 };
 
@@ -38,8 +42,8 @@ test("mergePackageManifest merges common and adapter package fields deterministi
       check: "md2vid verify . && md2vid hyperframes lint",
       dev: "md2vid hyperframes preview --no-open",
     },
-    dependencies: { hyperframes: "0.7.26" },
-    devDependencies: { typescript: "^5.7.0" },
+    dependencies: { hyperframes: HYPERFRAMES_VERSION },
+    devDependencies: { typescript: TYPESCRIPT_VERSION },
   });
 });
 

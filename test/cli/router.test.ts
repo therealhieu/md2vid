@@ -20,6 +20,10 @@ import {
   SUPPORTED_PLATFORMS,
 } from "../../scripts/platform_support.ts";
 import { makeWavForSafeDuration } from "../helpers/wav.ts";
+import {
+  DEFAULT_GSAP_SRC,
+  HYPERFRAMES_VERSION,
+} from "../../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -27,7 +31,7 @@ const BIN = join(REPO_ROOT, "bin", "md2vid.ts");
 const PACKAGE_ROOT_HELPER = join(REPO_ROOT, "scripts", "package_root.ts");
 const PACKAGE_VERSION = (JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as { version: string }).version;
 const FIXTURES = join(REPO_ROOT, "test", "golden", "fixtures", "hash-table-example", "inputs");
-const PINNED_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js";
+const PINNED_GSAP = DEFAULT_GSAP_SRC;
 
 function authoredFrame(slug: string, gsapSrc = PINNED_GSAP): string {
   return `<template data-composition-id="${slug}">
@@ -114,6 +118,7 @@ function seedVideo() {
   copyFileSync(join(FIXTURES, "video.config.json"), join(shared, "video.config.json"));
   const outputConfigPath = join(output, "output.config.json");
   const outputConfig = JSON.parse(readFileSync(join(FIXTURES, "output.config.json"), "utf8"));
+  outputConfig.gsapSrc = DEFAULT_GSAP_SRC;
   outputConfig.visualContract = {
     version: 1,
     projectTheme: "light",
@@ -293,10 +298,10 @@ for (const kind of ["typo", "excess"] as const) {
   }
 }
 
-test("hyperframes forwards arguments to the package-owned 0.7.26 CLI", () => {
+test("hyperframes forwards arguments to the package-owned CLI", () => {
   const result = runBin(["hyperframes", "--version"], tmpdir());
   assert.equal(result.code, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "0.7.26");
+  assert.equal(result.stdout.trim(), HYPERFRAMES_VERSION);
 });
 
 test("package-owned preview help documents the allocated-port option", () => {
@@ -444,7 +449,7 @@ test("new forwards --framework into a temp outputs root", () => {
     assert.equal(neutral.gsapSrc, undefined);
     assert.deepEqual(local, {
       framework: "hyperframes",
-      gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      gsapSrc: DEFAULT_GSAP_SRC,
       visualContract: {
         version: 1,
         projectTheme: "light",

@@ -42,6 +42,7 @@ import {
 } from "./harness.ts";
 import { FORBIDDEN_PACKED_FILES, REQUIRED_PACKED_FILES } from "./manifest.ts";
 import { readPackageManagerMetadata } from "../../scripts/package_root.ts";
+import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
 import {
   currentNpmVersion,
   parseReleaseArguments,
@@ -372,9 +373,12 @@ test("packed artifact rejects source and dist vendored GSAP paths", () => {
     const context = createReleaseContext();
     try {
       context.packedFiles = [...REQUIRED_PACKED_FILES, path];
+      const forbidden = path.startsWith("frameworks/hyperframes/templates/")
+        ? "frameworks/hyperframes/templates/"
+        : path;
       assert.throws(
         () => assertPackedFiles(context),
-        (error: unknown) => error instanceof Error && error.message.includes(`tarball must exclude ${path}`),
+        (error: unknown) => error instanceof Error && error.message.includes(`tarball must exclude ${forbidden}`),
       );
     } finally {
       finishReleaseContext(context, true);
@@ -1011,7 +1015,7 @@ test("real release orchestration records one pack and verify records none", asyn
       const prefix = npmArgs[npmArgs.indexOf("--prefix") + 1];
       const packageRoot = join(prefix, "node_modules", "md2vid");
       mkdirSync(join(prefix, "node_modules", "hyperframes"), { recursive: true });
-      writeFileSync(join(prefix, "node_modules", "hyperframes", "package.json"), JSON.stringify({ version: "0.7.26" }));
+      writeFileSync(join(prefix, "node_modules", "hyperframes", "package.json"), JSON.stringify({ version: HYPERFRAMES_VERSION }));
       mkdirSync(join(packageRoot, "skill", "md2vid"), { recursive: true });
       writeFileSync(join(packageRoot, "skill", "md2vid", "SKILL.md"), "skill\n");
       writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: "md2vid", version: PACKAGE_VERSION }));
@@ -1225,9 +1229,17 @@ test("required HyperFrames version comes from an exact stable package dependency
   const root = mkdtempSync(join(tmpdir(), "md2vid-hyperframes-version-"));
   const packageFile = join(root, "package.json");
   try {
-    writeFileSync(packageFile, JSON.stringify({ dependencies: { hyperframes: "0.7.26" } }));
-    assert.equal(requiredHyperframesVersion(packageFile), "0.7.26");
-    for (const invalid of ["^0.7.26", "~0.7.26", "0.7.26-beta", "01.2.3"]) {
+    writeFileSync(
+      packageFile,
+      JSON.stringify({ dependencies: { hyperframes: HYPERFRAMES_VERSION } }),
+    );
+    assert.equal(requiredHyperframesVersion(packageFile), HYPERFRAMES_VERSION);
+    for (const invalid of [
+      `^${HYPERFRAMES_VERSION}`,
+      `~${HYPERFRAMES_VERSION}`,
+      `${HYPERFRAMES_VERSION}-beta`,
+      "01.2.3",
+    ]) {
       writeFileSync(packageFile, JSON.stringify({ dependencies: { hyperframes: invalid } }));
       assert.throws(() => requiredHyperframesVersion(packageFile), /exact stable HyperFrames dependency/);
     }
@@ -1398,7 +1410,7 @@ test("registry verification uses public install checks without framework smoke",
       const prefix = npmArgs[npmArgs.indexOf("--prefix") + 1];
       const root = join(prefix, "node_modules", "md2vid");
       mkdirSync(join(prefix, "node_modules", "hyperframes"), { recursive: true });
-      writeFileSync(join(prefix, "node_modules", "hyperframes", "package.json"), JSON.stringify({ version: "0.7.26" }));
+      writeFileSync(join(prefix, "node_modules", "hyperframes", "package.json"), JSON.stringify({ version: HYPERFRAMES_VERSION }));
       mkdirSync(join(root, "dist", "bin"), { recursive: true });
       mkdirSync(join(root, "skill", "md2vid"), { recursive: true });
       writeFileSync(join(root, "package.json"), JSON.stringify({ name: "md2vid", version: "1.2.3" }));
@@ -1464,7 +1476,14 @@ test("registry verification rejects requested package and HyperFrames version mi
       mkdirSync(join(prefix, "node_modules", "hyperframes"), { recursive: true });
       mkdirSync(join(packageRoot, "dist", "bin"), { recursive: true });
       mkdirSync(join(packageRoot, "skill", "md2vid"), { recursive: true });
-      writeFileSync(join(prefix, "node_modules", "hyperframes", "package.json"), JSON.stringify({ version: mismatch === "hyperframes" ? "0.7.25" : "0.7.26" }));
+      writeFileSync(
+        join(prefix, "node_modules", "hyperframes", "package.json"),
+        JSON.stringify({
+          version: mismatch === "hyperframes"
+            ? "999.999.999"
+            : HYPERFRAMES_VERSION,
+        }),
+      );
       writeFileSync(join(packageRoot, "package.json"), JSON.stringify({ name: "md2vid", version: mismatch === "package" ? "9.9.9" : "1.2.3" }));
       writeFileSync(join(packageRoot, "dist", "bin", "md2vid.js"), "cli");
       writeFileSync(join(packageRoot, "skill", "md2vid", "SKILL.md"), "skill\n");

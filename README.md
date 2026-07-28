@@ -92,7 +92,7 @@ md2vid install-skill
 md2vid upgrade
 ```
 
-`md2vid hyperframes --version` must print the package-owned HyperFrames version `0.7.26`.
+`md2vid hyperframes --version` prints the exact package-owned HyperFrames version declared by this md2vid release.
 
 The npm `postinstall` normally applies the required caption-loop patch to the pinned HyperFrames Studio bundle. npm policies such as `allowScripts` may block that lifecycle script and print a warning; the warning is nonfatal when commands succeed. Every `md2vid hyperframes <command>` proxy invocation self-heals the caption-loop patch before running HyperFrames, so `check`, preview, snapshot, browser, and render remain safe under a blocked postinstall.
 
@@ -108,7 +108,7 @@ npm run dev        # review in preview
 npm run render     # only after review
 ```
 
-New HyperFrames projects set `gsapSrc` in `output.config.json` to the pinned CDN URL `https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.
+New projects use the exact GSAP version pinned by md2vid, materialized as `https://cdn.jsdelivr.net/npm/gsap@<version>/dist/gsap.min.js` in `output.config.json`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.
 
 During a full build, `index.html` loads the configured GSAP source once and embeds sanitized frame/caption templates with that matching external script removed. Authored frame and source files remain untouched. Hosts backed by those embedded templates omit `data-composition-src`, preventing HyperFrames from mounting a second fallback copy. Standalone authored files under `compositions/frames/` remain available for direct preview and inspection. The generated standalone `compositions/captions.html` is regenerated from staged caption groups and remains available for the same purpose. Legacy or manually authored indexes without embedded templates may continue to use `data-composition-src` source loading. Neutral JSON, generated framework artifacts, and managed voice assets are promoted together only after staged caption verification succeeds. Keep caption style, content, and initialization inside the captions composition root.
 
@@ -190,7 +190,7 @@ rm -rf "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/md2vid"
 ## Limitations
 
 - Windows-style absolute paths, UNC paths, and backslash traversal remain rejected as unsafe or non-portable input on supported hosts. These checks are security boundaries and do not imply Windows runtime support.
-- HyperFrames is pinned to `0.7.26` and patched during install.
+- HyperFrames is exact-pinned by each md2vid release and patched during install.
 - TTS synthesis is external to md2vid.
 - Remotion visual scenes are hand-authored when richer than the baseline adapter output.
 

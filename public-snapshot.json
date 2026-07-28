@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
-  "count": 278,
-  "hash": "sha256:c39faa25d42d5b4d8863854f1156cfc269bc6cf7b53993819b511aac6cad5feb",
+  "count": 282,
+  "hash": "sha256:cafc61a845a824f88436a2e296f1d3fdf89371a5de31618a80e5d5c52da1e514",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -12,14 +12,26 @@
     {
       "path": ".github/dependabot.yml",
       "mode": "100644",
-      "bytes": 349,
-      "sha256": "5b923377ddbd716167599431e6fef37d49bdf563968d07b47497b722c92c2ce6"
+      "bytes": 912,
+      "sha256": "4bebfcf5367ebe0bc3290bdb3d072fb4d3b5dc6b1e26007b210865326d78a136"
     },
     {
       "path": ".github/workflows/ci.yml",
       "mode": "100644",
       "bytes": 2569,
       "sha256": "04e421d89b94550e2197ba81798f2e8efc46f98ff955d14b1b251b807f8a927b"
+    },
+    {
+      "path": ".github/workflows/dependabot-auto-merge-observer.yml",
+      "mode": "100644",
+      "bytes": 462,
+      "sha256": "738961d82b160d96a9bd48bace4f211c16e8afb2da5bf8d424dfabfefbef0a1d"
+    },
+    {
+      "path": ".github/workflows/dependabot-auto-merge.yml",
+      "mode": "100644",
+      "bytes": 12668,
+      "sha256": "8dae502d323cc8129d4cd6a7e5e8e86e3f9a1fdf1557cc1f1357a46c22c82d47"
     },
     {
       "path": ".github/workflows/nightly.yml",
@@ -60,8 +72,8 @@
     {
       "path": "bin/md2vid.ts",
       "mode": "100644",
-      "bytes": 3575,
-      "sha256": "4c59be580945aca869ecd0f85dfec4f54db3febdfd1e84df35236cb2da33c740"
+      "bytes": 3664,
+      "sha256": "d5743644b593063dff4f729ae1d6692bc660f096512f715b4a97f55a1b9ea865"
     },
     {
       "path": "docs/release.md",
@@ -102,8 +114,8 @@
     {
       "path": "docs/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 10395,
-      "sha256": "5dac5499b3761584859c96f08eb9309c745a64425d24740cf72ddddc03b96bcf"
+      "bytes": 10440,
+      "sha256": "d9e13141aaa6225631f14eb3272028ac51b49ed1de1a6da407ce544f845b86c4"
     },
     {
       "path": "docs/standards/frameworks/remotion.md",
@@ -288,14 +300,14 @@
     {
       "path": "frameworks/hyperframes/__tests__/emit.test.ts",
       "mode": "100644",
-      "bytes": 41446,
-      "sha256": "ef66c8a79de4c528db71d15ea15ddf088db100e45eeeb70f5523e07438e2b78f"
+      "bytes": 41383,
+      "sha256": "102b0f82b684520cbf54963c16427a0f35d2d1ca21d45b5ea24fd69e8958c449"
     },
     {
       "path": "frameworks/hyperframes/__tests__/patch-studio.test.ts",
       "mode": "100644",
-      "bytes": 4463,
-      "sha256": "399b33f890f647182def1cda94348002601799351e777ebac644257009f274d5"
+      "bytes": 4871,
+      "sha256": "8f946ab689e92ce5ed31a5e4f0a5ae68fc2a2a8b4f61d9bffd0a02fd46b4ef97"
     },
     {
       "path": "frameworks/hyperframes/__tests__/verify.test.ts",
@@ -312,8 +324,8 @@
     {
       "path": "frameworks/hyperframes/emit.ts",
       "mode": "100644",
-      "bytes": 15028,
-      "sha256": "decd06503310a5eed8e37576c7aa1139ef1ba6ef726d7faf0c5e337ee8910bb0"
+      "bytes": 14958,
+      "sha256": "896219d927ed0731fb816c39657634c856993d367c70a7033f86a80eee57c8d6"
     },
     {
       "path": "frameworks/hyperframes/html.ts",
@@ -330,38 +342,38 @@
     {
       "path": "frameworks/hyperframes/patch-studio.ts",
       "mode": "100644",
-      "bytes": 5739,
-      "sha256": "dc3dbd50ca809a09f306dcc8fee0557a6dc9a12de4df11c5067d39bfd2f2ae29"
+      "bytes": 5777,
+      "sha256": "1097c2f2efadb32e28085eaf653b0689a7908551facaa3bc3795f12e6a66256a"
     },
     {
       "path": "frameworks/hyperframes/patches.ts",
       "mode": "100644",
-      "bytes": 7261,
-      "sha256": "a90865bb2bcd4555272f5a5344f0f7c1dd93f7effde9f4b91421bcf9faa57a6d"
+      "bytes": 7348,
+      "sha256": "4fd7a8a1d2bee8890979ded2c97e2d2ac5021665c77831d55e214285b2f0039a"
     },
     {
       "path": "frameworks/hyperframes/scaffold.ts",
       "mode": "100644",
-      "bytes": 5035,
-      "sha256": "4c036608a6fed05997e35144fcb6a492cec9c204493bf745415fced8d4d902c0"
+      "bytes": 6371,
+      "sha256": "07fee628cc84cacb579dc278d90179b2afd4faad7773a471091d0bc31c1f3267"
     },
     {
       "path": "frameworks/hyperframes/templates/caption-skin.html",
       "mode": "100644",
-      "bytes": 7780,
-      "sha256": "2410dee8f170ab24bc67a213b8f0f29c45e29f4f89d642be1c8657a3371387c0"
+      "bytes": 7742,
+      "sha256": "2debdd7a0db80be99fa28ecebaf65f61573f7d629ffaa2758b372ea3ccb75acc"
     },
     {
       "path": "frameworks/hyperframes/templates/frame-shell.html",
       "mode": "100644",
-      "bytes": 6388,
-      "sha256": "d148c56fe3c45016cfbb0d3ca2a6a555bd19c692a0e66cb5122fb55303f96eee"
+      "bytes": 6350,
+      "sha256": "fac2e041247f9e524572cce6211b6556e15ddd513c9a1f7f665f23e4ddb66b3c"
     },
     {
       "path": "frameworks/hyperframes/templates/frame-template.html",
       "mode": "100644",
-      "bytes": 4775,
-      "sha256": "85175bb3f043155fdf0df4fcb14c9ee64a441b0493dc90a227b0cea953cb1e9a"
+      "bytes": 4737,
+      "sha256": "d74d839032a3813aa5a553ab014487651c28ce6f6cd157b241d19d3c781db82f"
     },
     {
       "path": "frameworks/hyperframes/templates/themes/claude.css",
@@ -426,8 +438,8 @@
     {
       "path": "frameworks/remotion/scaffold.ts",
       "mode": "100644",
-      "bytes": 3060,
-      "sha256": "71b1d81370d5e552ad45230a8726d9cc0660c8a5ecfe0f815680d38d9ea98534"
+      "bytes": 2885,
+      "sha256": "c6c14c0ce6af95503cf20d0ff54bc7aae9292ec213d81f9ca67ee484033c4f96"
     },
     {
       "path": "frameworks/remotion/templates/.gitkeep",
@@ -528,8 +540,8 @@
     {
       "path": "package.json",
       "mode": "100644",
-      "bytes": 3125,
-      "sha256": "522ca3306d065decfa31012e8bbc2dbe0d26095e5053cd3b386c393bd31f0440"
+      "bytes": 3238,
+      "sha256": "108d01977c915346c8ead1d6d7d0723c26a736b4b920755784b2e7322073a1c4"
     },
     {
       "path": "postinstall.mjs",
@@ -540,8 +552,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "bytes": 10569,
-      "sha256": "4eb3d20fb083d11a2e4cd779ba1da5c2cc6fac441ec163bce95b11cabcb4a23e"
+      "bytes": 10627,
+      "sha256": "da67955d7dc8157be1261ca214a0d10e89d24cf3dbaa68d95ab330275cfa60fb"
     },
     {
       "path": "scripts/build.ts",
@@ -552,8 +564,8 @@
     {
       "path": "scripts/check_audit_policy.ts",
       "mode": "100644",
-      "bytes": 14172,
-      "sha256": "784399c35b97acaaf6813221a2b33c782f9997e085d8f61b5efe25d394cecba7"
+      "bytes": 14349,
+      "sha256": "c36fcf24bbec7d21ff8dcc2af80b58a5b30f33009ff1a02e06f809ed99e0daa0"
     },
     {
       "path": "scripts/check_public_snapshot.ts",
@@ -576,8 +588,14 @@
     {
       "path": "scripts/copy_dist_assets.ts",
       "mode": "100644",
-      "bytes": 2213,
-      "sha256": "278b2c10d39746c1bb2f49e384c4479cce989a4bbf2280eced19aa2885335b64"
+      "bytes": 2923,
+      "sha256": "4b06e5a076ce4d4a6893fae357046708926717ba7639eaea430a8d1319472fd0"
+    },
+    {
+      "path": "scripts/dependency_versions.ts",
+      "mode": "100644",
+      "bytes": 3092,
+      "sha256": "fb1990c3421c7917d9b608e1429419ff1542a163f378d634ca8d8ac366eb6c82"
     },
     {
       "path": "scripts/git_environment.ts",
@@ -589,7 +607,7 @@
       "path": "scripts/hyperframes_cli.ts",
       "mode": "100644",
       "bytes": 4450,
-      "sha256": "b26e14f798a5f41ef63af802ac57088371458569eb22dcb0c2a997fa5f27b346"
+      "sha256": "d6f498edfc9899fe6e158fca89f5fd4367d914c8d54c2361449558c78b231324"
     },
     {
       "path": "scripts/install_skill.ts",
@@ -702,8 +720,8 @@
     {
       "path": "security/audit-exceptions.json",
       "mode": "100644",
-      "bytes": 2417,
-      "sha256": "285463bf9b6ca4ebf0f4ccaa8d560063e342ec31b9608c3894fbce5b429f1057"
+      "bytes": 2360,
+      "sha256": "f1af1df473b330f48a0332b0d1ca2e0f977e0a6e8a5e352eede02fb0ac83d10a"
     },
     {
       "path": "skill/md2vid/references/standards/design/frame-content.md",
@@ -726,8 +744,8 @@
     {
       "path": "skill/md2vid/references/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 10395,
-      "sha256": "5dac5499b3761584859c96f08eb9309c745a64425d24740cf72ddddc03b96bcf"
+      "bytes": 10440,
+      "sha256": "d9e13141aaa6225631f14eb3272028ac51b49ed1de1a6da407ce544f845b86c4"
     },
     {
       "path": "skill/md2vid/references/standards/frameworks/remotion.md",
@@ -750,14 +768,14 @@
     {
       "path": "skill/md2vid/SKILL.md",
       "mode": "100644",
-      "bytes": 19196,
-      "sha256": "4550b6c3522e904c8f78b15ce1e43db88a856c3f5022e6438bdc03b77c3ab63a"
+      "bytes": 19213,
+      "sha256": "08f1cf5e3a78687d5e5108ec9d1c15cec22c5ef4e8d13b02bfeb1d97f95c5db2"
     },
     {
       "path": "test/boundaries.test.ts",
       "mode": "100644",
-      "bytes": 5899,
-      "sha256": "9d4e4885edddb5bc0c12774910803e95cd3cf45e443ffc066a5ef6901ae0b851"
+      "bytes": 6058,
+      "sha256": "5578e850587ba6b3fee9dd3bb7638295be24c0b2fa3127f1281e7f23d3894435"
     },
     {
       "path": "test/ci/public-snapshot-check.test.ts",
@@ -786,14 +804,14 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 71776,
-      "sha256": "c39625f40d44eff72cbaf5bf33229ae92bff1ce0c30ed864347dd02558e03dba"
+      "bytes": 98208,
+      "sha256": "147f2f5e1043bf0a913738c37bf7501f1740725ce9afb7db03b9dd674dacbdbb"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
       "mode": "100644",
-      "bytes": 17408,
-      "sha256": "4be15fc00a624aed411f93817df784eafac21bbbe6f74f25a4a3990777b02d5c"
+      "bytes": 17871,
+      "sha256": "2c458aae89086dd5e383182beb1ca3741f9b8b42d13b2ece6761ca7cd983ef19"
     },
     {
       "path": "test/cli/cli-args.test.ts",
@@ -802,16 +820,22 @@
       "sha256": "5fe89367eebc7eeeb90746b969ea90fb91363255432ec42fbd4c332697f5fd38"
     },
     {
+      "path": "test/cli/dependency-versions.test.ts",
+      "mode": "100644",
+      "bytes": 6579,
+      "sha256": "259c3782a66343460c7af0cf01610bd05e874b34f51d6bb024e9501328c77b8c"
+    },
+    {
       "path": "test/cli/fixtures/smoke/01-smoke.html",
       "mode": "100644",
-      "bytes": 1694,
-      "sha256": "9c936d632c65f4e9fcbb557328b2f09cec36a030da41b7526e5fc9d9834d2a00"
+      "bytes": 1664,
+      "sha256": "e297e109e8148dfc4bfb7bed194fcc894babbe5c920a69e5878882e8c4a774fc"
     },
     {
       "path": "test/cli/fixtures/smoke/02-smoke.html",
       "mode": "100644",
-      "bytes": 1716,
-      "sha256": "2db9fe434e4a69581822080f09978bc9993265d4f9ee8fe1b6c2935f16b639e0"
+      "bytes": 1686,
+      "sha256": "ffedb1412351dbb610875c1ac3fc07aa82f5c3d1d3c26a0972778387ff4eea1a"
     },
     {
       "path": "test/cli/fixtures/smoke/assets/voice/followup.wav",
@@ -834,14 +858,14 @@
     {
       "path": "test/cli/hyperframes-cli.test.ts",
       "mode": "100644",
-      "bytes": 9138,
-      "sha256": "0550fe4f9cab11ea005eed0705c6ecb740f1e4a78b38a5fc9da4a36f985ab97d"
+      "bytes": 9316,
+      "sha256": "4498c5bbbf99ae9b55a9e4e410472c4e5ff1cc4135c356bb37840571ca37acb6"
     },
     {
       "path": "test/cli/hyperframes-self-heal.test.ts",
       "mode": "100644",
-      "bytes": 10464,
-      "sha256": "e8e2ac9677a1921d925973f8056615a1f2b8793285e135d699e5870606c28411"
+      "bytes": 10650,
+      "sha256": "eaef50129626f8d19f29ad412ddfeb3c68c0ee84970092cfb5d142dd000d5b8a"
     },
     {
       "path": "test/cli/install-skill.test.ts",
@@ -858,20 +882,20 @@
     {
       "path": "test/cli/pack.test.ts",
       "mode": "100644",
-      "bytes": 1437,
-      "sha256": "fee166e2c5123fdcb74bb0b9af5fa5bad1100debf038c1ead8aa09fccb2d4852"
+      "bytes": 4657,
+      "sha256": "c0f1de4b4e4d8e0474aa63ca274c3ca6ada3117b1fa27e922251ba2279e002fc"
     },
     {
       "path": "test/cli/package-meta.test.ts",
       "mode": "100644",
-      "bytes": 20767,
-      "sha256": "b7b09be5ca32c045197fb62bc282e9a709d04502b8b53abe83abb3faef1c4ee5"
+      "bytes": 20968,
+      "sha256": "528c53941c0a2f33b6c65f307d1d88eb6b303849793d5c1518a6ba6297a08c1e"
     },
     {
       "path": "test/cli/postinstall.test.ts",
       "mode": "100644",
-      "bytes": 2934,
-      "sha256": "5a98fadaa7efdda1bdafe8bb6e7d1a1ffe5990f5de3b4da5e58093066b5df44a"
+      "bytes": 3026,
+      "sha256": "304f3762d6194e0eb8e1baae0b6b2db541b956abe42f20f340b9abd700017b9a"
     },
     {
       "path": "test/cli/project-layout.test.ts",
@@ -894,26 +918,26 @@
     {
       "path": "test/cli/router.test.ts",
       "mode": "100644",
-      "bytes": 23119,
-      "sha256": "9ae080cf17f50b010abe797d5d010d462766264d4466803a7dd436d45690a5f7"
+      "bytes": 23179,
+      "sha256": "33de8a8332a9a5dc1a584862d2b5977653942e6426d429f61176aa967fe11bfa"
     },
     {
       "path": "test/cli/run-exports.test.ts",
       "mode": "100644",
-      "bytes": 26599,
-      "sha256": "af0e146b0bea059ec241154e51097e0c3d6e0db9e2b3550828470e7a1542d2ef"
+      "bytes": 26744,
+      "sha256": "e6089289cd7ca79202f3a3d2e028812a67b0a2e3088cc4a0f61cfdf46bd6bd1e"
     },
     {
       "path": "test/cli/scaffold-decoupled.test.ts",
       "mode": "100644",
-      "bytes": 23332,
-      "sha256": "20becae357224c9087e34e52679d589fb1f3b669f1dfb32a1fb3d8b1cedeabfe"
+      "bytes": 23953,
+      "sha256": "eb1c9ca551aa2dea1327c0b0f581af82e5c2ff91d884eebb70747c1784483672"
     },
     {
       "path": "test/cli/scaffold-project.test.ts",
       "mode": "100644",
-      "bytes": 7278,
-      "sha256": "340c954b6e6cefda14875249a290a23a99a15d2777b07bc96427f91969e5ad46"
+      "bytes": 7378,
+      "sha256": "ebe19668c6f4ab6dfb81d99707953450817c85820b00ce315d5d8ed6240fae3c"
     },
     {
       "path": "test/cli/skill-commands.test.ts",
@@ -960,8 +984,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/expected/captions.html",
       "mode": "100644",
-      "bytes": 30808,
-      "sha256": "cb51f5b775091f56324b29dc64763bab14f1c487ac8ddb690e58ab9f5d5b7148"
+      "bytes": 30778,
+      "sha256": "d31d2eda14839ff8641630dcbfab9f2e5174d195a994c316abe07398dabac312"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/expected/cues.json",
@@ -972,8 +996,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/expected/index.html",
       "mode": "100644",
-      "bytes": 38562,
-      "sha256": "731cfdd7246205b3cb4960d5b9b23076319ea09567e510656b2269db9bd991af"
+      "bytes": 38532,
+      "sha256": "ff6f0db7e1ae1adb0f8d040730dd74f2bafada65c168c58323b97a1a57a99fa8"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/audio_meta.json",
@@ -984,8 +1008,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/output.config.json",
       "mode": "100644",
-      "bytes": 107,
-      "sha256": "379e17092c429e7f1f0fdde5089e8ed39650de608c6450e7d66bfb9dbe010e5d"
+      "bytes": 77,
+      "sha256": "ad843183a4decdc50af75d00a8f83f7047871554b331fd8acc434216459e7b7d"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/video.config.json",
@@ -996,8 +1020,8 @@
     {
       "path": "test/golden/golden.test.ts",
       "mode": "100644",
-      "bytes": 4880,
-      "sha256": "e8144a9530697d76ee5751ac06285f3a4772f681a5397385cd9401531e54815b"
+      "bytes": 5164,
+      "sha256": "f48f14178d6ff097599e97074296394853dd3915b87f8afc9825524400eac04e"
     },
     {
       "path": "test/golden/README.md",
@@ -1032,20 +1056,20 @@
     {
       "path": "test/release/harness.test.ts",
       "mode": "100644",
-      "bytes": 68346,
-      "sha256": "f4b76a87118ce5c2a82ab5494dee2ad17a097a5e2d39e90b4f4894b099af54bb"
+      "bytes": 68792,
+      "sha256": "273ea76fb0d00843b0336c592389555fbdfb91a3dd4eb937b810f93352d9ee24"
     },
     {
       "path": "test/release/harness.ts",
       "mode": "100644",
-      "bytes": 74787,
-      "sha256": "57c4eb9c09dcab251a1f908d204bb6bc1c161ddbc02adc68d03439a0252ccc0b"
+      "bytes": 74918,
+      "sha256": "96ec5f7d0384499d8b9b798c519e247ce19024c82862e46d219140df2a192857"
     },
     {
       "path": "test/release/manifest.ts",
       "mode": "100644",
-      "bytes": 1913,
-      "sha256": "2c46e0d5924f65ee44e0f88615c5d1ef0ec2aacb03c7bda2adaeff16d8f719c6"
+      "bytes": 2017,
+      "sha256": "ec867298b05e010b0eaee88c952014e28d018a2bee3e5d63f558a55dcae38459"
     },
     {
       "path": "test/release/run.ts",
@@ -1062,8 +1086,8 @@
     {
       "path": "test/scaffold.test.ts",
       "mode": "100644",
-      "bytes": 5114,
-      "sha256": "fb08ade35160f0cda186fa8fa24533d55acd58d480a7b847b6f35862f2104461"
+      "bytes": 5141,
+      "sha256": "85ba250c0a1878a7cda4952e0d44424218fca31d59260057b6b0fa858854245c"
     },
     {
       "path": "test/visual/composed-visual-integrity.d.mts",

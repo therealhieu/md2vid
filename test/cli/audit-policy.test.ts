@@ -303,6 +303,16 @@ test("malformed GHSA date owner reason and severity fields fail", () => {
   assert.deepEqual(result.stale, []);
 });
 
+test("active exception reasons reject mutable HyperFrames root pins", () => {
+  const pinned = exception({
+    reason: "Current path: hyperframes@0.7.26 -> dep. Remove after upstream remediation.",
+  });
+  const result = evaluateAuditPolicy([finding()], [pinned], NOW);
+  assert.equal(result.malformed.length, 1);
+  assert.match(result.malformed[0]!, /reason must not pin the md2vid HyperFrames version/);
+  assert.deepEqual(result.unapproved, [finding()]);
+});
+
 test("package range and severity mismatches leave a finding unapproved and exception stale", () => {
   for (const mismatch of [
     exception({ package: "other" }),

@@ -15,6 +15,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
+import { DEFAULT_GSAP_SRC } from "../scripts/dependency_versions.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
@@ -43,7 +44,7 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     assert.equal(neutral.gsapSrc, undefined, "neutral config excludes framework assets");
     assert.deepEqual(local, {
       framework: "hyperframes",
-      gsapSrc: "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js",
+      gsapSrc: DEFAULT_GSAP_SRC,
       visualContract: {
         version: 1,
         projectTheme: "light",
