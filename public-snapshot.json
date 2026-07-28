@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
-  "count": 281,
-  "hash": "sha256:bb10be295896e2612726c5452bdc44ad6daf19b986da0eb768df4fbdc5e7eff4",
+  "count": 282,
+  "hash": "sha256:6ec5a9818b5e895908463a187518c5654dd63129f0eb7f627ea720f4f160fc4d",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -22,10 +22,16 @@
       "sha256": "04e421d89b94550e2197ba81798f2e8efc46f98ff955d14b1b251b807f8a927b"
     },
     {
+      "path": ".github/workflows/dependabot-auto-merge-observer.yml",
+      "mode": "100644",
+      "bytes": 462,
+      "sha256": "738961d82b160d96a9bd48bace4f211c16e8afb2da5bf8d424dfabfefbef0a1d"
+    },
+    {
       "path": ".github/workflows/dependabot-auto-merge.yml",
       "mode": "100644",
-      "bytes": 3545,
-      "sha256": "d53a75a0c013801d5d8c37c9bf384247906fbae1a3b39b604ef41298502b5b33"
+      "bytes": 12668,
+      "sha256": "8dae502d323cc8129d4cd6a7e5e8e86e3f9a1fdf1557cc1f1357a46c22c82d47"
     },
     {
       "path": ".github/workflows/nightly.yml",
@@ -798,8 +804,8 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 81940,
-      "sha256": "8b93ef6dc6ed6a331e2ae13235d5fabae89a94d028fe979d4b19aab55fe8a88a"
+      "bytes": 98225,
+      "sha256": "18885298c34668f7e29b28464aaacf0db39db90a12338e857d59dc37db0dd21b"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
