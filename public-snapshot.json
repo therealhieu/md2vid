@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 280,
-  "hash": "sha256:0f75aff6fa76f7e38d4d73ebc3b540b9b8d92814c939895ad1c9eef42f17d6ef",
+  "hash": "sha256:0b4a52d92cab7cbaad484d9973c6e3bdb8449e7402e11c66d2c5694e9f840431",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -870,8 +870,8 @@
     {
       "path": "test/cli/pack.test.ts",
       "mode": "100644",
-      "bytes": 4195,
-      "sha256": "4c7fd1b0faecea9416c13a5e8cfe78798f5390fb6c90f004d2144c9e1bd64e7f"
+      "bytes": 4657,
+      "sha256": "c0f1de4b4e4d8e0474aa63ca274c3ca6ada3117b1fa27e922251ba2279e002fc"
     },
     {
       "path": "test/cli/package-meta.test.ts",
