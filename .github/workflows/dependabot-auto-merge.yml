@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  approve-and-enable-auto-merge:
+  request-auto-merge:
     if: >-
       github.repository == 'therealhieu/md2vid' &&
       github.event.workflow_run.event == 'pull_request' &&

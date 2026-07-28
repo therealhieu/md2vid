@@ -26,7 +26,7 @@ Dependabot pull_request
      - API correlation to exactly one associated PR
      - live PR + every commit revalidation
      - exact patch/group/dependency policy
-     - review POST with commit_id
+     - no review or approval side effect
      - live-head recheck
      - gh pr merge --auto --squash --match-head-commit
 ```
@@ -65,7 +65,7 @@ const WORKFLOW_POLICY_CHECKERS: Record<string, WorkflowPolicyChecker> = {
 
 ```ts
 "dependabot-auto-merge.yml": {
-  "approve-and-enable-auto-merge": "ubuntu-latest",
+  "request-auto-merge": "ubuntu-latest",
 },
 ```
 
@@ -171,7 +171,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   assert.deepEqual(value.on, { pull_request: null });
   assert.deepEqual(value.permissions, {});
 
-  const job = parsedJob(value, "approve-and-enable-auto-merge");
+  const job = parsedJob(value, "request-auto-merge");
   assert.equal(job["runs-on"], "ubuntu-latest");
   assert.deepEqual(job.permissions, {
     contents: "write",
@@ -190,7 +190,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   );
   assert.doesNotMatch(condition, /\|\|/);
 
-  const steps = parsedSteps(job, "approve-and-enable-auto-merge");
+  const steps = parsedSteps(job, "request-auto-merge");
   const metadata = steps.find(
     (step) => step.name === "Fetch Dependabot metadata",
   );
@@ -495,7 +495,7 @@ name: Dependabot auto-merge
 permissions: {}
 
 jobs:
-  approve-and-enable-auto-merge:
+  request-auto-merge:
     if: >-
       github.actor == 'dependabot[bot]' &&
       github.repository == 'therealhieu/md2vid' &&
@@ -938,7 +938,7 @@ Select a patch-group PR whose branch matches one of:
 ^dependabot/github_actions/actions-patches(?:-|$)
 ```
 
-- [ ] **Step 10: Capture approval and auto-merge evidence**
+- [ ] **Step 10: Capture no-review auto-merge evidence**
 
 ```bash
 set -euo pipefail
@@ -956,32 +956,30 @@ printf '%s\n' "$PR" > /tmp/md2vid-dependabot-canary-pr
 
 gh pr view "$PR" \
   --repo therealhieu/md2vid \
-  --json state,author,baseRefName,headRefName,autoMergeRequest,reviews,mergeStateStatus
+  --json state,author,baseRefName,headRefName,autoMergeRequest,mergeStateStatus \
+  | jq -e '
+      .state == "OPEN"
+      and .author.login == "dependabot[bot]"
+      and .baseRefName == "main"
+      and (.headRefName | test("^dependabot/(npm_and_yarn/(runtime|dev)-patches|github_actions/actions-patches)(-|$)"))
+      and .autoMergeRequest.mergeMethod == "SQUASH"
+    ' >/dev/null
+
+gh api "repos/therealhieu/md2vid/pulls/$PR/reviews" \
+  --jq 'all(.[]?; .user.login != "github-actions[bot]")' \
+  | grep -qx true
 
 CHECKS=$(gh pr checks "$PR" --repo therealhieu/md2vid --required --json name,state,completedAt 2>/dev/null || true)
 if printf '%s' "$CHECKS" | jq -e 'any(.[]; .state == "PENDING")' >/dev/null; then
   test "$(gh pr view "$PR" --repo therealhieu/md2vid --json state --jq .state)" = OPEN
-  gh pr view "$PR" --repo therealhieu/md2vid \
-    --json autoMergeRequest,reviews \
-    | jq -e '
-      .autoMergeRequest.mergeMethod == "SQUASH"
-      and any(.reviews[]?;
-        .state == "APPROVED"
-        and .author.login == "github-actions[bot]"
-      )
-      and all(.reviews[]?;
-        .state != "APPROVED"
-        or .author.login == "github-actions[bot]"
-      )
-    ' >/dev/null
 else
   echo "All required checks completed before observation; use timestamp proof in Step 11."
 fi
 ```
 
-When the pending state is observed, the PR must remain `OPEN`, target `main`, have a `SQUASH` auto-merge request, and contain an approved review from `github-actions[bot]`. Missing the transient pending state is not a failure; Step 11 proves ordering from timestamps.
+When the pending state is observed, the PR must remain `OPEN`, target `main`, have a `SQUASH` auto-merge request, and have no review from `github-actions[bot]`. Missing the transient pending state is not a failure; Step 11 proves ordering from timestamps.
 
-- [ ] **Step 11: Watch checks and verify ordered squash merge**
+- [ ] **Step 11: Watch checks and verify ordered no-review squash merge**
 
 ```bash
 set -euo pipefail
@@ -996,20 +994,12 @@ gh pr checks "$PR" \
 
 PR_JSON=$(gh pr view "$PR" \
   --repo therealhieu/md2vid \
-  --json state,mergedAt,mergeCommit,reviews)
+  --json state,mergedAt,mergeCommit)
 
 printf '%s' "$PR_JSON" | jq -e '
   .state == "MERGED"
   and .mergedAt != null
   and .mergeCommit.oid != null
-  and any(.reviews[]?;
-    .state == "APPROVED"
-    and .author.login == "github-actions[bot]"
-  )
-  and all(.reviews[]?;
-    .state != "APPROVED"
-    or .author.login == "github-actions[bot]"
-  )
 ' >/dev/null
 
 MERGED_AT=$(printf '%s' "$PR_JSON" | jq -r .mergedAt)
@@ -1025,6 +1015,10 @@ gh pr checks "$PR" --repo therealhieu/md2vid --required \
         and .completedAt <= $merged
       )
     ' >/dev/null
+
+gh api "repos/therealhieu/md2vid/pulls/$PR/reviews" \
+  --jq 'all(.[]?; .user.login != "github-actions[bot]")' \
+  | grep -qx true
 
 test "$(
   gh api "repos/therealhieu/md2vid/issues/$PR/timeline" \
@@ -1048,7 +1042,8 @@ Expected:
 
 - all required checks are `SUCCESS` and each `completedAt` is at or before `mergedAt`;
 - the timeline contains at least one `auto_merge_enabled` event by `github-actions[bot]`;
-- state is `MERGED` without a human review or merge command;
+- no `github-actions[bot]` review exists;
+- state is `MERGED` through the native auto-merge request, not a human review or manual merge command;
 - `parent_count` is `1` and the message begins with `chore(deps)`.
 
 - [ ] **Step 12: Observe a negative case when one already exists**
@@ -1063,22 +1058,24 @@ NEGATIVE_PR=$(gh pr list \
   --jq '[.[] | select(.headRefName | test("^dependabot/(npm_and_yarn/(runtime|dev)-patches|github_actions/actions-patches)(-|$)") | not)][0].number // empty')
 
 if test -n "$NEGATIVE_PR"; then
+  test "$(gh api repos/therealhieu/md2vid/branches/main/protection --jq .required_pull_request_reviews.required_approving_review_count)" = 0
+
   gh pr view "$NEGATIVE_PR" --repo therealhieu/md2vid \
-    --json headRefName,autoMergeRequest,reviews,state \
+    --json headRefName,autoMergeRequest,state \
     | jq -e '
       .state == "OPEN"
       and .autoMergeRequest == null
-      and all(.reviews[]?;
-        .state != "APPROVED"
-        or .author.login != "github-actions[bot]"
-      )
     ' >/dev/null
+
+  gh api "repos/therealhieu/md2vid/pulls/$NEGATIVE_PR/reviews" \
+    --jq 'all(.[]?; .user.login != "github-actions[bot]")' \
+    | grep -qx true
 else
   echo "No unmatched Dependabot PR exists; local decision-table coverage is the blocking negative proof."
 fi
 ```
 
-When a negative PR exists, it must have no Actions approval, no auto-merge request, and remain `OPEN` for manual review. Its absence does not block completion.
+When a negative PR exists, `main` must still require zero approvals, and the PR must have no Actions approval/review, no auto-merge request, and remain `OPEN` for manual review. Its absence does not block completion.
 
 ## Remote Rollback
 

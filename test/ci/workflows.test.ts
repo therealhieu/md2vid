@@ -50,7 +50,7 @@ const EXPECTED_JOB_RUNNERS: Record<string, Record<string, string | null>> = {
     "observe-dependabot": "ubuntu-latest",
   },
   "dependabot-auto-merge.yml": {
-    "approve-and-enable-auto-merge": "ubuntu-latest",
+    "request-auto-merge": "ubuntu-latest",
   },
   "nightly.yml": {
     "resolve-latest-node": "ubuntu-latest",
@@ -318,7 +318,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   });
   exactKeys(value, ["name", "on", "permissions", "concurrency", "jobs"]);
 
-  const job = parsedJob(value, "approve-and-enable-auto-merge");
+  const job = parsedJob(value, "request-auto-merge");
   exactKeys(job, ["if", "runs-on", "permissions", "steps"]);
   assert.equal(job["runs-on"], "ubuntu-latest");
   assert.deepEqual(job.permissions, {
@@ -337,7 +337,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     ].join(" && "),
   );
 
-  const steps = parsedSteps(job, "approve-and-enable-auto-merge");
+  const steps = parsedSteps(job, "request-auto-merge");
   assert.deepEqual(
     steps.map((step) => step.name),
     [
@@ -1008,7 +1008,7 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
     yaml.replace('"remotion"]);', '"remotion", "left-pad"]);'),
-    yaml.replace("      - name: Revalidate live head", "      - name: Approve eligible update\n        if: steps.policy.outputs.eligible == 'true'\n        shell: bash\n        env:\n          GH_TOKEN: ${{ github.token }}\n          REPOSITORY: therealhieu/md2vid\n          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}\n          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}\n        run: gh pr review \"$PR_NUMBER\" --approve\n\n      - name: Revalidate live head"),
+    yaml.replace("      - name: Revalidate live head", "      - name: Create workflow review side effect\n        if: steps.policy.outputs.eligible == 'true'\n        shell: bash\n        env:\n          GH_TOKEN: ${{ github.token }}\n          REPOSITORY: therealhieu/md2vid\n          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}\n          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}\n        run: gh pr review \"$PR_NUMBER\" --approve\n\n      - name: Revalidate live head"),
     yaml.replace("current_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)", "current_head=$(gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE)"),
     yaml.replace("gh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash", "gh pr review \"$PR_NUMBER\" --approve\n          gh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash"),
     yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", "--match-head-commit \"$EXPECTED_HEAD_SHA\" --delete-branch"),
