@@ -672,11 +672,13 @@ git diff --check
    - every group is patch-only and every current dependency is covered;
    - no dependency patch ignore rule exists;
    - runtime and development dependency-name allowlists match root package metadata;
-   - the workflow checks both actor and PR author;
-   - no `pull_request_target`, checkout, install, build, or repository script execution exists;
-   - metadata, approval, and merge failures are not suppressed;
-   - the merge command uses exactly `--auto --squash`, without `--admin`;
-   - minor, major, unknown-group, and unknown-dependency PRs cannot reach side-effect steps.
+   - the observer checks the Dependabot actor and PR author with no write authority;
+   - the privileged default-branch `workflow_run` stage checks the completed observer actor and independently revalidates the live PR author;
+   - no `pull_request_target`, checkout, artifact/cache handoff, install, build, or repository script execution exists;
+   - observer-run correlation, live head, every current commit, metadata, approval, and merge failures are not suppressed;
+   - approval uses an exact `commit_id`, and merge uses exactly `--auto --squash --match-head-commit` without `--admin`;
+   - minor, major, security-shaped, unknown-group, unknown-dependency, maintainer-change, multi-commit, unverified, and head-rotation cases cannot reach side-effect steps;
+   - a PR changing either workflow cannot execute proposed privileged content.
 
 ---
 
