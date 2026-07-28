@@ -686,6 +686,12 @@ Verifier evidence retained on 2026-07-28: the single read-only verifier returned
 
 ### Task 6: Configure protections and prove one canary [Tester: yes]
 
+#### Live canary deviation — 2026-07-28
+
+The real grouped Dependabot canary PR #25 exposed a concrete least-privilege omission after the approved remote policy was applied. Observer run `30341879923` succeeded, but trusted `workflow_run` run `30341888573` failed consistently in `Fetch trusted observer and PR state`: `gh api --method GET repos/therealhieu/md2vid/actions/runs/30341879923` returned `gh: Not Found (HTTP 404)`. The trusted job grants only `contents: write` and `pull-requests: write`; querying the observer run and its associated pull requests also requires `actions: read`.
+
+Remediation is required before Task 6 can complete: add only `actions: read` to the trusted job's exact permissions and rerun the real Dependabot canary evidence steps. Preserve fail-closed behavior and every existing trust-origin, provenance, approval, and merge guard. This correction does not broaden remote repository policy beyond the already approved five required checks, Actions review approval with read defaults, native auto-merge, and `main` protection settings.
+
 **Tester:** This is a remote policy task. API read-back and a real Dependabot PR are the verification mechanism. Do not simulate eligibility with an ordinary pull request.
 
 **Files:**

@@ -322,6 +322,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   exactKeys(job, ["if", "runs-on", "permissions", "steps"]);
   assert.equal(job["runs-on"], "ubuntu-latest");
   assert.deepEqual(job.permissions, {
+    actions: "read",
     contents: "write",
     "pull-requests": "write",
   });

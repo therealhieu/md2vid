@@ -58,7 +58,7 @@ You are a senior implementation agent working in this repository. Follow strict 
 - Task 5 creates weekly `runtime-patches`, `dev-patches`, and `actions-patches` groups with `chore(deps)` titles and no patch exclusions.
 - Every current runtime, optional, and development dependency is covered by the intended group; minor and major updates remain manual.
 - Only Dependabot-authored grouped patch PRs against `main` in `therealhieu/md2vid` can reach approval and native auto-merge steps.
-- The merge workflow grants only `contents: write` and `pull-requests: write`, checks out no code, and executes no PR-controlled repository file.
+- The merge workflow keeps top-level `permissions: {}` and grants its trusted job exactly `actions: read`, `contents: write`, and `pull-requests: write`; `actions: read` is job-scoped only to query the triggering observer run and associated PRs. It checks out no code and executes no PR-controlled repository file.
 - `main` requires one approval and these stable checks:
   - `pr-title`
   - `dependency-review`
