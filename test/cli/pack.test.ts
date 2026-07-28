@@ -2,15 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
   FORBIDDEN_PACKED_FILES,
   FORBIDDEN_PACKED_PREFIXES,
@@ -52,13 +54,23 @@ test("release package manifest covers executable, assets, postinstall, and all r
 test("packed source scaffold adapters import and execute from an unrelated cwd", () => {
   const root = resolve(import.meta.dirname, "..", "..");
   const temporary = mkdtempSync(join(tmpdir(), "md2vid-packed-source-adapters-"));
+  const isolatedRoot = join(temporary, "repository");
   const packed = join(temporary, "packed");
   mkdirSync(packed);
   try {
+    cpSync(root, isolatedRoot, {
+      recursive: true,
+      filter(source) {
+        const path = relative(root, source);
+        const top = path.split(/[\\/]/, 1)[0];
+        return ![".git", ".claude", ".worktrees", "dist", "node_modules"].includes(top);
+      },
+    });
+    symlinkSync(join(root, "node_modules"), join(isolatedRoot, "node_modules"), "dir");
     execFileSync(
       "corepack",
       ["npm", "pack", "--pack-destination", temporary],
-      { cwd: root, encoding: "utf8", stdio: "pipe" },
+      { cwd: isolatedRoot, encoding: "utf8", stdio: "pipe" },
     );
     const tarballs = readdirSync(temporary).filter((name) => name.endsWith(".tgz"));
     assert.equal(tarballs.length, 1, "npm pack must produce one tarball");
