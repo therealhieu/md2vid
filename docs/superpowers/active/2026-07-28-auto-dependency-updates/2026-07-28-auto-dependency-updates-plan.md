@@ -6,7 +6,7 @@
 
 **Architecture:** Root `package.json` becomes the authoritative source for dependency versions consumed by runtime code, generated projects, templates, tests, and release verification. Dependabot creates three patch-only groups. An unprivileged `pull_request` observer emits only a completion signal; a checkout-free privileged `workflow_run` stage defined on the default branch independently re-queries and validates the live Dependabot PR before commit-bound approval and native squash auto-merge. Protected `main` remains the final merge authority.
 
-**Tech Stack:** Node.js 22.18+, TypeScript ESM, npm 11.15.0, Node test runner, YAML 2.9.0, Dependabot v2 configuration, GitHub Actions, `dependabot/fetch-metadata`, GitHub CLI, GitHub REST API.
+**Tech Stack:** Node.js 22.18+, TypeScript ESM, npm 11.15.0, Node test runner, YAML 2.9.0, Dependabot v2 configuration, GitHub Actions, trusted inline Node.js metadata parsing, GitHub CLI, GitHub REST API.
 
 ---
 

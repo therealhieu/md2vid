@@ -88,12 +88,13 @@ Dependabot PR
   → PR-title validation
   → required CI checks
   → required dependency review
-  → guarded auto-merge workflow
-       ├── actor: dependabot[bot]
-       ├── repository: therealhieu/md2vid
-       ├── base branch: main
-       ├── update type: patch
-       └── approved dependency group
+  → no-write pull_request observer completion
+  → trusted default-branch workflow_run policy
+       ├── exact observer run + one associated PR
+       ├── event/live head and repository binding
+       ├── verified single Dependabot commit
+       ├── patch-only metadata + exact group policy
+       └── commit-bound review + head-bound merge request
   → native squash auto-merge
   → protected main branch
 ```
@@ -169,9 +170,14 @@ GitHub settings
 └───────────────────────┬───────────────────────┘
                         │ required checks
 ┌───────────────────────▼───────────────────────┐
+│ dependabot-auto-merge-observer.yml            │
+│ No-write pull_request completion signal only  │
+└───────────────────────┬───────────────────────┘
+                        │ trusted workflow_run
+┌───────────────────────▼───────────────────────┐
 │ dependabot-auto-merge.yml                     │
-│ Verify metadata, approve, and request native  │
-│ squash auto-merge                             │
+│ Re-query live state, verify exact head and    │
+│ metadata, approve commit, request auto-merge  │
 └───────────────────────┬───────────────────────┘
                         │ pending auto-merge
 ┌───────────────────────▼───────────────────────┐
@@ -188,16 +194,22 @@ GitHub settings
 |---|---|---|
 | `.github/dependabot.yml` | Create weekly patch groups and conventional titles | Decide whether validation passed |
 | `.github/workflows/ci.yml` | Validate every PR with read-only permissions | Approve or merge PRs |
-| `.github/workflows/dependabot-auto-merge.yml` | Verify actor, repository, base branch, Dependabot metadata, and group; approve eligible PRs; request auto-merge | Check out or execute PR code |
+| `.github/workflows/dependabot-auto-merge-observer.yml` | Emit a successful Dependabot PR completion signal with no write authority | Check out code, emit artifacts/caches, or provide metadata to the privileged stage |
+| `.github/workflows/dependabot-auto-merge.yml` | From trusted default-branch `workflow_run` content, re-query and bind observer/live PR state, verify commit provenance and exact metadata policy, approve the exact commit, and request head-bound auto-merge | Check out or execute PR code, consume observer artifacts, or perform unmodeled side effects |
 | Main protection/ruleset | Enforce pull request, approval, required checks, and branch integrity | Bypass failed or missing checks |
 | Workflow contract tests | Verify policy structure and security invariants | Freeze routine versions without a deliberate contract reason |
 
 The auto-merge workflow accepts a PR only when all of these conditions are true:
 
 ```text
-author == dependabot[bot]
-AND repository == therealhieu/md2vid
+observer run actor == dependabot[bot]
+AND observer event == pull_request with success conclusion
+AND observer run maps to exactly one PR
+AND event PR head == API-associated head == live PR head
+AND author == dependabot[bot]
+AND repository and head repository == therealhieu/md2vid
 AND base branch == main
+AND exactly one current commit is Dependabot-authored and signature-verified
 AND semantic update == patch
 AND head branch identifies runtime-patches, dev-patches, or actions-patches
 AND metadata dependency names satisfy that group's policy

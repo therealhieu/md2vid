@@ -6,7 +6,7 @@
 
 **Architecture:** Dependabot determines which grouped patch PRs are created. A no-write `pull_request` observer emits only a completion signal. A privileged `workflow_run` stage whose definition comes from the default branch re-queries exactly one associated live Dependabot PR, validates repository, actor, author, base, head repository/ref/SHA, every commit's provenance, semantic update type, group branch, and dependency-name policy, then performs its only side effects: commit-bound approval and a head-bound native squash auto-merge request. GitHub branch protection decides when or whether the merge occurs.
 
-**Tech Stack:** Dependabot v2 configuration, GitHub Actions, full-SHA-pinned `dependabot/fetch-metadata`, trusted inline Node.js policy validation, GitHub CLI, GitHub REST API.
+**Tech Stack:** Dependabot v2 configuration, GitHub Actions, trusted inline Node.js metadata/policy validation, GitHub CLI, GitHub REST API.
 
 ---
 

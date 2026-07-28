@@ -6,7 +6,7 @@ What is the safest current design for weekly grouped Dependabot patch updates th
 
 ## TL;DR
 
-Use Dependabot groups plus a narrowly scoped GitHub Actions workflow that verifies the PR author and `dependabot/fetch-metadata` update type, then enables GitHub native auto-merge. Keep CI and dependency review as required checks, use least-privilege job permissions, pin every action to a full commit SHA, and never execute pull-request code in a privileged `pull_request_target` workflow.
+Use Dependabot groups plus a two-stage GitHub Actions design: an unprivileged `pull_request` observer emits only a completion signal, then a trusted default-branch `workflow_run` stage independently re-queries and validates the live PR before commit-bound approval and native squash auto-merge. Keep CI and dependency review as required checks, use least-privilege job permissions, and never execute pull-request code or consume PR-controlled artifacts in the privileged stage.
 
 ## Findings
 
@@ -23,10 +23,13 @@ Use Dependabot groups plus a narrowly scoped GitHub Actions workflow that verifi
 ```text
 Dependabot weekly scan
   → grouped patch PR
-  → normal pull_request CI with read-only access
-  → dependency review + full validation
-  → guarded metadata job verifies actor/repository/update type
-  → enable native auto-merge
+  → unprivileged pull_request observer
+  → successful completion signal only
+  → trusted default-branch workflow_run
+  → API re-query: run, exactly one PR, live head, every commit
+  → inline trusted metadata + group policy
+  → commit-bound approval
+  → live-head recheck + --auto --squash --match-head-commit
   → GitHub merges only after required checks and rules pass
 ```
 
