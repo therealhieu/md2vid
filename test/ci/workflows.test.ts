@@ -343,14 +343,14 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     [
       "Fetch trusted observer and PR state",
       "Validate Dependabot patch group policy",
-      "Approve eligible update",
+      "Revalidate live head",
       "Request native squash auto-merge",
     ],
   );
   for (const step of steps) {
     assert.equal(Object.hasOwn(step, "continue-on-error"), false);
     assert.equal(Object.hasOwn(step, "uses"), false);
-    assert.doesNotMatch(String(step.run ?? ""), /\|\|\s*true|set\s+\+e/);
+    assert.doesNotMatch(String(step.run ?? ""), /\|\|\s*true|set\s+\+e|gh\s+pr\s+review|event=APPROVE|reviews\//);
   }
 
   const state = steps[0];
@@ -410,19 +410,19 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   assert.equal((script.match(/version-update:semver-patch/g) ?? []).length, 1);
   assert.match(script, /policy\.allowed === null \|\| names\.every/);
 
-  const approve = steps[2];
-  exactKeys(approve, ["name", "if", "shell", "env", "run"]);
-  assert.equal(approve.if, "steps.policy.outputs.eligible == 'true'");
-  assert.equal(approve.shell, "bash");
-  assert.deepEqual(approve.env, {
+  const revalidate = steps[2];
+  exactKeys(revalidate, ["name", "if", "shell", "env", "run"]);
+  assert.equal(revalidate.if, "steps.policy.outputs.eligible == 'true'");
+  assert.equal(revalidate.shell, "bash");
+  assert.deepEqual(revalidate.env, {
     GH_TOKEN: "${{ github.token }}",
     REPOSITORY: "therealhieu/md2vid",
     PR_NUMBER: "${{ steps.policy.outputs.pr_number }}",
     EXPECTED_HEAD_SHA: "${{ steps.policy.outputs.expected_head_sha }}",
   });
   assert.equal(
-    approve.run,
-    "set -euo pipefail\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\n[[ \"$EXPECTED_HEAD_SHA\" =~ ^[a-f0-9]{40}$ ]]\ncurrent_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)\ntest \"$current_head\" = \"$EXPECTED_HEAD_SHA\"\ngh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE -f commit_id=\"$EXPECTED_HEAD_SHA\"",
+    revalidate.run,
+    "set -euo pipefail\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\n[[ \"$EXPECTED_HEAD_SHA\" =~ ^[a-f0-9]{40}$ ]]\ncurrent_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)\ntest \"$current_head\" = \"$EXPECTED_HEAD_SHA\"",
   );
 
   const merge = steps[3];
@@ -440,7 +440,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     "set -euo pipefail\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\n[[ \"$EXPECTED_HEAD_SHA\" =~ ^[a-f0-9]{40}$ ]]\ncurrent_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)\ntest \"$current_head\" = \"$EXPECTED_HEAD_SHA\"\ngh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash --match-head-commit \"$EXPECTED_HEAD_SHA\"",
   );
 
-  assert.doesNotMatch(yaml, /pull_request_target|actions\/checkout@|uses:\s|npm\s+(?:ci|install|run)|corepack|node_modules|dist\/bin|scripts\/[A-Za-z0-9_.-]+\.ts|--admin|--merge|--rebase/);
+  assert.doesNotMatch(yaml, /pull_request_target|actions\/checkout@|uses:\s|npm\s+(?:ci|install|run)|corepack|node_modules|dist\/bin|scripts\/[A-Za-z0-9_.-]+\.ts|--admin|--merge|--rebase|gh\s+pr\s+review|event=APPROVE|reviews\//);
 }
 
 function dependabotPolicyScript(yaml: string): string {
@@ -1008,16 +1008,16 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
     yaml.replace('"remotion"]);', '"remotion", "left-pad"]);'),
-    yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE -f commit_id=\"$EXPECTED_HEAD_SHA\"", "gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE"),
-    yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\"", "gh api --method POST \"repos/$REPOSITORY/issues/$PR_NUMBER/comments\"\n          gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\""),
+    yaml.replace("      - name: Revalidate live head", "      - name: Approve eligible update\n        if: steps.policy.outputs.eligible == 'true'\n        shell: bash\n        env:\n          GH_TOKEN: ${{ github.token }}\n          REPOSITORY: therealhieu/md2vid\n          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}\n          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}\n        run: gh pr review \"$PR_NUMBER\" --approve\n\n      - name: Revalidate live head"),
+    yaml.replace("current_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)", "current_head=$(gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE)"),
+    yaml.replace("gh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash", "gh pr review \"$PR_NUMBER\" --approve\n          gh pr merge \"$PR_NUMBER\" --repo \"$REPOSITORY\" --auto --squash"),
     yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", "--match-head-commit \"$EXPECTED_HEAD_SHA\" --delete-branch"),
     yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", ""),
     yaml.replace("steps.policy.outputs.eligible == 'true'", "always()"),
-    yaml.replace("      - name: Approve eligible update", "      - name: Request native squash auto-merge\n        run: true\n      - name: Approve eligible update"),
+    yaml.replace("      - name: Revalidate live head", "      - name: Notify side channel\n        run: gh api --method POST repos/therealhieu/md2vid/issues\n      - name: Revalidate live head"),
     yaml.replace("set -euo pipefail", "set +e"),
   ];
   for (const [index, mutated] of mutations.entries()) {
-    assert.notEqual(mutated, yaml, `privileged mutation ${index} must modify workflow`);
     assert.throws(
       () => assertDependabotAutoMergePolicy(mutated),
       `privileged mutation ${index} was accepted`,

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Create patch-only Dependabot groups, add a checkout-free guarded approval and native auto-merge workflow, then activate repository protections and prove one real Dependabot canary.
+**Goal:** Create patch-only Dependabot groups, add a checkout-free guarded native auto-merge workflow with no review side effect, then preserve repository protections and prove one real Dependabot canary.
 
-**Architecture:** Dependabot determines which grouped patch PRs are created. A no-write `pull_request` observer emits only a completion signal. A privileged `workflow_run` stage whose definition comes from the default branch re-queries exactly one associated live Dependabot PR, validates repository, actor, author, base, head repository/ref/SHA, every commit's provenance, semantic update type, group branch, and dependency-name policy, then performs its only side effects: commit-bound approval and a head-bound native squash auto-merge request. GitHub branch protection decides when or whether the merge occurs.
+**Architecture:** Dependabot determines which grouped patch PRs are created. A no-write `pull_request` observer emits only a completion signal. A privileged `workflow_run` stage whose definition comes from the default branch re-queries exactly one associated live Dependabot PR, validates repository, actor, author, base, head repository/ref/SHA, every commit's provenance, semantic update type, group branch, and dependency-name policy, revalidates the exact live head immediately before its only side effect, then requests native squash auto-merge with `--match-head-commit`. GitHub branch protection and its strict five required checks decide when or whether the merge occurs; no review or approval is submitted.
 
 **Tech Stack:** Dependabot v2 configuration, GitHub Actions, trusted inline Node.js metadata/policy validation, GitHub CLI, GitHub REST API.
 
@@ -32,6 +32,12 @@ Dependabot pull_request
 ```
 
 `dependabot/fetch-metadata@v2.5.0` is removed from the revised workflow. Its pinned implementation requires `context.payload.pull_request` and validates only the first listed commit, so it cannot directly and completely enforce this `workflow_run` trust model. The privileged stage instead uses checkout-free trusted GitHub API queries and inline parsing. This section supersedes the original single-workflow code sketch below; Mode B replaces that sketch and records the final exact contracts in tests.
+
+## Approved Task 5.2 no-review deviation — 2026-07-28
+
+The user explicitly decided: `if green auto merge => don't need approval`. Requiring one approval deadlocked ordinary pull requests because `therealhieu` is the repository's only collaborator and GitHub forbids self-approval. The coordinator has already changed live `main` protection from one required approval to zero while preserving strict enforcement of the same five required checks, admin enforcement, conversation resolution, and the bans on force pushes and deletion. The trusted workflow is merge-request-only: it must not create a review or approval API call.
+
+Task 5.2 changes the trusted workflow from approval-plus-merge side effects to merge-request-only. It removes the commit-bound APPROVE review step and approval-specific API call, environment, and guards. It preserves the unprivileged observer, trusted default-branch `workflow_run` origin, `actions: read` observer queries, exact observer/live PR/commit provenance, event and live-head binding, the immediate live-head recheck, and exact `gh pr merge --auto --squash --match-head-commit`. The trusted job may keep only permissions required by those remaining commands; `actions: read` and `contents: write` remain required, while the `pull-requests` grant must be decided from the actual GET/merge endpoints and contracted exactly in tests. `default_workflow_permissions` remains `read`. After this remediation merges, disable `can_approve_pull_request_reviews: true → false`, verify read-back, and rerun the real canary.
 
 ## Group: `dependabot-automation`
 
@@ -675,22 +681,70 @@ git diff --check
    - the observer checks the Dependabot actor and PR author with no write authority;
    - the privileged default-branch `workflow_run` stage checks the completed observer actor and independently revalidates the live PR author;
    - no `pull_request_target`, checkout, artifact/cache handoff, install, build, or repository script execution exists;
-   - observer-run correlation, live head, every current commit, metadata, approval, and merge failures are not suppressed;
-   - approval uses an exact `commit_id`, and merge uses exactly `--auto --squash --match-head-commit` without `--admin`;
-   - minor, major, security-shaped, unknown-group, unknown-dependency, maintainer-change, multi-commit, unverified, and head-rotation cases cannot reach side-effect steps;
+   - observer-run correlation, live head, every current commit, metadata, and merge failures are not suppressed;
+   - no approval/review step or reviews API side effect exists, and merge uses exactly `--auto --squash --match-head-commit` without `--admin` after an immediate live-head recheck;
+   - minor, major, security-shaped, unknown-group, unknown-dependency, maintainer-change, multi-commit, unverified, and head-rotation cases cannot reach the merge-request side effect;
    - a PR changing either workflow cannot execute proposed privileged content.
 
 Verifier evidence retained on 2026-07-28: the single read-only verifier returned `PASS` after confirming all canonical Must-fix checklists and the approved architecture checklist. It independently ran `55/55` workflow tests, Actionlint, `public:snapshot:check`, the full and release checks with `846/846` tests, both diff checks, the tracked-`dist` check, and the six-artifact dirty-baseline status check. SPEC-5 remains an explicitly deferred Nice item until Tasks 1–6 complete.
 
 ---
 
-### Task 6: Configure protections and prove one canary [Tester: yes]
+### Task 5.2: Remove redundant approval side effect [Mode A standalone]
+
+**Files:**
+- Modify: `test/ci/workflows.test.ts`
+- Modify: `.github/workflows/dependabot-auto-merge.yml`
+- Regenerate: `public-snapshot.json`
+
+- [x] **Step 1: Record the approved deviation before code changes**
+
+  The no-review decision and self-approval deadlock are recorded above and reconciled in the goal, design, plan index, and this Part 2 acceptance criteria. No remote setting write is part of Task 5.2.
+
+- [x] **Step 2: RED — replace the exact trusted-workflow contract first**
+
+  In `test/ci/workflows.test.ts`, require the exact ordered step inventory:
+
+  ```text
+  Fetch trusted observer and PR state
+  Validate Dependabot patch group policy
+  Revalidate live head
+  Request native squash auto-merge
+  ```
+
+  Reject every approval/review step, `gh pr review`, reviews API POST, `event=APPROVE`, approval-specific environment or guard, and any extra side-effect step. Preserve mutation coverage for authority, provenance, head rotation, and multi-commit boundaries. Contract `actions: read` and `contents: write`; determine whether `pull-requests: write` remains necessary from the remaining `gh api` GET and `gh pr merge --auto --squash --match-head-commit` commands, and assert the exact resulting map rather than guessing.
+
+  Run the focused workflow tests and capture the expected RED against the current approval-producing workflow.
+
+- [x] **Step 3: GREEN — make the minimal workflow change**
+
+  Remove only the approval step and approval-specific API call, environment values, and guards. Keep all validation, the exact live-head recheck immediately before merge, and the exact `gh pr merge --auto --squash --match-head-commit` command. Do not add checkout, artifacts, installs, builds, project execution, or PR-controlled content.
+
+- [x] **Step 4: Strengthen mutation coverage**
+
+  Prove that reintroducing any review API side effect or extra side-effect step fails the structural contract, while retaining the existing authority, trust-origin, complete-commit-provenance, multi-commit, and head-rotation mutation cases.
+
+- [x] **Step 5: Run Task 5.2 verification**
+
+  Run at least `55` focused workflow tests, Actionlint when available, the pinned public-snapshot check, the full check, `release:check`, and both scoped and working-tree diff checks. Regenerate `public-snapshot.json` before the snapshot check. Do not create canonical review artifacts.
+
+- [x] **Step 6: Commit the remediation**
+
+  ```bash
+  git add docs/superpowers/active/2026-07-28-auto-dependency-updates \\
+    test/ci/workflows.test.ts .github/workflows/dependabot-auto-merge.yml public-snapshot.json
+  git commit -m "ci(deps): remove redundant auto-merge approval"
+  ```
+
+  Use the configured git identity and do not push or change remote settings.
+
+### Task 6: Preserve protections and prove the no-review canary [Tester: yes]
 
 #### Live canary deviation — 2026-07-28
 
 The real grouped Dependabot canary PR #25 exposed a concrete least-privilege omission after the approved remote policy was applied. Observer run `30341879923` succeeded, but trusted `workflow_run` run `30341888573` failed consistently in `Fetch trusted observer and PR state`: `gh api --method GET repos/therealhieu/md2vid/actions/runs/30341879923` returned `gh: Not Found (HTTP 404)`. The trusted job grants only `contents: write` and `pull-requests: write`; querying the observer run and its associated pull requests also requires `actions: read`.
 
-Remediation is required before Task 6 can complete: add only `actions: read` to the trusted job's exact permissions and rerun the real Dependabot canary evidence steps. Preserve fail-closed behavior and every existing trust-origin, provenance, approval, and merge guard. This correction does not broaden remote repository policy beyond the already approved five required checks, Actions review approval with read defaults, native auto-merge, and `main` protection settings.
+The `actions: read` remediation merged and is preserved. A later canary/rollout review exposed the approval deadlock described in Task 5.2. Task 6 now resumes only after Task 5.2 merges: preserve the exact five strict required checks and every other live protection, disable only Actions pull-request approval permission while keeping read-only workflow defaults, and rerun the real Dependabot canary without any workflow-created review.
 
 **Tester:** This is a remote policy task. API read-back and a real Dependabot PR are the verification mechanism. Do not simulate eligibility with an ordinary pull request.
 
@@ -701,9 +755,10 @@ Remediation is required before Task 6 can complete: add only `actions: read` to 
 
 **Prerequisites:**
 
-- Tasks 1–5 have merged into `main`.
-- Their implementation PR passed all existing CI checks.
-- The user has seen the live current → proposed settings diff and explicitly approved remote writes.
+- Tasks 1–5 and Task 5.2 have merged into `main`.
+- Their implementation PRs passed all existing CI checks.
+- Live `main` protection already has zero required approvals and the strict five required checks; the coordinator made that user-approved change while preserving every other protection.
+- Before changing Actions approval permission, read current state, show `can_approve_pull_request_reviews: true → false` with `default_workflow_permissions: read` unchanged, and obtain explicit confirmation.
 
 - [ ] **Step 1: Read current remote state without changing it**
 
@@ -719,16 +774,20 @@ gh api repos/therealhieu/md2vid/branches/main \
 gh api repos/therealhieu/md2vid/rulesets
 ```
 
-Expected planning baseline:
+Expected current remediation baseline:
 
 ```text
-allow_auto_merge: false
-can_approve_pull_request_reviews: false
-main protected: false
-rulesets: []
+allow_auto_merge: true
+allow_squash_merge: true
+default_workflow_permissions: read
+can_approve_pull_request_reviews: true
+main protected: true
+required approvals: 0
+strict required checks: five exact names
+rulesets: preserve current state
 ```
 
-If live state differs, stop. Do not overwrite existing policy.
+If live state differs, stop and show the exact difference. Do not overwrite any unrelated policy.
 
 - [ ] **Step 2: Verify stable check names from the merged implementation PR**
 
@@ -739,7 +798,7 @@ RUN_ID=$(gh run list \
   --event pull_request \
   --limit 20 \
   --json databaseId,headBranch \
-  --jq 'map(select(.headBranch == "auto-dependency-updates-impl"))[0].databaseId')
+  --jq 'map(select(.headBranch == "fix/dependabot-auto-merge-no-review"))[0].databaseId')
 
 test -n "$RUN_ID"
 
@@ -772,14 +831,14 @@ Do not require `main-full`; it is push-only. Do not require `resolve-latest-node
 Show the user this exact proposed change before executing it:
 
 ```text
-allow_auto_merge: false → true
-can_approve_pull_request_reviews: false → true
+allow_auto_merge: preserve current true
 default_workflow_permissions: preserve read
-main protection:
+can_approve_pull_request_reviews: true → false
+main protection: preserve current values
   require strict status checks: five verified names
   require pull request: yes
-  required approvals: 1
-  dismiss stale approvals: yes
+  required approvals: 0
+  dismiss stale approvals: preserve current value
   enforce admins: yes
   require conversation resolution: yes
   allow force pushes: no
@@ -788,46 +847,7 @@ main protection:
 
 Proceed only after explicit confirmation.
 
-- [ ] **Step 4: Protect `main` before enabling merge authority**
-
-```bash
-gh api \
-  --method PUT \
-  repos/therealhieu/md2vid/branches/main/protection \
-  -H "Accept: application/vnd.github+json" \
-  --input - <<'JSON'
-{
-  "required_status_checks": {
-    "strict": true,
-    "contexts": [
-      "pr-title",
-      "dependency-review",
-      "public-snapshot / validate",
-      "pr-minimum / validate",
-      "pr-latest / validate"
-    ]
-  },
-  "enforce_admins": true,
-  "required_pull_request_reviews": {
-    "dismiss_stale_reviews": true,
-    "require_code_owner_reviews": false,
-    "required_approving_review_count": 1,
-    "require_last_push_approval": false
-  },
-  "restrictions": null,
-  "required_conversation_resolution": true,
-  "allow_force_pushes": false,
-  "allow_deletions": false,
-  "block_creations": false,
-  "lock_branch": false,
-  "allow_fork_syncing": false
-}
-JSON
-```
-
-Expected: HTTP success with protection details. At this point auto-merge and Actions approval remain disabled.
-
-- [ ] **Step 5: Verify branch protection before granting merge authority**
+- [ ] **Step 4: Verify every protected-branch invariant before the Actions change**
 
 ```bash
 gh api repos/therealhieu/md2vid/branches/main/protection \
@@ -835,7 +855,6 @@ gh api repos/therealhieu/md2vid/branches/main/protection \
     strict: .required_status_checks.strict,
     checks: [.required_status_checks.contexts[]],
     approvals: .required_pull_request_reviews.required_approving_review_count,
-    dismiss_stale: .required_pull_request_reviews.dismiss_stale_reviews,
     enforce_admins: .enforce_admins.enabled,
     force_pushes: .allow_force_pushes.enabled,
     deletions: .allow_deletions.enabled,
@@ -843,37 +862,16 @@ gh api repos/therealhieu/md2vid/branches/main/protection \
   }'
 ```
 
-Expected:
+Expected: strict is `true`; checks are exactly the five verified names; approvals is `0`; admin enforcement and conversation resolution are `true`; force pushes and deletion are `false`. Do not write branch protection in this remediation.
 
-```json
-{
-  "strict": true,
-  "checks": [
-    "pr-title",
-    "dependency-review",
-    "public-snapshot / validate",
-    "pr-minimum / validate",
-    "pr-latest / validate"
-  ],
-  "approvals": 1,
-  "dismiss_stale": true,
-  "enforce_admins": true,
-  "force_pushes": false,
-  "deletions": false,
-  "conversation_resolution": true
-}
-```
-
-Stop if any value differs.
-
-- [ ] **Step 6: Allow Actions approval while preserving read defaults**
+- [ ] **Step 5: Disable Actions approval while preserving read defaults**
 
 ```bash
 gh api \
   --method PUT \
   repos/therealhieu/md2vid/actions/permissions/workflow \
   -f default_workflow_permissions=read \
-  -F can_approve_pull_request_reviews=true
+  -F can_approve_pull_request_reviews=false
 
 gh api repos/therealhieu/md2vid/actions/permissions/workflow
 ```
@@ -883,23 +881,29 @@ Expected:
 ```json
 {
   "default_workflow_permissions": "read",
-  "can_approve_pull_request_reviews": true
+  "can_approve_pull_request_reviews": false
 }
 ```
 
-- [ ] **Step 7: Enable native repository auto-merge last**
+- [ ] **Step 6: Verify native auto-merge and branch protection remain unchanged**
 
 ```bash
-gh api \
-  --method PATCH \
-  repos/therealhieu/md2vid \
-  -F allow_auto_merge=true
-
 gh api repos/therealhieu/md2vid \
   --jq '{allow_auto_merge,allow_squash_merge}'
+
+gh api repos/therealhieu/md2vid/branches/main/protection \
+  --jq '{
+    strict: .required_status_checks.strict,
+    checks: [.required_status_checks.contexts[]],
+    approvals: .required_pull_request_reviews.required_approving_review_count,
+    enforce_admins: .enforce_admins.enabled,
+    force_pushes: .allow_force_pushes.enabled,
+    deletions: .allow_deletions.enabled,
+    conversation_resolution: .required_conversation_resolution.enabled
+  }'
 ```
 
-Expected both values are `true`. If read-back fails, disable Actions approval immediately and stop.
+Expected: native auto-merge and squash merge remain enabled, approvals remain `0`, and every other protected-branch field matches Step 4. Stop if any value differs.
 
 - [ ] **Step 8: Confirm merged configuration exists on `main`**
 

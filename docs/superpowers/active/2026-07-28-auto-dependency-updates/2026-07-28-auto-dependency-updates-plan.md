@@ -4,7 +4,7 @@
 
 **Goal:** Add weekly grouped Dependabot patch updates that safely auto-merge across runtime, optional, development, and GitHub Actions dependencies after repository-enforced checks pass.
 
-**Architecture:** Root `package.json` becomes the authoritative source for dependency versions consumed by runtime code, generated projects, templates, tests, and release verification. Dependabot creates three patch-only groups. An unprivileged `pull_request` observer emits only a completion signal; a checkout-free privileged `workflow_run` stage defined on the default branch independently re-queries and validates the live Dependabot PR before commit-bound approval and native squash auto-merge. Protected `main` remains the final merge authority.
+**Architecture:** Root `package.json` becomes the authoritative source for dependency versions consumed by runtime code, generated projects, templates, tests, and release verification. Dependabot creates three patch-only groups. An unprivileged `pull_request` observer emits only a completion signal; a checkout-free privileged `workflow_run` stage defined on the default branch independently re-queries and validates the live Dependabot PR before requesting native squash auto-merge bound to the exact validated head. Protected `main` and its strict required checks remain the final merge authority.
 
 **Tech Stack:** Node.js 22.18+, TypeScript ESM, npm 11.15.0, Node test runner, YAML 2.9.0, Dependabot v2 configuration, GitHub Actions, trusted inline Node.js metadata parsing, GitHub CLI, GitHub REST API.
 
@@ -45,6 +45,12 @@ The original Task 5 sketch used a privileged `pull_request` workflow. Current Gi
 
 The pinned `dependabot/fetch-metadata` action is removed from the revised implementation because it requires a `pull_request` payload and cannot operate directly on `workflow_run`. Trusted inline API parsing replaces it. This is an approved exception to the original trigger architecture; Task 6 remains unchanged and blocked until this remediation and verification complete.
 
+## Approved no-review remediation — 2026-07-28
+
+The user explicitly decided: `if green auto merge => don't need approval`. The prior one-approval rule deadlocked normal pull requests because `therealhieu` is the repository's only collaborator and GitHub forbids approving one's own pull request. The coordinator therefore changed live `main` protection from one required approval to zero while preserving strict enforcement of the five required checks, admin enforcement, conversation resolution, and the bans on force pushes and branch deletion.
+
+Task 5.2 removes the trusted workflow's commit-bound APPROVE review and every approval-specific API call, environment value, guard, and side-effect step. The trusted observer and default-branch `workflow_run` architecture, `actions: read` observer queries, complete provenance validation, exact event/live head binding, immediate live-head recheck, and exact `gh pr merge --auto --squash --match-head-commit` request remain unchanged. The trusted stage is merge-request-only: it must not create a review or approval side effect. `default_workflow_permissions` stays `read`. After this remediation merges, change only `can_approve_pull_request_reviews: true → false`, read it back, and rerun the real Dependabot canary.
+
 ## File Responsibility Map
 
 | File | Responsibility |
@@ -61,7 +67,7 @@ The pinned `dependabot/fetch-metadata` action is removed from the revised implem
 | `test/ci/workflows.test.ts` | Validate generic immutable Action pins, Dependabot groups, and privileged auto-merge workflow boundaries. |
 | `.github/dependabot.yml` | Define weekly runtime, development, and Actions patch groups with conventional commit prefixes. |
 | `.github/workflows/dependabot-auto-merge-observer.yml` | Observe eligible Dependabot `pull_request` events with no write authority, checkout, artifact, cache, or PR-code execution; provide only a completion signal. |
-| `.github/workflows/dependabot-auto-merge.yml` | On trusted default-branch `workflow_run`, re-query the observer run and exactly one associated live PR; validate repository, actor, author, base, head repository/ref/SHA, complete commit provenance, patch metadata, group branch, and dependency names; approve the exact commit and request head-bound native squash auto-merge. |
+| `.github/workflows/dependabot-auto-merge.yml` | On trusted default-branch `workflow_run`, re-query the observer run and exactly one associated live PR; validate repository, actor, author, base, head repository/ref/SHA, complete commit provenance, patch metadata, group branch, and dependency names; revalidate the live head immediately before requesting head-bound native squash auto-merge. It must submit no review or approval. |
 | `public-snapshot.json` | Record changed public source hashes after source, template, workflow, test, and documentation updates. |
 
 ## Plan Parts and Dependencies
@@ -161,8 +167,8 @@ Do not weaken or remove branch protection as rollback. Disable auto-merge and Ac
 - Existing generated projects may retain an older exact canonical jsDelivr GSAP URL without becoming invalid.
 - Runtime, development, and Actions groups are weekly and patch-only; minor and major updates remain manual.
 - Dependabot titles use `chore(deps)`.
-- The observer uses `pull_request` with no write authority and no checkout, artifact, cache, or PR-controlled execution; the privileged default-branch stage uses `workflow_run`, keeps top-level `permissions: {}`, checks out no code, executes no PR-controlled file, and grants its trusted job exactly `actions: read`, `contents: write`, and `pull-requests: write`. The job-scoped `actions: read` grant is only for querying the triggering observer run and associated PRs.
-- A PR changing either workflow cannot execute proposed privileged content; the trusted stage correlates exactly one observer run to exactly one Dependabot PR and binds review plus auto-merge to the same verified live head SHA.
-- `main` requires one approval and the verified stable CI checks, blocks force pushes and deletion, and uses native squash auto-merge.
-- A real grouped Dependabot patch canary is approved by Actions, remains open while required checks are pending, and squash-merges only after all checks pass.
+- The observer uses `pull_request` with no write authority and no checkout, artifact, cache, or PR-controlled execution; the privileged default-branch stage uses `workflow_run`, keeps top-level `permissions: {}`, checks out no code, executes no PR-controlled file, and retains job-scoped `actions: read` for observer-run queries plus only the write permission(s) required by the remaining GET and native merge commands. The exact map is contracted by Task 5.2 from those commands, not guessed.
+- A PR changing either workflow cannot execute proposed privileged content; the trusted stage correlates exactly one observer run to exactly one Dependabot PR and binds the auto-merge request to the same verified live head SHA. It submits no review or approval side effect.
+- `main` requires zero approvals and the verified stable CI checks, blocks force pushes and deletion, enforces admins and conversation resolution, and uses native squash auto-merge.
+- A real grouped Dependabot patch canary receives only a native head-bound auto-merge request, remains open while required checks are pending, and squash-merges only after all checks pass.
 - All local verification succeeds with a clean worktree.

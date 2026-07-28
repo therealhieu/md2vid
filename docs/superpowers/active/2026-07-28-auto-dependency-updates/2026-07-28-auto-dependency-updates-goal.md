@@ -25,6 +25,7 @@ You are a senior implementation agent working in this repository. Follow strict 
 - Preserve existing projects that explicitly use an older exact canonical jsDelivr GSAP URL.
 - The original privileged workflow requirement was `pull_request`, not `pull_request_target`, with no checkout, install, build, import, or pull-request-file execution.
 - **Approved architecture decision (2026-07-28):** authoritative GitHub documentation confirms that `pull_request` runs use workflow content from the event-associated merge ref. Because the privileged workflow used the mutable `dependabot/fetch-metadata` action, an Actions update could execute its proposed workflow/action revision with write authority before merge. The approved replacement is an unprivileged `pull_request` observer that emits only a successful completion signal, followed by a privileged default-branch `workflow_run` stage that re-queries and validates the live PR through GitHub APIs. This is an explicit architecture exception to the original trigger requirement, approved before implementation.
+- **Approved no-review remediation (2026-07-28):** the user decided that a green eligible Dependabot patch may auto-merge without approval. Requiring one approval deadlocked normal pull requests because `therealhieu` is the repository's only collaborator and GitHub forbids self-approval. The trusted workflow must therefore have one side effect only: request native squash auto-merge bound to the exact validated live head. It must not create a review or approval API call. `main` requires zero approvals while retaining the strict five required checks and every other protection. `default_workflow_permissions` stays `read`; after this remediation merges, disable `can_approve_pull_request_reviews` from `true` to `false` and rerun the real canary.
 - Remote settings must not change until Tasks 1–5 are merged to `main`, live state is read back, the exact settings diff is shown, and the user explicitly confirms the write.
 - Minor and major dependency updates, merge queues, external auto-merge apps, PATs, and GitHub App tokens remain out of scope.
 
@@ -57,16 +58,16 @@ You are a senior implementation agent working in this repository. Follow strict 
 - Task 4 records failing structural tests for all three patch groups and every privileged workflow guard.
 - Task 5 creates weekly `runtime-patches`, `dev-patches`, and `actions-patches` groups with `chore(deps)` titles and no patch exclusions.
 - Every current runtime, optional, and development dependency is covered by the intended group; minor and major updates remain manual.
-- Only Dependabot-authored grouped patch PRs against `main` in `therealhieu/md2vid` can reach approval and native auto-merge steps.
-- The merge workflow keeps top-level `permissions: {}` and grants its trusted job exactly `actions: read`, `contents: write`, and `pull-requests: write`; `actions: read` is job-scoped only to query the triggering observer run and associated PRs. It checks out no code and executes no PR-controlled repository file.
-- `main` requires one approval and these stable checks:
+- Only Dependabot-authored grouped patch PRs against `main` in `therealhieu/md2vid` can reach the native auto-merge request step; the trusted workflow submits no review or approval.
+- The merge workflow keeps top-level `permissions: {}`. Its trusted job retains job-scoped `actions: read` only for the observer-run queries and `contents: write` for the native merge request; any `pull-requests` grant must match the remaining GET and auto-merge endpoints exactly. It checks out no code and executes no PR-controlled repository file.
+- `main` requires zero approvals and these strict stable checks:
   - `pr-title`
   - `dependency-review`
   - `public-snapshot / validate`
   - `pr-minimum / validate`
   - `pr-latest / validate`
 - `main` blocks force pushes and deletion, enforces admins, and requires conversation resolution.
-- The canary is approved by GitHub Actions, remains open while checks are pending, and squash-merges only after every required check passes.
-- A minor or major Dependabot PR receives no automated approval or auto-merge request.
+- The canary receives a head-bound native squash auto-merge request, remains open while checks are pending, and squash-merges only after every required check passes.
+- A minor or major Dependabot PR receives no automated review or auto-merge request.
 - `corepack npm --version` prints `11.15.0`; all targeted tests, full checks, release checks, snapshot checks, and diff checks pass.
 - No unresolved template token, unrelated refactor, generated `dist/` commit, placeholder, or unfinished work remains.

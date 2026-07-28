@@ -220,7 +220,7 @@ jobs:
           appendFileSync(output, `expected_head_sha=${expectedHeadSha}\n`);
           NODE
 
-      - name: Approve eligible update
+      - name: Revalidate live head
         if: steps.policy.outputs.eligible == 'true'
         shell: bash
         env:
@@ -234,7 +234,6 @@ jobs:
           [[ "$EXPECTED_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
           current_head=$(gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
           test "$current_head" = "$EXPECTED_HEAD_SHA"
-          gh api --method POST "repos/$REPOSITORY/pulls/$PR_NUMBER/reviews" -f event=APPROVE -f commit_id="$EXPECTED_HEAD_SHA"
 
       - name: Request native squash auto-merge
         if: steps.policy.outputs.eligible == 'true'
