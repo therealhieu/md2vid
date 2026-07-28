@@ -1,0 +1,107 @@
+name: Dependabot auto-merge
+
+"on":
+  pull_request:
+
+permissions: {}
+
+jobs:
+  approve-and-enable-auto-merge:
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.repository == 'therealhieu/md2vid' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.5.0
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Validate patch group policy
+        id: policy
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+
+          const output = process.env.GITHUB_OUTPUT;
+          const head = process.env.HEAD_REF ?? "";
+          const updateType = process.env.UPDATE_TYPE ?? "";
+          const names = (process.env.DEPENDENCY_NAMES ?? "")
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean);
+
+          if (!output) throw new Error("GITHUB_OUTPUT is unavailable");
+          if (names.length === 0) {
+            throw new Error("Dependabot metadata returned no dependency names");
+          }
+
+          const policies = [
+            {
+              group: "runtime-patches",
+              branch: /^dependabot\/npm_and_yarn\/runtime-patches(?:-|$)/,
+              allowed: new Set([
+                "hyperframes",
+                "@remotion/google-fonts",
+                "@remotion/media",
+                "react",
+                "react-dom",
+                "remotion",
+              ]),
+            },
+            {
+              group: "dev-patches",
+              branch: /^dependabot\/npm_and_yarn\/dev-patches(?:-|$)/,
+              allowed: new Set([
+                "@types/node",
+                "@types/react",
+                "@types/react-dom",
+                "gsap",
+                "typescript",
+                "yaml",
+              ]),
+            },
+            {
+              group: "actions-patches",
+              branch: /^dependabot\/github_actions\/actions-patches(?:-|$)/,
+              allowed: null,
+            },
+          ];
+
+          const policy = policies.find(({ branch }) => branch.test(head));
+          const eligible =
+            updateType === "version-update:semver-patch" &&
+            policy !== undefined &&
+            (policy.allowed === null ||
+              names.every((name) => policy.allowed.has(name)));
+
+          appendFileSync(output, `eligible=${eligible}\n`);
+          appendFileSync(output, `group=${policy?.group ?? "none"}\n`);
+          NODE
+
+      - name: Approve eligible update
+        if: steps.policy.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr review "$PR_URL" --approve
+
+      - name: Request native squash auto-merge
+        if: steps.policy.outputs.eligible == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash
