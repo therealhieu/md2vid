@@ -1018,6 +1018,49 @@ test("Dependabot trusted policy accepts dependency-version metadata field", () =
       expected_head_sha: "a".repeat(40),
     },
   });
+
+  const quotedEscapeFixture = withDependabotMetadataLines(
+    makePolicyFixture("runtime-patches", ["hyperframes"]),
+    [
+      "- dependency-name: hyperframes",
+      "  dependency-version: '0.7.77''canary'",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: runtime-patches",
+    ],
+  );
+  assert.deepEqual(runDependabotPolicy(yaml, quotedEscapeFixture), {
+    status: 0,
+    values: {
+      eligible: "true",
+      group: "runtime-patches",
+      pr_number: "123",
+      expected_head_sha: "a".repeat(40),
+    },
+  });
+});
+
+test("Dependabot trusted policy rejects duplicate dependency names", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const fixture = withDependabotMetadataLines(
+    makePolicyFixture("runtime-patches", ["hyperframes"]),
+    [
+      "- dependency-name: hyperframes",
+      "  dependency-version: 0.7.77",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: runtime-patches",
+      "- dependency-name: hyperframes",
+      "  dependency-version: 0.7.78",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: runtime-patches",
+    ],
+  );
+  const result = runDependabotPolicy(yaml, fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr ?? "", /dependency metadata contains duplicates/);
+  assert.equal(result.values.eligible, undefined);
 });
 
 test("Dependabot trusted policy rejects dependency-version metadata mutations", () => {
