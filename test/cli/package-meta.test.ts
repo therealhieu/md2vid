@@ -98,6 +98,8 @@ test("public README documents supported install, usage, rendering, and release f
     "Node.js >=22.18",
     "npm install -g md2vid",
     "md2vid install-skill",
+    "md2vid upgrade",
+    "npm install --global md2vid@latest",
     "/md2vid",
     "npx --yes=false md2vid",
     "md2vid verify",
@@ -142,6 +144,18 @@ test("public README documents supported install, usage, rendering, and release f
   assert.doesNotMatch(readme, /Actual publication and tagging require explicit maintainer approval/);
   assert.doesNotMatch(readme, /git push origin main v\d+\.\d+\.\d+/);
   assert.doesNotMatch(readme, /npm install -g md2vid@\d+\.\d+\.\d+/);
+});
+
+test("public README uses synchronized upgrade with manual recovery", () => {
+  assert.match(readme, /## Update\s+```bash\s+md2vid upgrade\s+```/);
+  assert.match(
+    readme,
+    /manual recovery[\s\S]*npm install --global md2vid@latest[\s\S]*md2vid install-skill/i,
+  );
+  assert.doesNotMatch(
+    readme,
+    /Rerun `md2vid install-skill` after every `npm update -g md2vid`/,
+  );
 });
 
 test("historical deprecation guidance stays fixed after the active version advances", () => {

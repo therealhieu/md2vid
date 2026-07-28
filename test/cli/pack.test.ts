@@ -14,6 +14,7 @@ test("release package manifest covers executable, assets, postinstall, and all r
     "dist/scripts/cli_args.js",
     "dist/scripts/project_layout.js",
     "dist/scripts/managed_file_transaction.js",
+    "dist/scripts/upgrade.js",
   ]) {
     assert.ok(REQUIRED_PACKED_FILES.some((path) => path === helper), `missing compiled helper ${helper}`);
   }

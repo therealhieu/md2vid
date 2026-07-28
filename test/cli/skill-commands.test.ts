@@ -95,9 +95,18 @@ test("manual local CLI guidance refuses registry installation", () => {
 
 test("mechanical steps invoke the md2vid CLI", () => {
   const body = readFileSync(SKILL, "utf8");
-  for (const cmd of [/md2vid new /, /md2vid build /, /md2vid regroup /, /md2vid verify /]) {
+  for (const cmd of [/md2vid new /, /md2vid build /, /md2vid regroup /, /md2vid verify /, /md2vid upgrade/]) {
     assert.match(body, cmd, `skill must drive the CLI: ${cmd}`);
   }
+});
+
+test("skill documents synchronized upgrades and install-skill recovery", () => {
+  const body = readFileSync(SKILL, "utf8");
+  assert.match(body, /`md2vid upgrade`/);
+  assert.match(body, /normal update/i);
+  assert.match(body, /repair|recovery/i);
+  assert.match(body, /`md2vid install-skill`/);
+  assert.doesNotMatch(body, /re-run after `npm update`/);
 });
 
 test("skill documents the shipped narration contract without an executable audio command", () => {

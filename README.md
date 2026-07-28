@@ -19,7 +19,7 @@ npm install -g md2vid
 md2vid install-skill
 ```
 
-Rerun `md2vid install-skill` after every `npm update -g md2vid`.
+Use `md2vid upgrade` for future updates. Use `md2vid install-skill` directly only to repair or refresh the copied skill without changing the CLI package.
 
 ## Generate from another project
 
@@ -89,6 +89,7 @@ md2vid hyperframes <command> [args]
 md2vid hyperframes --version
 md2vid patch-studio
 md2vid install-skill
+md2vid upgrade
 ```
 
 `md2vid hyperframes --version` must print the package-owned HyperFrames version `0.7.26`.
@@ -165,7 +166,15 @@ The `/md2vid` skill requires the global CLI in v0.1; project-local execution is 
 ## Update
 
 ```bash
-npm update -g md2vid
+md2vid upgrade
+```
+
+The command supports global npm installations. It installs `md2vid@latest`, then launches the newly installed CLI to refresh the Claude skill. It also refreshes the skill when the CLI is already current.
+
+If the CLI was launched from a local dependency, an `npx` cache, or another unsupported installation source, use manual recovery:
+
+```bash
+npm install --global md2vid@latest
 md2vid install-skill
 ```
 
