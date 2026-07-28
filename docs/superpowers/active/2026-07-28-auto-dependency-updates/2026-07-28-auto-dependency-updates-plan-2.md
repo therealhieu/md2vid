@@ -667,7 +667,7 @@ corepack npm run release:check
 git diff --check
 ```
 
-4. [ ] The verifier confirms:
+4. [x] The verifier confirms:
    - all three group IDs match the workflow policy;
    - every group is patch-only and every current dependency is covered;
    - no dependency patch ignore rule exists;
@@ -679,6 +679,8 @@ git diff --check
    - approval uses an exact `commit_id`, and merge uses exactly `--auto --squash --match-head-commit` without `--admin`;
    - minor, major, security-shaped, unknown-group, unknown-dependency, maintainer-change, multi-commit, unverified, and head-rotation cases cannot reach side-effect steps;
    - a PR changing either workflow cannot execute proposed privileged content.
+
+Verifier evidence retained on 2026-07-28: the single read-only verifier returned `PASS` after confirming all canonical Must-fix checklists and the approved architecture checklist. It independently ran `55/55` workflow tests, Actionlint, `public:snapshot:check`, the full and release checks with `846/846` tests, both diff checks, the tracked-`dist` check, and the six-artifact dirty-baseline status check. SPEC-5 remains an explicitly deferred Nice item until Tasks 1–6 complete.
 
 ---
 
