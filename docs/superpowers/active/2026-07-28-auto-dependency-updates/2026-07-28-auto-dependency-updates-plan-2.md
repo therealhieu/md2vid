@@ -43,7 +43,7 @@ Tasks 4–5 form one policy scope. Preserve both commits, then run one combined 
 - Modify: `test/ci/workflows.test.ts:7-46,192-222,349-455`
 - Test future file: `.github/workflows/dependabot-auto-merge.yml`
 
-- [ ] **Step 1: Register the future workflow in test inventory**
+- [x] **Step 1: Register the future workflow in test inventory**
 
 Update the checker and runner maps:
 
@@ -65,7 +65,7 @@ const WORKFLOW_POLICY_CHECKERS: Record<string, WorkflowPolicyChecker> = {
 
 Do not pass this workflow through the read-only checker; it needs a specialized least-privilege policy.
 
-- [ ] **Step 2: Parse package metadata for group coverage assertions**
+- [x] **Step 2: Parse package metadata for group coverage assertions**
 
 Add near the existing path constants:
 
@@ -79,7 +79,7 @@ const packageJson = JSON.parse(
 };
 ```
 
-- [ ] **Step 3: Replace the minimal Dependabot test with structural policy coverage**
+- [x] **Step 3: Replace the minimal Dependabot test with structural policy coverage**
 
 Use:
 
@@ -153,7 +153,7 @@ test("Dependabot defines exact weekly patch groups", () => {
 
 This test deliberately proves that all current dependencies, including GSAP, remain covered and no patch exclusion contradicts the design.
 
-- [ ] **Step 4: Add the specialized privileged-workflow checker**
+- [x] **Step 4: Add the specialized privileged-workflow checker**
 
 Add:
 
@@ -222,7 +222,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
 }
 ```
 
-- [ ] **Step 5: Execute the policy decision table and mutate every authority boundary**
+- [x] **Step 5: Execute the policy decision table and mutate every authority boundary**
 
 Extend imports at the top of `test/ci/workflows.test.ts`:
 
@@ -402,7 +402,7 @@ test("Dependabot auto-merge rejects broadened authority", () => {
 });
 ```
 
-- [ ] **Step 6: Run the contract tests and verify red state**
+- [x] **Step 6: Run the contract tests and verify red state**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -410,7 +410,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: FAIL because the auto-merge workflow and Dependabot groups do not exist and workflow inventory has changed.
 
-- [ ] **Step 7: Commit the red policy tests**
+- [x] **Step 7: Commit the red policy tests**
 
 ```bash
 git add test/ci/workflows.test.ts
@@ -425,7 +425,7 @@ git commit -m "test(ci): define Dependabot patch policy"
 - Create: `.github/workflows/dependabot-auto-merge.yml`
 - Regenerate: `public-snapshot.json`
 
-- [ ] **Step 1: Replace the Dependabot configuration**
+- [x] **Step 1: Replace the Dependabot configuration**
 
 Use:
 
@@ -476,7 +476,7 @@ updates:
 
 Do not add ignore rules. Minor and major updates remain unmatched and therefore appear as individual manual-review PRs.
 
-- [ ] **Step 2: Add the guarded auto-merge workflow**
+- [x] **Step 2: Add the guarded auto-merge workflow**
 
 Create `.github/workflows/dependabot-auto-merge.yml`:
 
@@ -592,7 +592,7 @@ jobs:
 
 The original single-stage snippet above is superseded by the approved `pull_request` observer plus default-branch `workflow_run` implementation. The pinned `dependabot/fetch-metadata@v2.5.0` evidence remains recorded for the architecture decision, but it is not executed in the revised trusted stage because its implementation requires a `pull_request` payload and validates only the first commit. The revised workflow must use trusted API/inline metadata parsing instead.
 
-- [ ] **Step 3: Run focused policy tests**
+- [x] **Step 3: Run focused policy tests**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -600,7 +600,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 4: Run workflow lint when available**
+- [x] **Step 4: Run workflow lint when available**
 
 ```bash
 if command -v actionlint >/dev/null 2>&1; then
@@ -610,7 +610,7 @@ fi
 
 Expected: exit `0`. Do not install an unplanned linter globally.
 
-- [ ] **Step 5: Regenerate and validate the public snapshot**
+- [x] **Step 5: Regenerate and validate the public snapshot**
 
 ```bash
 corepack npm run public:snapshot
@@ -620,7 +620,7 @@ git diff --check
 
 Expected: all commands exit `0`; `git diff --check` prints nothing.
 
-- [ ] **Step 6: Run full local validation**
+- [x] **Step 6: Run full local validation**
 
 ```bash
 corepack npm run check
@@ -629,7 +629,7 @@ corepack npm run release:check
 
 Expected: both commands exit `0`.
 
-- [ ] **Step 7: Commit automation files**
+- [x] **Step 7: Commit automation files**
 
 ```bash
 git add \
@@ -639,13 +639,24 @@ git add \
 git commit -m "ci(deps): enable guarded patch auto-merge"
 ```
 
+Execution evidence retained on 2026-07-28:
+
+- Original Task 4 red commit `c42f616`: `52` tests, `48` passed, `4` failed because the groups and workflow did not exist.
+- Original Task 5 green commit `bc5f865`: `52/52` workflow tests passed.
+- Canonical spec, code-quality, and tester artifacts identified TEST-001, SPEC-3, CQ-1/CQ-2, and TEST-002–004.
+- The user approved the documented observer → `workflow_run` architecture before Mode B implementation.
+- Mode B red contracts: `55` tests, `49` passed, `6` failed because the observer and trusted stage did not yet satisfy the revised contracts.
+- Mode B green contracts: `55/55` workflow tests passed; Actionlint produced no diagnostics.
+- `public:snapshot:check`, `corepack npm run check`, and `corepack npm run release:check` each passed with `846` tests, `846` passed, `0` failed. The final public snapshot contains `282` files with hash `sha256:cafc61a845a824f88436a2e296f1d3fdf89371a5de31618a80e5d5c52da1e514`.
+- The post-implementation check artifact remains intentionally deferred until Tasks 1–6 are complete.
+
 ## Group Review and Verification Checklist
 
 After Tasks 4–5 Mode A:
 
-1. Run `spec-reviewer`, `code-quality-reviewer`, and `tester` in parallel against the complete `dependabot-automation` diff.
-2. Resume the same implementer for accepted findings.
-3. Rerun:
+1. [x] Run `spec-reviewer`, `code-quality-reviewer`, and `tester` in parallel against the complete `dependabot-automation` diff.
+2. [x] Resume the same implementer for accepted findings.
+3. [x] Rerun:
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -656,7 +667,7 @@ corepack npm run release:check
 git diff --check
 ```
 
-4. The verifier confirms:
+4. [ ] The verifier confirms:
    - all three group IDs match the workflow policy;
    - every group is patch-only and every current dependency is covered;
    - no dependency patch ignore rule exists;
