@@ -418,6 +418,8 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
     Object.keys(packageJson.devDependencies).sort(),
   );
   assert.equal((script.match(/version-update:semver-patch/g) ?? []).length, 1);
+  assert.match(script, /\(dependency-version\|dependency-type\|update-type\|dependency-group\)/);
+  assert.match(script, /const expected = \["dependency-group", "dependency-name", "dependency-type", "dependency-version", "update-type"\];/);
   assert.match(script, /policy\.allowed === null \|\| names\.every/);
 
   const revalidate = steps[2];
@@ -516,6 +518,7 @@ function makePolicyFixture(
     "updated-dependencies:",
     ...names.flatMap((name) => [
       `- dependency-name: ${name}`,
+      "  dependency-version: 1.2.3",
       "  dependency-type: direct:development",
       `  update-type: ${updateType}`,
       `  dependency-group: ${group}`,
@@ -564,11 +567,29 @@ function makePolicyFixture(
   return { event, run, pr, commits };
 }
 
+function withDependabotMetadataLines(
+  fixture: PolicyFixture,
+  lines: string[],
+): PolicyFixture {
+  const commit = fixture.commits[0].commit as WorkflowRecord;
+  commit.message = [
+    "chore(deps): bump Dependabot metadata fixture",
+    "",
+    "---",
+    "updated-dependencies:",
+    ...lines,
+    "...",
+    "",
+    "Signed-off-by: dependabot[bot] <support@github.com>",
+  ].join("\n");
+  return fixture;
+}
+
 function runDependabotPolicy(
   yaml: string,
   fixture: PolicyFixture,
   options: { eventHeadRepository?: string } = {},
-): { status: number | null; values: Record<string, string> } {
+): { status: number | null; values: Record<string, string>; stderr?: string } {
   const dir = mkdtempSync(join(tmpdir(), "md2vid-dependabot-policy-"));
   const output = join(dir, "output");
   const write = (name: string, value: unknown) => {
@@ -604,7 +625,8 @@ function runDependabotPolicy(
             .map((line) => line.split("=", 2)),
         )
       : {};
-    return { status: result.status, values };
+    const stderr = result.stderr.trim();
+    return stderr ? { status: result.status, values, stderr } : { status: result.status, values };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -950,6 +972,111 @@ test("Dependabot trusted policy constants equal repository metadata", () => {
   assert.equal((script.match(/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
 });
 
+test("Dependabot trusted policy accepts dependency-version metadata field", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const runtimeFixture = withDependabotMetadataLines(
+    makePolicyFixture("runtime-patches", ["hyperframes", "@remotion/google-fonts"]),
+    [
+      "- dependency-name: hyperframes",
+      "  dependency-version: 0.7.77",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: runtime-patches",
+      "- dependency-name: \"@remotion/google-fonts\"",
+      "  dependency-version: 4.0.500",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: runtime-patches",
+    ],
+  );
+  assert.deepEqual(runDependabotPolicy(yaml, runtimeFixture), {
+    status: 0,
+    values: {
+      eligible: "true",
+      group: "runtime-patches",
+      pr_number: "123",
+      expected_head_sha: "a".repeat(40),
+    },
+  });
+
+  const actionsFixture = withDependabotMetadataLines(
+    makePolicyFixture("actions-patches", ["actions/checkout"]),
+    [
+      "- dependency-name: actions/checkout",
+      "  dependency-version: 7.0.1",
+      "  dependency-type: direct:production",
+      "  update-type: version-update:semver-patch",
+      "  dependency-group: actions-patches",
+    ],
+  );
+  assert.deepEqual(runDependabotPolicy(yaml, actionsFixture), {
+    status: 0,
+    values: {
+      eligible: "true",
+      group: "actions-patches",
+      pr_number: "123",
+      expected_head_sha: "a".repeat(40),
+    },
+  });
+});
+
+test("Dependabot trusted policy rejects dependency-version metadata mutations", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const mutations = [
+    [
+      "missing dependency-version",
+      [
+        "- dependency-name: hyperframes",
+        "  dependency-type: direct:production",
+        "  update-type: version-update:semver-patch",
+        "  dependency-group: runtime-patches",
+      ],
+    ],
+    [
+      "duplicate dependency-version",
+      [
+        "- dependency-name: hyperframes",
+        "  dependency-version: 0.7.77",
+        "  dependency-version: 0.7.77",
+        "  dependency-type: direct:production",
+        "  update-type: version-update:semver-patch",
+        "  dependency-group: runtime-patches",
+      ],
+    ],
+    [
+      "unknown metadata field",
+      [
+        "- dependency-name: hyperframes",
+        "  dependency-version: 0.7.77",
+        "  dependency-type: direct:production",
+        "  update-type: version-update:semver-patch",
+        "  dependency-group: runtime-patches",
+        "  dependency-ecosystem: npm",
+      ],
+    ],
+    [
+      "malformed dependency-version scalar",
+      [
+        "- dependency-name: hyperframes",
+        "  dependency-version: [0.7.77]",
+        "  dependency-type: direct:production",
+        "  update-type: version-update:semver-patch",
+        "  dependency-group: runtime-patches",
+      ],
+    ],
+  ] as const;
+
+  for (const [label, lines] of mutations) {
+    const fixture = withDependabotMetadataLines(
+      makePolicyFixture("runtime-patches", ["hyperframes"]),
+      [...lines],
+    );
+    const result = runDependabotPolicy(yaml, fixture);
+    assert.notEqual(result.status, 0, label);
+    assert.equal(result.values.eligible, undefined, label);
+  }
+});
+
 test("Dependabot trusted policy accepts only exact grouped patches", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
   const runtimeNames = [
@@ -1145,6 +1272,8 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"", "gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\n          gh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$STATE_DIR/associated.json\""),
     yaml.replace("--method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\"", "--method POST \"repos/$REPOSITORY/actions/runs/$RUN_ID\""),
     yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
+    yaml.replace("(dependency-version|dependency-type|update-type|dependency-group)", "(dependency-type|update-type|dependency-group)"),
+    yaml.replace("[\"dependency-group\", \"dependency-name\", \"dependency-type\", \"dependency-version\", \"update-type\"]", "[\"dependency-group\", \"dependency-name\", \"dependency-type\", \"update-type\"]"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
     yaml.replace('"remotion"]);', '"remotion", "left-pad"]);'),
     yaml.replace("      - name: Revalidate live head", "      - name: Create workflow review side effect\n        if: steps.policy.outputs.eligible == 'true'\n        shell: bash\n        env:\n          GH_TOKEN: ${{ github.token }}\n          REPOSITORY: therealhieu/md2vid\n          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}\n          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}\n        run: gh pr review \"$PR_NUMBER\" --approve\n\n      - name: Revalidate live head"),

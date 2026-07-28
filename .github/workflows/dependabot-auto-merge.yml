@@ -140,14 +140,14 @@ jobs:
                 entries.push(current);
                 continue;
               }
-              const field = line.match(/^  (dependency-type|update-type|dependency-group): (.+)$/);
+              const field = line.match(/^  (dependency-version|dependency-type|update-type|dependency-group): (.+)$/);
               if (!field || !current || Object.hasOwn(current, field[1])) fail("dependency metadata is malformed");
               current[field[1]] = parseScalar(field[2], field[1]);
             }
             if (entries.length === 0) fail("dependency metadata is empty");
             for (const entry of entries) {
               const keys = Object.keys(entry).sort();
-              const expected = ["dependency-group", "dependency-name", "dependency-type", "update-type"];
+              const expected = ["dependency-group", "dependency-name", "dependency-type", "dependency-version", "update-type"];
               if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
                 fail("dependency metadata fields are incomplete");
               }
