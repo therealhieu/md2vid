@@ -25,7 +25,7 @@ Tasks 1–3 share package metadata, generated assets, and CI policy tests. Prese
 - Test: `frameworks/hyperframes/templates/frame-template.html`
 - Test: `frameworks/remotion/scaffold.ts:33-58`
 
-- [ ] **Step 1: Create the failing dependency-authority test**
+- [x] **Step 1: Create the failing dependency-authority test**
 
 Create `test/cli/dependency-versions.test.ts`:
 
@@ -148,7 +148,7 @@ test("Remotion and React package families stay synchronized", () => {
 });
 ```
 
-- [ ] **Step 2: Run the new test and verify red state**
+- [x] **Step 2: Run the new test and verify red state**
 
 Run:
 
@@ -158,7 +158,7 @@ node --test test/cli/dependency-versions.test.ts
 
 Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `scripts/dependency_versions.ts` or missing exports from `frameworks/hyperframes/scaffold.ts`.
 
-- [ ] **Step 3: Commit the red contract**
+- [x] **Step 3: Commit the red contract**
 
 ```bash
 git add test/cli/dependency-versions.test.ts
@@ -187,7 +187,7 @@ git commit -m "test(deps): define package version authority"
 - Regenerate: `skill/md2vid/references/standards/frameworks/hyperframes.md`
 - Regenerate: `public-snapshot.json`
 
-- [ ] **Step 1: Add the package-derived version module**
+- [x] **Step 1: Add the package-derived version module**
 
 Create `scripts/dependency_versions.ts`:
 
@@ -266,7 +266,7 @@ export const REMOTION_SCAFFOLD_DEV_DEPENDENCIES = {
 } as const;
 ```
 
-- [ ] **Step 2: Make HyperFrames version consumers package-derived**
+- [x] **Step 2: Make HyperFrames version consumers package-derived**
 
 Use these imports and aliases:
 
@@ -297,7 +297,7 @@ Delete independent `"0.7.26"` constants. Keep `ensurePinnedHyperframesPatches()`
 `  hyperframes <command> [args]                       run package-owned hyperframes@${HYPERFRAMES_VERSION}`,
 ```
 
-- [ ] **Step 3: Add GSAP token materialization and backward-compatible validation**
+- [x] **Step 3: Add GSAP token materialization and backward-compatible validation**
 
 In `frameworks/hyperframes/scaffold.ts`, replace the local URL literal and raw copy helper with:
 
@@ -349,7 +349,7 @@ writeMaterializedIfMissing(
 );
 ```
 
-- [ ] **Step 4: Tokenize and materialize HyperFrames templates**
+- [x] **Step 4: Tokenize and materialize HyperFrames templates**
 
 In each file below, replace the versioned GSAP URL with exactly `__MD2VID_GSAP_SRC__`:
 
@@ -367,7 +367,7 @@ skin = materializeGsapTemplate(skin, gsapSrc);
 
 Keep custom local-file and canonical historical CDN behavior unchanged after materialization.
 
-- [ ] **Step 5: Materialize copied distribution templates**
+- [x] **Step 5: Materialize copied distribution templates**
 
 In `scripts/copy_dist_assets.ts`, import `readFileSync` and `writeFileSync`, then add:
 
@@ -424,7 +424,7 @@ assert.deepEqual(FORBIDDEN_PACKED_PREFIXES, [
 
 The materialized `dist/frameworks/hyperframes/templates/` tree remains required and published.
 
-- [ ] **Step 6: Derive the Remotion scaffold manifest**
+- [x] **Step 6: Derive the Remotion scaffold manifest**
 
 In `frameworks/remotion/scaffold.ts`, import:
 
@@ -442,7 +442,7 @@ dependencies: { ...REMOTION_SCAFFOLD_DEPENDENCIES },
 devDependencies: { ...REMOTION_SCAFFOLD_DEV_DEPENDENCIES },
 ```
 
-- [ ] **Step 7: Replace active version literals with derived contracts**
+- [x] **Step 7: Replace active version literals with derived contracts**
 
 Use these exact replacements wherever the active tests currently freeze operational values:
 
@@ -498,7 +498,7 @@ Add a regression test that `validateGsapSrc()` accepts:
 
 and still rejects unversioned, query-string, other-host, and protocol-relative URLs.
 
-- [ ] **Step 8: Make public guidance version-neutral**
+- [x] **Step 8: Make public guidance version-neutral**
 
 Replace active exact-version prose in `README.md` and `docs/standards/frameworks/hyperframes.md` with:
 
@@ -520,7 +520,7 @@ corepack npm run sync:skill-references
 
 Do not rewrite historical planning archives.
 
-- [ ] **Step 9: Run targeted tests**
+- [x] **Step 9: Run targeted tests**
 
 ```bash
 node --test test/cli/dependency-versions.test.ts
@@ -534,7 +534,7 @@ corepack npm run typecheck
 
 Expected: all commands exit `0`.
 
-- [ ] **Step 10: Verify built and packed assets**
+- [x] **Step 10: Verify built and packed assets**
 
 ```bash
 corepack npm run build:dist
@@ -546,6 +546,8 @@ corepack npm run release:check
 git diff --check
 ```
 
+Execution note (2026-07-28): `corepack npm run public:snapshot` exits `1` because the current snapshot CLI requires `--output`. The candidate snapshot was generated with `corepack npm run public:snapshot -- --output <exclusive temporary directory> --ref <implementation commit>`, and the final exact `corepack npm run public:snapshot:check` completed successfully.
+
 Expected:
 
 - `build:dist`, snapshot checks, and release checks exit `0`.
@@ -553,7 +555,7 @@ Expected:
 - Packed release browser verification reports `GSAP_VERSION`.
 - `git diff --check` prints nothing.
 
-- [ ] **Step 11: Commit the synchronization mechanism**
+- [x] **Step 11: Commit the synchronization mechanism**
 
 ```bash
 git add \
@@ -579,7 +581,7 @@ Do not stage generated `dist/` files.
 **Files:**
 - Modify: `test/ci/workflows.test.ts:109-127,299-346,919-938,1102-1250`
 
-- [ ] **Step 1: Add Action-pin collection helpers**
+- [x] **Step 1: Add Action-pin collection helpers**
 
 Add after `assertPinnedUses()`:
 
@@ -608,7 +610,7 @@ function assertConsistentActionPin(
 }
 ```
 
-- [ ] **Step 2: Replace routine exact SHA assertions**
+- [x] **Step 2: Replace routine exact SHA assertions**
 
 Replace current literal SHA comparisons for `actions/setup-node`, `actions/checkout`, `actions/upload-artifact`, and `actions/download-artifact` with upstream/full-SHA/version-comment assertions:
 
@@ -621,7 +623,7 @@ assert.match(
 
 Retain exact literals only in deliberately malformed mutation fixtures where the exact value is part of the test input rather than the expected current dependency.
 
-- [ ] **Step 3: Add cross-workflow consistency coverage**
+- [x] **Step 3: Add cross-workflow consistency coverage**
 
 ```ts
 test("shared external actions use one immutable pin across workflows", () => {
@@ -633,7 +635,7 @@ test("shared external actions use one immutable pin across workflows", () => {
 });
 ```
 
-- [ ] **Step 4: Run workflow tests**
+- [x] **Step 4: Run workflow tests**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -641,7 +643,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: PASS. Existing mutation coverage must still reject tags, branches, short SHAs, missing comments, and stale non-version comments.
 
-- [ ] **Step 5: Commit the test-policy cleanup**
+- [x] **Step 5: Commit the test-policy cleanup**
 
 ```bash
 git add test/ci/workflows.test.ts
