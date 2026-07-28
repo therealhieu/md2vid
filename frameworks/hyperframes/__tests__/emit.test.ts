@@ -174,7 +174,7 @@ test("captionsOnly emits staged standalone and embedded caption artifacts with t
 
     const captions = readFileSync(join(stagedOutput, "compositions", "captions.html"), "utf8");
     const index = readFileSync(join(stagedOutput, "index.html"), "utf8");
-    assert.match(captions, /https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/);
+    assert.ok(captions.includes(`<script src="${DEFAULT_GSAP_SRC}">`));
     assert.match(index, /<template id="captions-template"/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
@@ -344,7 +344,10 @@ test("full emit embeds sanitized frame and caption templates while preserving au
     assert.match(index, /<template id="01-a-template" data-composition-id="01-a">/);
     assert.match(index, /<template id="captions-template" data-composition-id="captions"/);
     assert.match(index, /https:\/\/example\.test\/not-the-configured-gsap\.js/);
-    assert.equal(index.match(/https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@3\.14\.2\/dist\/gsap\.min\.js/g)?.length, 1);
+    assert.equal(
+      index.match(new RegExp(DEFAULT_GSAP_SRC.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length,
+      1,
+    );
     assert.equal(readFileSync(firstFrame, "utf8"), authoredBefore, "full emit must not rewrite authored frames");
     assert.match(readFileSync(join(output, "compositions", "captions.html"), "utf8"), new RegExp(pinned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {

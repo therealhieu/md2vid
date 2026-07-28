@@ -56,7 +56,12 @@ test("missing explicit bundle reports a normalized read failure", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /read bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
@@ -75,7 +80,12 @@ test("unreadable explicit bundle reports a normalized read failure", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /read bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {
@@ -95,7 +105,12 @@ test("bundle write failure reports a normalized diagnostic", () => {
     console.error = (...args: unknown[]) => errors.push(args.join(" "));
     assert.equal(run([bundle]), 1);
     const body = errors.join("\n");
-    assert.match(body, /FAIL \[patch-studio\]: hyperframes@0\.7\.26/);
+    assert.match(
+      body,
+      new RegExp(
+        `FAIL \\[patch-studio\\]: hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}`,
+      ),
+    );
     assert.match(body, /write patched bundle/);
     assert.match(body, new RegExp(bundle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   } finally {

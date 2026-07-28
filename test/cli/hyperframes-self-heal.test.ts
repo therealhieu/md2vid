@@ -167,7 +167,13 @@ test("anchor mismatch fails before spawn and leaves every bundle unchanged", () 
     });
     assert.equal(code, 1);
     assert.equal(spawned, false);
-    assert.match(errors.join("\n"), /FAIL \[hyperframes-cli\].*hyperframes@0\.7\.26.*caption-loop anchor-2.*anchor matched 0.*expected 1/is);
+    assert.match(
+      errors.join("\n"),
+      new RegExp(
+        `FAIL \\[hyperframes-cli\\].*hyperframes@${HYPERFRAMES_VERSION.replaceAll(".", "\\.")}.*caption-loop anchor-2.*anchor matched 0.*expected 1`,
+        "is",
+      ),
+    );
     assert.deepEqual(readFileSync(fixture.studio), before.studio);
     assert.deepEqual(readFileSync(fixture.cli), before.cli);
   } finally {

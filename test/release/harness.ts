@@ -1908,7 +1908,10 @@ export async function runFrameworkSmoke(
       }
       const gsapResponse = await fetch(new URL(gsapSrc, baseUrl));
       assert.equal(gsapResponse.status, 200, `Studio must serve ${gsapSrc}`);
-      assert.match(await gsapResponse.text(), /3\.14\.2/);
+      assert.match(
+        await gsapResponse.text(),
+        new RegExp(GSAP_VERSION.replaceAll(".", "\\.")),
+      );
       await assertHyperframesBrowserExecution(
         browserPath,
         baseUrl,
