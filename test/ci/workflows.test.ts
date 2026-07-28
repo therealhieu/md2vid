@@ -363,7 +363,7 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   });
   assert.equal(
     state.run,
-    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nASSOCIATED_FILE=\"$STATE_DIR/associated.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$ASSOCIATED_FILE\"\nPR_NUMBER=$(jq -er 'if type == \"array\" and length == 1 and (.[0].number | type) == \"number\" then .[0].number else error(\"observer run must map to exactly one PR\") end' \"$ASSOCIATED_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\nprintf 'run_file=%s\\n' \"$RUN_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'associated_file=%s\\n' \"$ASSOCIATED_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'pr_file=%s\\n' \"$PR_FILE\" >> \"$GITHUB_OUTPUT\"\nprintf 'commits_file=%s\\n' \"$COMMITS_FILE\" >> \"$GITHUB_OUTPUT\"",
+    "set -euo pipefail\n[[ \"$RUN_ID\" =~ ^[1-9][0-9]*$ ]]\nSTATE_DIR=\"$RUNNER_TEMP/dependabot-auto-merge-$RUN_ID\"\ntest ! -e \"$STATE_DIR\"\nmkdir -m 700 \"$STATE_DIR\"\nRUN_FILE=\"$STATE_DIR/run.json\"\nASSOCIATED_FILE=\"$STATE_DIR/associated.json\"\nPR_FILE=\"$STATE_DIR/pr.json\"\nCOMMITS_FILE=\"$STATE_DIR/commits.json\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\" > \"$RUN_FILE\"\ngh api --method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID/pull_requests\" > \"$ASSOCIATED_FILE\"\nPR_NUMBER=$(jq -er 'if type == \"array\" and length == 1 and (.[0].number | type) == \"number\" then .[0].number else error(\"observer run must map to exactly one PR\") end' \"$ASSOCIATED_FILE\")\n[[ \"$PR_NUMBER\" =~ ^[1-9][0-9]*$ ]]\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" > \"$PR_FILE\"\ngh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100\" > \"$COMMITS_FILE\"\n{\n  printf 'run_file=%s\\n' \"$RUN_FILE\"\n  printf 'associated_file=%s\\n' \"$ASSOCIATED_FILE\"\n  printf 'pr_file=%s\\n' \"$PR_FILE\"\n  printf 'commits_file=%s\\n' \"$COMMITS_FILE\"\n} >> \"$GITHUB_OUTPUT\"",
   );
 
   const policy = steps[1];
@@ -386,8 +386,23 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/runtime-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
   assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/dev-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
   assert.match(script, /branch: \/\^dependabot\\\/github_actions\\\/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
-  assert.match(script, /const runtimeDependencies = new Set\(\[/);
-  assert.match(script, /const developmentDependencies = new Set\(\[/);
+  const setValues = (name: string): string[] => {
+    const match = script.match(new RegExp(`const ${name} = new Set\\((\\[[^;]+\\])\\);`));
+    assert.ok(match, `missing ${name}`);
+    return JSON.parse(match[1]) as string[];
+  };
+  assert.deepEqual(
+    setValues("runtimeDependencies").sort(),
+    [
+      ...Object.keys(packageJson.dependencies),
+      ...Object.keys(packageJson.optionalDependencies),
+    ].sort(),
+  );
+  assert.deepEqual(
+    setValues("developmentDependencies").sort(),
+    Object.keys(packageJson.devDependencies).sort(),
+  );
+  assert.equal((script.match(/version-update:semver-patch/g) ?? []).length, 1);
   assert.match(script, /policy\.allowed === null \|\| names\.every/);
 
   const approve = steps[2];
@@ -460,7 +475,7 @@ function makePolicyFixture(
     "...",
     "",
     "Signed-off-by: dependabot[bot] <support@github.com>",
-  ].join("\\n");
+  ].join("\n");
   const run = {
     id: 42,
     name: "Dependabot auto-merge observer",
@@ -972,7 +987,7 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("--method GET \"repos/$REPOSITORY/actions/runs/$RUN_ID\"", "--method POST \"repos/$REPOSITORY/actions/runs/$RUN_ID\""),
     yaml.replace("const patchUpdateType = \"version-update:semver-patch\";", "const patchUpdateType = \"security-update:semver-patch\";"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
-    yaml.replace('"hyperframes"]);', '"hyperframes", "left-pad"]);'),
+    yaml.replace('"remotion"]);', '"remotion", "left-pad"]);'),
     yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE -f commit_id=\"$EXPECTED_HEAD_SHA\"", "gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE"),
     yaml.replace("gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\"", "gh api --method POST \"repos/$REPOSITORY/issues/$PR_NUMBER/comments\"\n          gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\""),
     yaml.replace("--match-head-commit \"$EXPECTED_HEAD_SHA\"", "--match-head-commit \"$EXPECTED_HEAD_SHA\" --delete-branch"),
@@ -983,7 +998,11 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
   ];
   for (const [index, mutated] of mutations.entries()) {
     assert.notEqual(mutated, yaml, `privileged mutation ${index} must modify workflow`);
-    assert.throws(() => assertDependabotAutoMergePolicy(mutated));
+    assert.throws(
+      () => assertDependabotAutoMergePolicy(mutated),
+      undefined,
+      `privileged mutation ${index} was accepted`,
+    );
   }
 });
 
