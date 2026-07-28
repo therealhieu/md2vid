@@ -791,6 +791,63 @@ Remediation:
 
   Regenerate the public snapshot if required. Run focused workflow tests, Actionlint, pinned snapshot check, full check, `release:check`, scoped diff checks, and working-tree diff checks. Commit conventionally with the configured identity. Do not push or change remote settings.
 
+### Task 5.5: Accept observed workflow-run repo schema without `full_name` [Mode A standalone]
+
+#### Confirmed canary failure — 2026-07-28
+
+The live grouped Dependabot canary now proves the remaining schema defect is in observed workflow-run PR repository identity validation, not Actions permissions, run fetch, PR correlation, event number/ref/SHA binding, live PR validation, commit provenance, no-review merge wiring, or branch-protection behavior.
+
+Evidence:
+
+- Observer run `30341879923`, attempt `4`, succeeded.
+- Trusted run `30368741706` passed trusted run fetch, supported run-object `pull_requests` correlation, and event PR `number` / `head.ref` / `head.sha` checks.
+- The same trusted run then failed exactly with `observer PR identity changed after the event`.
+- Local API evidence for `GET repos/therealhieu/md2vid/actions/runs/30341879923` shows `pull_requests[0].head.repo` and `pull_requests[0].base.repo` use this schema:
+
+  ```json
+  {
+    "id": 1309960592,
+    "url": "https://api.github.com/repos/therealhieu/md2vid",
+    "name": "md2vid"
+  }
+  ```
+
+- Those observed nested repo objects do not include `full_name`.
+- The same run JSON still includes trusted `run.repository.id`, `run.repository.full_name`, and repository API URL identity.
+- Live pull-request API JSON still includes exact `head.repo.full_name` and `base.repo.full_name`.
+
+Remediation:
+
+- Keep exact `run.repository.full_name === "therealhieu/md2vid"` and exact live PR `head.repo.full_name` / `base.repo.full_name` checks.
+- For observed `run.pull_requests[0].head.repo` and `.base.repo`, validate schema-compatible repository identity by exact repository `id` and API `url` cross-checked against trusted `run.repository.id` and repository API URL; also require `name === "md2vid"` when present/useful.
+- Reject wrong observed repo `id`, `url`, or `name`, and reject any mismatch between observed head/base repo objects and trusted `run.repository` identity.
+- Preserve event PR number/ref/SHA, exact one PR/commit/provenance, no-review exact-head merge, permissions, and no checkout/artifact/install/build/project execution invariants.
+
+**Files:**
+- Modify: `test/ci/workflows.test.ts`
+- Modify: `.github/workflows/dependabot-auto-merge.yml`
+- Regenerate if required: `public-snapshot.json`
+
+- [x] **Step 1: Record the confirmed failure before code changes**
+
+  This section records the exact observer/trusted run IDs, live JSON fields, missing observed `repo.full_name`, and failure string before implementation.
+
+- [x] **Step 2: RED — fixture the actual observed repo schema**
+
+  In `test/ci/workflows.test.ts`, update the policy fixture so observed workflow-run PR head/base repos contain `id`, `url`, and `name` but no `full_name`. Add assertions that this schema is accepted only when cross-checked with trusted `run.repository` and live PR `full_name` identity. Run focused workflow tests and capture the current failure: `observer PR identity changed after the event`.
+
+- [x] **Step 3: GREEN — validate observed repo identity by ID and API URL**
+
+  In `.github/workflows/dependabot-auto-merge.yml`, replace observed nested `repo.full_name` checks with exact observed head/base repo checks against trusted `run.repository.id`, `run.repository.url` (or expected repository API URL), and `name === "md2vid"`. Keep `run.repository.full_name` exact and live PR full-name checks exact.
+
+- [x] **Step 4: Strengthen mutations**
+
+  Add focused negative cases for wrong observed head/base repo `id`, `url`, and `name`, mismatched observed head/base repos, wrong trusted `run.repository.id`, wrong trusted `run.repository.url`, and wrong live PR full-name identity. Keep existing stale event, multi-PR, multi-commit, provenance, maintainer-change, head-rotation, no-review, permissions, no-checkout, and exact merge-command mutations.
+
+- [x] **Step 5: Verify and commit**
+
+  Run focused workflow tests, Actionlint when available, regenerate/check the public snapshot if workflow content changes, run full project verification, run diff checks, then commit conventionally. Do not push or change remote settings.
+
 ### Task 6: Preserve protections and prove the no-review canary [Tester: yes]
 
 #### Live canary deviation — 2026-07-28

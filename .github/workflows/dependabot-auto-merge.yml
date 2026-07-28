@@ -70,6 +70,9 @@ jobs:
           import { appendFileSync, readFileSync } from "node:fs";
 
           const repository = "therealhieu/md2vid";
+          const repositoryId = 1309960592;
+          const repositoryUrl = "https://api.github.com/repos/therealhieu/md2vid";
+          const repositoryName = "md2vid";
           const observerName = "Dependabot auto-merge observer";
           const dependabot = "dependabot[bot]";
           const patchUpdateType = "version-update:semver-patch";
@@ -168,9 +171,11 @@ jobs:
           const pr = readJson(process.env.PR_FILE, "live pull request");
           const commits = readJson(process.env.COMMITS_FILE, "pull request commits");
 
+          const trustedRepository = run.repository;
           if (run.id !== runId || run.name !== observerName || run.event !== "pull_request" ||
               run.conclusion !== "success" || run.actor?.login !== dependabot ||
-              run.repository?.full_name !== repository) {
+              trustedRepository?.full_name !== repository || trustedRepository?.id !== repositoryId ||
+              trustedRepository?.url !== repositoryUrl || trustedRepository?.name !== repositoryName) {
             fail("observer run identity is invalid");
           }
           if (!Array.isArray(run.pull_requests) || run.pull_requests.length !== 1) {
@@ -183,10 +188,14 @@ jobs:
           if (!observed?.head || !observed?.base) {
             fail("observer run PR identity is invalid");
           }
+          const observedHeadRepo = observed.head.repo;
+          const observedBaseRepo = observed.base.repo;
           const expectedHeadSha = eventHeadSha;
           if (observed?.head?.sha !== eventHeadSha || observed?.head?.ref !== eventHeadRef ||
-              observed?.head?.repo?.full_name !== repository || run.head_branch !== eventHeadRef ||
-              observed?.base?.ref !== "main" || observed?.base?.repo?.full_name !== repository) {
+              observedHeadRepo?.id !== trustedRepository.id || observedHeadRepo?.url !== trustedRepository.url ||
+              observedHeadRepo?.name !== trustedRepository.name || run.head_branch !== eventHeadRef ||
+              observed?.base?.ref !== "main" || observedBaseRepo?.id !== trustedRepository.id ||
+              observedBaseRepo?.url !== trustedRepository.url || observedBaseRepo?.name !== trustedRepository.name) {
             fail("observer PR identity changed after the event");
           }
           if (pr.state !== "open" || pr.user?.login !== dependabot || pr.base?.ref !== "main" ||
