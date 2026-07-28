@@ -12,12 +12,13 @@ import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
 import {
   DEFAULT_GSAP_SRC,
   GSAP_VERSION,
+  isCanonicalStableVersion,
 } from "../../scripts/dependency_versions.ts";
 
 export { DEFAULT_GSAP_SRC, GSAP_VERSION };
 export const GSAP_SRC_TOKEN = "__MD2VID_GSAP_SRC__";
 const CANONICAL_GSAP_CDN =
-  /^https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@(\d+\.\d+\.\d+)\/dist\/gsap\.min\.js$/;
+  /^https:\/\/cdn\.jsdelivr\.net\/npm\/gsap@([^/]+)\/dist\/gsap\.min\.js$/;
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "templates");
 const CAPTION_SKIN_TEMPLATE = join(TEMPLATES, "caption-skin.html");
@@ -69,7 +70,10 @@ export function validateGsapSrc(videoDir: string, input: unknown): string {
       "invalid gsapSrc: expected an exact canonical GSAP CDN URL or a non-empty project-relative file",
     );
   }
-  if (CANONICAL_GSAP_CDN.test(gsapSrc)) return gsapSrc;
+  const canonicalCdn = gsapSrc.match(CANONICAL_GSAP_CDN);
+  if (canonicalCdn?.[1] && isCanonicalStableVersion(canonicalCdn[1])) {
+    return gsapSrc;
+  }
   if (isAbsolute(gsapSrc) || win32.isAbsolute(gsapSrc) || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(gsapSrc)) {
     throw new Error(`invalid gsapSrc: expected a project-relative file (${gsapSrc})`);
   }

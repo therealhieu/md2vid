@@ -28,6 +28,7 @@ import { readPackageMetadata } from "../../scripts/package_root.ts";
 import {
   DEFAULT_GSAP_SRC,
   GSAP_VERSION,
+  isCanonicalStableVersion,
 } from "../../scripts/dependency_versions.ts";
 import { readPinnedHyperframesPatchState } from "../../frameworks/hyperframes/patches.ts";
 import { isNpmVersionNotFound } from "../../scripts/release_preflight.ts";
@@ -49,7 +50,7 @@ export function requiredHyperframesVersion(
     dependencies?: { hyperframes?: unknown };
   };
   const version = parsed.dependencies?.hyperframes;
-  if (typeof version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+  if (typeof version !== "string" || !isCanonicalStableVersion(version)) {
     throw new Error("package.json must declare an exact stable HyperFrames dependency");
   }
   return version;

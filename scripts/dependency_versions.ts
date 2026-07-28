@@ -17,6 +17,13 @@ const root = resolvePackageRoot(import.meta.url);
 const packageFile = join(root, "package.json");
 const pkg = JSON.parse(readFileSync(packageFile, "utf8")) as PackageManifest;
 
+const CANONICAL_STABLE_VERSION =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+
+export function isCanonicalStableVersion(value: string): boolean {
+  return CANONICAL_STABLE_VERSION.test(value);
+}
+
 function dependencyValue(section: DependencySection, name: string): string {
   const value = pkg[section]?.[name];
   if (typeof value !== "string" || value.length === 0) {
@@ -27,7 +34,7 @@ function dependencyValue(section: DependencySection, name: string): string {
 
 function exactVersion(section: DependencySection, name: string): string {
   const value = dependencyValue(section, name);
-  if (!/^\d+\.\d+\.\d+$/.test(value)) {
+  if (!isCanonicalStableVersion(value)) {
     throw new Error(
       `md2vid ${section}.${name} must be an exact stable version at ${packageFile}`,
     );

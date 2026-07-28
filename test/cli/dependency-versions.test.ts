@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import {
   GSAP_SRC_TOKEN,
@@ -12,6 +14,7 @@ import {
   DEFAULT_GSAP_SRC,
   GSAP_VERSION,
   HYPERFRAMES_VERSION,
+  isCanonicalStableVersion,
   REACT_TYPES_VERSION,
   REACT_VERSION,
   REMOTION_SCAFFOLD_DEPENDENCIES,
@@ -27,12 +30,34 @@ const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
   devDependencies: Record<string, string>;
 };
 
-const exact = /^\d+\.\d+\.\d+$/;
 const hyperframesTemplates = [
   "caption-skin.html",
   "frame-shell.html",
   "frame-template.html",
 ];
+
+type RootManifest = typeof pkg;
+
+async function importAuthority(manifest: RootManifest): Promise<Record<string, unknown>> {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-dependency-authority-"));
+  const scripts = join(root, "scripts");
+  mkdirSync(scripts, { recursive: true });
+  writeFileSync(
+    join(root, "package.json"),
+    `${JSON.stringify({ name: "md2vid", ...manifest }, null, 2)}\n`,
+  );
+  for (const name of ["dependency_versions.ts", "package_root.ts"]) {
+    writeFileSync(
+      join(scripts, name),
+      readFileSync(join(ROOT, "scripts", name), "utf8"),
+    );
+  }
+  try {
+    return await import(pathToFileURL(join(scripts, "dependency_versions.ts")).href);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 test("operational dependency versions come from root package.json", () => {
   assert.equal(HYPERFRAMES_VERSION, pkg.dependencies.hyperframes);
@@ -50,13 +75,35 @@ test("operational dependency versions come from root package.json", () => {
     REACT_VERSION,
     GSAP_VERSION,
   ]) {
-    assert.match(value, exact);
+    assert.equal(isCanonicalStableVersion(value), true, value);
   }
 
   assert.equal(
     DEFAULT_GSAP_SRC,
     `https://cdn.jsdelivr.net/npm/gsap@${GSAP_VERSION}/dist/gsap.min.js`,
   );
+});
+
+test("canonical stable versions reject leading-zero package pins", async () => {
+  for (const valid of ["0.7.26", "4.0.486", "3.14.1"]) {
+    assert.equal(isCanonicalStableVersion(valid), true, valid);
+  }
+  for (const invalid of ["01.2.3", "04.0.486", "03.14.2"]) {
+    assert.equal(isCanonicalStableVersion(invalid), false, invalid);
+  }
+
+  for (const [section, name, value] of [
+    ["dependencies", "hyperframes", "01.2.3"],
+    ["optionalDependencies", "remotion", "04.0.486"],
+    ["devDependencies", "gsap", "03.14.2"],
+  ] as const) {
+    const manifest = structuredClone(pkg);
+    manifest[section][name] = value;
+    await assert.rejects(
+      () => importAuthority(manifest),
+      new RegExp(`${section}\\.${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} must be an exact stable version`),
+    );
+  }
 });
 
 test("generated framework manifests use synchronized package versions", () => {

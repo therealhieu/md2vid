@@ -308,6 +308,7 @@ test("GSAP source validation preserves exact canonical historical CDN pins", () 
     for (const invalid of [
       "https://cdn.jsdelivr.net/npm/gsap/dist/gsap.min.js",
       "https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js?x=1",
+      "https://cdn.jsdelivr.net/npm/gsap@03.14.1/dist/gsap.min.js",
       "https://example.com/npm/gsap@3.14.1/dist/gsap.min.js",
       "//cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js",
     ]) {
