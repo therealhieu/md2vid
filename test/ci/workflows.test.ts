@@ -939,6 +939,18 @@ test("CI pr-title allows only exact grouped Dependabot patch titles for configur
       title: "chore(deps): bump the actions-patches group across 1 directory with 2 updates",
       headRef: "dependabot/github_actions/actions-patches-abc123",
     },
+    {
+      title: "chore(deps): bump the runtime-patches group across 1 directory with 1 update",
+      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump the dev-patches group across 2 directories with 2 updates",
+      headRef: "dependabot/npm_and_yarn/dev-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump the actions-patches group across 10 directories with 10 updates",
+      headRef: "dependabot/github_actions/actions-patches-abc123",
+    },
   ];
   for (const input of valid) {
     assertPrTitleAccepted(yaml, { ...input, actor: bot, author: bot });
@@ -964,7 +976,11 @@ test("CI pr-title rejects broad Dependabot and long-title exemptions", () => {
     { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group with 4 updates" },
     { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 0 directories with 4 updates" },
     { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directories with 4 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 1 update" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 0 directories with 1 update" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 0 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directories with 1 update" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 2 directories with 1 updates" },
+    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across one directory with one update" },
     { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates." },
     {
       title: "chore(deps): bump the dev-patches group across 1 directory with 4 updates",
