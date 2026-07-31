@@ -129,7 +129,7 @@ export function sanitizeCompositionTemplate(
     compositionId,
     documentPath,
   );
-  return `<template id="${compositionId}-template" data-composition-id="${compositionId}">\n${sanitized.trim()}\n</template>`;
+  return `<template id="${compositionId}-template">\n${sanitized.trim()}\n</template>`;
 }
 
 // Fill the canonical caption skin (the ONE source of truth for the caption LOOK) with

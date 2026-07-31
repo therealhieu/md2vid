@@ -446,7 +446,9 @@ test("HTML-aware template sanitization removes only an exact src attribute from 
 </body></html>`;
 
   const sanitized = sanitizeCompositionTemplate(html, "target", gsapSrc, "frame.html");
-  assert.match(sanitized, /^<template id="target-template" data-composition-id="target">/);
+  assert.match(sanitized, /^<template id="target-template">/);
+  assert.doesNotMatch(sanitized, /^<template id="target-template"[^>]*\bdata-composition-id=/);
+  assert.match(sanitized, /<div title='src="assets\/gsap\/gsap\.min\.js"' data-composition-id="target">/);
   assert.match(sanitized, /data-composition-id="nested"/);
   assert.match(sanitized, new RegExp(`data-src="${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
   assert.match(sanitized, new RegExp(`x-src='${gsapSrc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
