@@ -341,8 +341,24 @@ test("full emit embeds sanitized frame and caption templates while preserving au
 
     const index = readFileSync(join(output, "index.html"), "utf8");
     assert.doesNotMatch(index, /data-composition-src=/);
-    assert.match(index, /<template id="01-a-template" data-composition-id="01-a">/);
-    assert.match(index, /<template id="captions-template" data-composition-id="captions"/);
+    for (const id of ["01-a", "02-b", "captions"]) {
+      assert.match(index, new RegExp(`<template id="${id}-template"`));
+      assert.doesNotMatch(
+        index,
+        new RegExp(`<template id="${id}-template"[^>]*\\bdata-composition-id=`),
+        `embedded ${id} wrapper must not duplicate the mount composition ID`,
+      );
+      assert.match(
+        index,
+        new RegExp(`<div(?=[^>]*\\bid="el-${id}")(?=[^>]*\\bdata-composition-id="${id}")[^>]*>`),
+        `embedded ${id} mount host keeps its composition ID`,
+      );
+      assert.match(
+        index,
+        new RegExp(`<template id="${id}-template"[^>]*>[\\s\\S]*?<div[^>]*\\bdata-composition-id="${id}"`),
+        `embedded ${id} template keeps its authored composition root ID`,
+      );
+    }
     assert.match(index, /https:\/\/example\.test\/not-the-configured-gsap\.js/);
     assert.equal(
       index.match(new RegExp(DEFAULT_GSAP_SRC.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length,
