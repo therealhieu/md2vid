@@ -38,7 +38,7 @@ jobs:
       artifact_run_id: ${{ steps.preflight.outputs.artifact_run_id }}
     steps:
       - name: Check out full release history
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
@@ -118,7 +118,7 @@ jobs:
       artifact_id: ${{ steps.current-artifact.outputs.artifact_id || steps.upload-artifact.outputs['artifact-id'] }}
     steps:
       - name: Check out verified commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.preflight.outputs.commit }}
           fetch-depth: 0
@@ -299,7 +299,7 @@ jobs:
         runner: [ubuntu-latest, macos-latest]
     steps:
       - name: Check out verified commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.preflight.outputs.commit }}
           persist-credentials: false
@@ -402,7 +402,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out verified commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.preflight.outputs.commit }}
           persist-credentials: false
@@ -506,7 +506,7 @@ jobs:
       contents: read
     steps:
       - name: Check out verified commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.preflight.outputs.commit }}
           persist-credentials: false
@@ -586,7 +586,7 @@ jobs:
       contents: write
     steps:
       - name: Check out verified commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.preflight.outputs.commit }}
           persist-credentials: false
