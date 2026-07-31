@@ -253,7 +253,7 @@ jobs:
       - name: Upload current release artifact
         id: upload-artifact
         if: steps.current-artifact.outputs.reuse != 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ needs.preflight.outputs.artifact_name }}
           path: release-artifact
@@ -357,7 +357,7 @@ jobs:
             --diagnostics release-diagnostics
       - name: Upload sanitized release diagnostics
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-diagnostics-${{ matrix.runner }}-${{ needs.obtain-artifact.outputs.tag }}
           path: release-diagnostics
@@ -541,7 +541,7 @@ jobs:
             --diagnostics release-diagnostics
       - name: Upload sanitized registry diagnostics
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-diagnostics-registry-${{ needs.obtain-artifact.outputs.tag }}
           path: release-diagnostics
