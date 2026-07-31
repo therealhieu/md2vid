@@ -49,15 +49,25 @@ jobs:
 
           test "$PR_ACTOR" = "dependabot[bot]"
           test "$PR_AUTHOR" = "dependabot[bot]"
-          if [[ "$PR_TITLE" =~ ^chore\(deps\):\ bump\ the\ (runtime-patches|dev-patches|actions-patches)\ group\ across\ ([1-9][0-9]*)\ (directory|directories)\ with\ ([2-9][0-9]*)\ updates$ ]]; then
+          if [[ "$PR_TITLE" =~ ^chore\(deps\):\ bump\ the\ (runtime-patches|dev-patches|actions-patches)\ group\ across\ ([1-9][0-9]*)\ (directory|directories)\ with\ ([1-9][0-9]*)\ (update|updates)$ ]]; then
             group="${BASH_REMATCH[1]}"
             directories="${BASH_REMATCH[2]}"
             directory_word="${BASH_REMATCH[3]}"
+            updates="${BASH_REMATCH[4]}"
+            update_word="${BASH_REMATCH[5]}"
+
             if [[ "$directories" = "1" ]]; then
               test "$directory_word" = "directory"
             else
               test "$directory_word" = "directories"
             fi
+
+            if [[ "$updates" = "1" ]]; then
+              test "$update_word" = "update"
+            else
+              test "$update_word" = "updates"
+            fi
+
             case "$group" in
               runtime-patches) [[ "$PR_HEAD_REF" =~ ^dependabot/npm_and_yarn/runtime-patches(-[a-z0-9]+)?$ ]] && exit 0 ;;
               dev-patches) [[ "$PR_HEAD_REF" =~ ^dependabot/npm_and_yarn/dev-patches(-[a-z0-9]+)?$ ]] && exit 0 ;;
