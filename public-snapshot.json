@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 282,
-  "hash": "sha256:8e82bce6b247825177a9e1b4cb6b12be26c2d7aba72f0423dd3c2d913aabc968",
+  "hash": "sha256:6e00dd56fee566458bb7263ca7969cc746cf8090cd03239a651f9cada70b45f9",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -18,8 +18,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "mode": "100644",
-      "bytes": 2569,
-      "sha256": "04e421d89b94550e2197ba81798f2e8efc46f98ff955d14b1b251b807f8a927b"
+      "bytes": 4244,
+      "sha256": "b2bf78c2911c580f200edbb3be2a9b2184804266ea786ab328b717168b16e7be"
     },
     {
       "path": ".github/workflows/dependabot-auto-merge-observer.yml",
@@ -30,8 +30,8 @@
     {
       "path": ".github/workflows/dependabot-auto-merge.yml",
       "mode": "100644",
-      "bytes": 12170,
-      "sha256": "ab275640f7937a34e50c92bab7b677069615128c6e0793216738905aa0e8882f"
+      "bytes": 12925,
+      "sha256": "aac30a5186a18aef3c29d6f18e1bddc0697faba80e4cff5447779ac5c79e0eca"
     },
     {
       "path": ".github/workflows/nightly.yml",
@@ -300,14 +300,14 @@
     {
       "path": "frameworks/hyperframes/__tests__/emit.test.ts",
       "mode": "100644",
-      "bytes": 41383,
-      "sha256": "102b0f82b684520cbf54963c16427a0f35d2d1ca21d45b5ea24fd69e8958c449"
+      "bytes": 42151,
+      "sha256": "57f53159511bbba180623b8168b9de9cdeabf48b532241c707d5529858fdb3af"
     },
     {
       "path": "frameworks/hyperframes/__tests__/patch-studio.test.ts",
       "mode": "100644",
-      "bytes": 4871,
-      "sha256": "8f946ab689e92ce5ed31a5e4f0a5ae68fc2a2a8b4f61d9bffd0a02fd46b4ef97"
+      "bytes": 6465,
+      "sha256": "071ee9efb35cf022e82302c753b99abfc8a52abcd13bc11f501fa8e4c39cebad"
     },
     {
       "path": "frameworks/hyperframes/__tests__/verify.test.ts",
@@ -324,8 +324,8 @@
     {
       "path": "frameworks/hyperframes/emit.ts",
       "mode": "100644",
-      "bytes": 14958,
-      "sha256": "896219d927ed0731fb816c39657634c856993d367c70a7033f86a80eee57c8d6"
+      "bytes": 14919,
+      "sha256": "6d225b31f390b3c9037d1aa0d5a6b0a8a18e2d586762856b5ad59f0255e6cfed"
     },
     {
       "path": "frameworks/hyperframes/html.ts",
@@ -342,14 +342,14 @@
     {
       "path": "frameworks/hyperframes/patch-studio.ts",
       "mode": "100644",
-      "bytes": 5777,
-      "sha256": "1097c2f2efadb32e28085eaf653b0689a7908551facaa3bc3795f12e6a66256a"
+      "bytes": 3881,
+      "sha256": "f7e01e8858e100dd29b24a5a4e2cd435a0f4d3df8b10f1e7565bdbe04d579fe3"
     },
     {
       "path": "frameworks/hyperframes/patches.ts",
       "mode": "100644",
-      "bytes": 7348,
-      "sha256": "4fd7a8a1d2bee8890979ded2c97e2d2ac5021665c77831d55e214285b2f0039a"
+      "bytes": 9045,
+      "sha256": "4aa6636a8aa13d11f9acaadda656129bf8a346f16ee9fb615f6eb4cc79985d79"
     },
     {
       "path": "frameworks/hyperframes/scaffold.ts",
@@ -804,8 +804,8 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 102438,
-      "sha256": "aa88b680fa72861ec704cc01afafb7b8dc890901926ab383765e2e00f459daf6"
+      "bytes": 116864,
+      "sha256": "38cce0aca93e944f2792bf3c8fdc86024fe5eb712bc796ca26ea70781c2a938b"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
@@ -864,8 +864,8 @@
     {
       "path": "test/cli/hyperframes-self-heal.test.ts",
       "mode": "100644",
-      "bytes": 10650,
-      "sha256": "eaef50129626f8d19f29ad412ddfeb3c68c0ee84970092cfb5d142dd000d5b8a"
+      "bytes": 14065,
+      "sha256": "f2fc7f87f990c923bbf5cd4697a1e6d46db6a530982af1c6094499cbc84be191"
     },
     {
       "path": "test/cli/install-skill.test.ts",
@@ -996,8 +996,8 @@
     {
       "path": "test/golden/fixtures/hash-table-example/expected/index.html",
       "mode": "100644",
-      "bytes": 38532,
-      "sha256": "ff6f0db7e1ae1adb0f8d040730dd74f2bafada65c168c58323b97a1a57a99fa8"
+      "bytes": 38257,
+      "sha256": "bb6ae7899dca59e4c20d54497203352d18b63df89ad484438463336fc32b67b4"
     },
     {
       "path": "test/golden/fixtures/hash-table-example/inputs/audio_meta.json",
