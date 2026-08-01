@@ -745,7 +745,7 @@ Verifier evidence retained on 2026-07-28: the single read-only verifier returned
 - [x] **Step 6: Commit the remediation**
 
   ```bash
-  git add docs/superpowers/active/2026-07-28-auto-dependency-updates \\
+  git add docs/superpowers/done/2026-07-28-auto-dependency-updates \\
     test/ci/workflows.test.ts .github/workflows/dependabot-auto-merge.yml public-snapshot.json
   git commit -m "ci(deps): remove redundant auto-merge approval"
   ```

@@ -43,7 +43,7 @@
 
 ### SPEC-2 — Nice to have — Completed Part 1 steps remain unchecked
 - Requirement: The Part 1 plan says its checkboxes track execution, and the execution goal requires every checkbox in the plan to be executed.
-- Evidence: `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md:28-648` — all 19 Task 1–3 step checkboxes remain `- [ ]`, including red-test, implementation, verification, and commit steps.
+- Evidence: `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md:28-648` — all 19 Task 1–3 step checkboxes remain `- [ ]`, including red-test, implementation, verification, and commit steps.
 - Guidance: Mark the completed Task 1–3 steps and record the documented command correction for `public:snapshot`. Do not mark a step unless its corresponding evidence is retained.
 - Success checklist:
   - [ ] Every completed Task 1–3 step is marked.

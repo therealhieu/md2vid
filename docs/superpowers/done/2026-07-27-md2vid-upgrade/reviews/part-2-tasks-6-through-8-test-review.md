@@ -21,7 +21,7 @@
 - Current HEAD: `4a128b75c5a6205102cfb569f087e841c558d9e8`
 - Task-scope patch: `/tmp/md2vid-upgrade-integration-current/task-scope.patch`
 - Immutable baseline: `/tmp/md2vid-upgrade-integration-baseline`
-- Known baseline artifacts: three Part 1 review files under `docs/superpowers/active/2026-07-27-md2vid-upgrade/reviews/`; excluded from findings and unchanged.
+- Known baseline artifacts: three Part 1 review files under `docs/superpowers/done/2026-07-27-md2vid-upgrade/reviews/`; excluded from findings and unchanged.
 - Real upgrade executed: no
 
 ---
@@ -147,7 +147,7 @@ No Must fix or Nice to have findings survived verification.
 - No tracked implementation, documentation, manifest, or test file changed.
 - Final repository status contains only the known, intentionally untracked Part 1 review directory:
   ```text
-  ?? docs/superpowers/active/2026-07-27-md2vid-upgrade/reviews/
+  ?? docs/superpowers/done/2026-07-27-md2vid-upgrade/reviews/
   ```
 - The three known Part 1 review artifacts retained their baseline SHA-256 values:
   - `part-1-tasks-1-through-5-code-quality-review.md`

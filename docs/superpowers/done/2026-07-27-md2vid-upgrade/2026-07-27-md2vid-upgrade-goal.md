@@ -7,10 +7,10 @@ You are a senior implementation agent working in this repository. Follow project
 ## Context
 
 - Required execution skill: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`.
-- Design: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-design.md`.
-- Plan index: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan.md`.
-- Core plan: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-1.md`.
-- Integration plan: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`.
+- Design: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-design.md`.
+- Plan index: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan.md`.
+- Core plan: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-1.md`.
+- Integration plan: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`.
 - Git standard: `docs/standards/git.md`.
 - Goal: add a safe `md2vid upgrade` command that updates a verified global npm installation to `md2vid@latest`, launches the new CLI to refresh the Claude skill, and reports synchronized or recoverable partial state accurately.
 - Architecture: `scripts/upgrade.ts` verifies the running package against `npm root --global`, invokes npm with fixed arguments and `shell: false`, validates the new package, and uses `process.execPath` plus the new absolute `dist/bin/md2vid.js` to run `install-skill`. The router only dispatches, and `scripts/install_skill.ts` remains the only skill-copy implementation.

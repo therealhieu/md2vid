@@ -27,7 +27,7 @@ const finalGateChecklistPath = join(
   REPO_ROOT,
   "docs",
   "superpowers",
-  "archive",
+  "done",
   "2026-07-24-md-to-video-e2e",
   "2026-07-24-md-to-video-e2e-final-gate-checklist.md",
 );

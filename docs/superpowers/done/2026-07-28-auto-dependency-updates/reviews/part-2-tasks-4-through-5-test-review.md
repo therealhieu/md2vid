@@ -48,9 +48,9 @@ bc5f865 ci(deps): enable guarded patch auto-merge
 The following pre-existing Part 1 artifacts were excluded from the review scope:
 
 ```text
-docs/superpowers/active/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-code-quality-review.md
-docs/superpowers/active/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-spec-review.md
-docs/superpowers/active/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-test-review.md
+docs/superpowers/done/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-code-quality-review.md
+docs/superpowers/done/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-spec-review.md
+docs/superpowers/done/2026-07-28-auto-dependency-updates/reviews/part-1-tasks-1-through-3-test-review.md
 ```
 
 ---
@@ -542,7 +542,7 @@ git status --short
 ```
 
 ```text
-?? docs/superpowers/active/2026-07-28-auto-dependency-updates/reviews/
+?? docs/superpowers/done/2026-07-28-auto-dependency-updates/reviews/
 ```
 
 The only reported path contains the three pre-existing Part 1 canonical artifacts explicitly excluded from this review. No implementation file was modified.

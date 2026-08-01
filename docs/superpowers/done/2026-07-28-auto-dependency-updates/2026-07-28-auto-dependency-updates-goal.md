@@ -7,11 +7,11 @@ You are a senior implementation agent working in this repository. Follow strict 
 ## Context
 
 - Required execution skill: use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans`.
-- Design: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`.
-- Research: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-research.md`.
-- Plan index: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan.md`.
-- Dependency-authority plan: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md`.
-- Automation/rollout plan: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`.
+- Design: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`.
+- Research: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-research.md`.
+- Plan index: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan.md`.
+- Dependency-authority plan: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md`.
+- Automation/rollout plan: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`.
 - Git standard: `docs/standards/git.md`.
 - Goal: add weekly grouped Dependabot patch updates that safely auto-merge across runtime, optional, development, and GitHub Actions dependencies after repository-enforced checks pass.
 - Architecture: root `package.json` supplies operational dependency versions; source templates use stable materialization tokens; Dependabot creates three patch groups; a checkout-free workflow validates immutable metadata and requests native squash auto-merge; protected `main` remains the merge authority.

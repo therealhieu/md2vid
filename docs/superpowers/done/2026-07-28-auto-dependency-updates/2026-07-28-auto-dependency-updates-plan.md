@@ -12,18 +12,18 @@
 
 ## Source Artifacts
 
-- Design: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`
-- Research: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-research.md`
+- Design: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`
+- Research: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-research.md`
 - Git standard: `docs/standards/git.md`
-- Part 1: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md`
-- Part 2: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`
-- Execution goal: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md`
+- Part 1: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-1.md`
+- Part 2: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`
+- Execution goal: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md`
 
 ## Standards Used
 
-- Plan structure: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan.md`
-- Part-plan structure: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`
-- Goal structure: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-goal.md`
+- Plan structure: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan.md`
+- Part-plan structure: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`
+- Goal structure: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-goal.md`
 - Git/worktree/commit rules: `docs/standards/git.md`
 
 ## Verified Initial Remote State

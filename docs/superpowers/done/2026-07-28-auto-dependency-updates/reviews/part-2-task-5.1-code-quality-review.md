@@ -46,7 +46,7 @@ None identified.
 - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/test/ci/workflows.test.ts:991-1025`
   - Existing mutation coverage continues to reject trigger broadening, authority escalation, code execution, weakened provenance, unbound approval, and altered merge behavior.
 
-- `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:689-695`
+- `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:689-695`
   - The deviation records the concrete canary, observer/trusted run IDs, failed endpoint, HTTP result, root cause, minimal remediation, preserved guards, and requirement for a real Dependabot rerun.
 
 - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/public-snapshot.json:1-7,44-50,804-810`
