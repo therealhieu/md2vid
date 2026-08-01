@@ -1,0 +1,55 @@
+# Historical Node-26 install diagnostic extract
+# Source run: https://github.com/therealhieu/md2vid/actions/runs/30341897375
+# Source job: https://github.com/therealhieu/md2vid/actions/runs/30341897375/job/90219210160
+# Retrieval: gh run view 30341897375 --repo therealhieu/md2vid --job 90219210160 --log-failed
+# Raw transcript: 274 lines, 32812 bytes, SHA-256 1a7db5fcd82af8603f8cc9a3a3c4be925d1562da0caf53e7cd75baaea7d11308
+# Source lines 200-248 are below. Terminal content is retained; terminal spaces/tabs are normalized for git diff --check.
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:45.0982951Z ##[group]Run npm ci
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:45.0983243Z ^[[36;1mnpm ci^[[0m
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:45.1029699Z shell: /usr/bin/bash -e {0}
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:45.1029959Z ##[endgroup]
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:47.1815303Z npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3237989Z npm error code 1
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3239366Z npm error path /home/runner/work/md2vid/md2vid/node_modules/onnxruntime-node
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3240491Z npm error command failed
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3241414Z npm error command sh -c node ./script/install
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3252158Z npm error node:internal/process/promises:324
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3253106Z npm error     triggerUncaughtException(err, true /* fromPromise */);
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3253786Z npm error     ^
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3254140Z npm error
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3254647Z npm error AggregateError [ETIMEDOUT]:
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3255492Z npm error     at internalConnectMultiple (node:net:1339:18)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3256720Z npm error     at internalConnectMultiple (node:net:1415:5)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3257694Z npm error     at Timeout.internalConnectMultipleTimeout (node:net:1969:5)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3258676Z npm error     at listOnTimeout (node:internal/timers:637:11)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3259667Z npm error     at process.processTimers (node:internal/timers:571:7) {
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3260432Z npm error   code: 'ETIMEDOUT',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3260921Z npm error   [errors]: [
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3261571Z npm error     Error: connect ETIMEDOUT 150.171.109.66:443
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3262460Z npm error         at createConnectionError (node:net:1905:14)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3263495Z npm error         at Timeout.internalConnectMultipleTimeout (node:net:1964:38)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3264528Z npm error         at listOnTimeout (node:internal/timers:637:11)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3265486Z npm error         at process.processTimers (node:internal/timers:571:7) {
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3266238Z npm error       errno: -110,
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3267111Z npm error       code: 'ETIMEDOUT',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3267668Z npm error       syscall: 'connect',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3268254Z npm error       address: '150.171.109.66',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3268806Z npm error       port: 443
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3269327Z npm error     },
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3270139Z npm error     Error: connect ENETUNREACH 2603:1061:14:75::1:443 - Local (:::0)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3271337Z npm error         at internalConnectMultiple (node:net:1411:16)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3272373Z npm error         at Timeout.internalConnectMultipleTimeout (node:net:1969:5)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3273393Z npm error         at listOnTimeout (node:internal/timers:637:11)
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3274385Z npm error         at process.processTimers (node:internal/timers:571:7) {
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3275121Z npm error       errno: -101,
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3275696Z npm error       code: 'ENETUNREACH',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3276285Z npm error       syscall: 'connect',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3277231Z npm error       address: '2603:1061:14:75::1',
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3277800Z npm error       port: 443
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3278212Z npm error     }
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3278593Z npm error   ]
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3278935Z npm error }
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3279261Z npm error
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3279652Z npm error Node.js v26.5.0
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3280740Z npm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-07-28T08_19_45_155Z-debug-0.log
+pr-latest / validate	UNKNOWN STEP	2026-07-28T08:19:54.3651607Z ##[error]Process completed with exit code 1.

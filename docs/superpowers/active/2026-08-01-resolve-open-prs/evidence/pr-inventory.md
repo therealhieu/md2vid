@@ -59,3 +59,33 @@
 - Timeline evidence records native squash auto-merge enabled by `github-actions[bot]` at `2026-07-28T16:26:12Z` (`auto_squash_enabled`), the refreshed head force-push to `0d133947dc8cef717af6ed4ae56c3405a5380fd8` at `2026-08-01T05:26:52Z`, and the merge by `github-actions[bot]` at `2026-08-01T05:32:55Z`: https://api.github.com/repos/therealhieu/md2vid/issues/25/timeline.
 - The guarded run `30685853057` completed successfully from `2026-08-01T05:27:04Z` to `2026-08-01T05:27:13Z`; its `request-auto-merge` job passed live-head revalidation and the `Request native squash auto-merge` step: https://github.com/therealhieu/md2vid/actions/runs/30685853057/job/91331350069. The PR API reports `auto_merge.enabled_by: github-actions[bot]` and `merge_method: squash`: https://api.github.com/repos/therealhieu/md2vid/pulls/25.
 - The last required check completed at `05:32:53Z`; the native squash merge event occurred at `05:32:55Z`, after all five required checks, with no Actions-created review. Final merged PR: https://github.com/therealhieu/md2vid/pull/25.
+
+## GSAP PR #27 Node-26 evidence and successor basis
+
+### Immutable historical failure transcript
+
+- Source run: https://github.com/therealhieu/md2vid/actions/runs/30341897375
+- Source failed job: https://github.com/therealhieu/md2vid/actions/runs/30341897375/job/90219210160
+- The failed `pr-latest / validate` job completed on `2026-07-28T08:19:56Z` for historical head `c67fa8e6120126846b6186851b45af013a7fc058`. Its job metadata records `Install dependencies` as the failed step and `Run requested validation` as skipped.
+- The complete raw `gh run view 30341897375 --repo therealhieu/md2vid --job 90219210160 --log-failed` terminal transcript measured `274` lines and `32,812` bytes with SHA-256 `1a7db5fcd82af8603f8cc9a3a3c4be925d1562da0caf53e7cd75baaea7d11308`. The tracked `evidence/pr-27-node-26-install.log` is its source-linked diagnostic extract (raw lines `200–248`); it preserves terminal content while normalizing terminal whitespace so the repository-wide `git diff --check` gate remains meaningful.
+- Exact terminal evidence from that transcript:
+  - `##[group]Run npm ci`
+  - `npm error path /home/runner/work/md2vid/md2vid/node_modules/onnxruntime-node`
+  - `npm error command sh -c node ./script/install`
+  - `npm error AggregateError [ETIMEDOUT]:`
+  - `npm error Error: connect ETIMEDOUT 150.171.109.66:443`
+  - `npm error Error: connect ENETUNREACH 2603:1061:14:75::1:443 - Local (:::0)`
+  - `npm error Node.js v26.5.0`
+  - `##[error]Process completed with exit code 1.`
+- Classification is limited to the evidence: Node 26 failed during `npm ci` in the `onnxruntime-node` install script with network connection errors, and the requested validation step did not run. This evidence does not establish GSAP or project-code causality.
+
+### Live PR context after Dependabot refresh (read-only)
+
+- PR: https://github.com/therealhieu/md2vid/pull/27
+- Title: `chore(deps): bump gsap from 3.14.2 to 3.15.0`; state: `OPEN`; base: `main`; author returned by `gh pr view`: `app/dependabot` (`is_bot: true`).
+- Head branch: `dependabot/npm_and_yarn/gsap-3.15.0`; refreshed head SHA: `5ab3130bd771022773bd468b6a6140609cd1cc58`; merge-state status: `UNKNOWN`.
+- Live checks: `resolve-latest-node` success; `observe-dependabot` success; `pr-title` failure; `dependency-review` success; `public-snapshot / validate` success; `pr-minimum / validate` success; `pr-latest / validate` success; `main-full` skipped. The check URLs are reported by `gh pr view` for this head; the historical failure above is not attributed to any current successful check.
+
+### Test decision
+
+- `corepack npm ci` succeeds for the regenerated GSAP graph. Existing `test/cli/dependency-versions.test.ts` verifies that `GSAP_VERSION` comes from the manifest and that `DEFAULT_GSAP_SRC` is derived from it; `frameworks/hyperframes/__tests__/emit.test.ts` verifies the pinned CDN emission path. Both pass after the update. No fresh, reproducible project-owned GSAP compatibility failure exists, so no regression test was added; an external `onnxruntime-node` download failure is not a project regression-test target.
