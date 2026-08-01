@@ -30,7 +30,7 @@
 
 - Exact original Mode A extraction command, used before its output path was replaced by the tracked extract: `gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log`.
 - Safe re-extraction preserves the tracked extract by writing raw generated output outside the worktree: `raw_log=/tmp/pr-25-snapshot-failure.raw.log; gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > "$raw_log"`.
-- The tracked diagnostic extract at `docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log` is derived by recording the raw line/byte count and SHA-256, then copying raw lines `6332-6339` and `11769-11786` verbatim. It records the source run/job URLs and both nested suites with `861` passing tests and `0` failures. The exact terminal failure was:
+- The tracked diagnostic extract at `docs/superpowers/done/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log` is derived by recording the raw line/byte count and SHA-256, then copying raw lines `6332-6339` and `11769-11786` verbatim. It records the source run/job URLs and both nested suites with `861` passing tests and `0` failures. The exact terminal failure was:
   - `FAIL [release]: retained diagnostics at /tmp/md2vid-public-check-BM230m/snapshot/release-diagnostics`
   - `FAIL [smoke:hyperframes]: Command failed: /opt/hostedtoolcache/node/22.18.0/x64/bin/node /home/runner/.cache/node/corepack/v1/npm/11.15.0/bin/npm-cli.js run check`
   - `public snapshot check: npm run release:check exited with status 1`

@@ -12,8 +12,8 @@
 
 ## Source Artifacts
 
-- Requirements: `docs/superpowers/active/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-requirements.md`
-- Design: `docs/superpowers/active/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-design.md`
+- Requirements: `docs/superpowers/done/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-requirements.md`
+- Design: `docs/superpowers/done/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-design.md`
 - Git standards: `docs/standards/git.md`
 - Prior dependency automation design: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`
 
@@ -21,7 +21,7 @@
 
 | File | Responsibility |
 |---|---|
-| `docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-inventory.md` | Immutable before/after PR state, successor links, required-check and merge evidence |
+| `docs/superpowers/done/2026-08-01-resolve-open-prs/evidence/pr-inventory.md` | Immutable before/after PR state, successor links, required-check and merge evidence |
 | `.github/workflows/ci.yml` | Actions-major replacement pins and current PR title policy |
 | `.github/workflows/nightly.yml` | Actions-major replacement `setup-node` pin |
 | `.github/workflows/release.yml` | Actions-major replacement checkout/setup-node/download/upload pins |
