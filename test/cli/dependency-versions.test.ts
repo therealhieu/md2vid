@@ -84,6 +84,10 @@ test("operational dependency versions come from root package.json", () => {
   );
 });
 
+test("Node type definitions stay at the selected update range", () => {
+  assert.equal(pkg.devDependencies["@types/node"], "^26.1.2");
+});
+
 test("React and React DOM reject a split exact version", async () => {
   const manifest = structuredClone(pkg);
   manifest.optionalDependencies.react = "19.2.8";
