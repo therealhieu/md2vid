@@ -28,15 +28,15 @@
 
 ### Failure extraction and current-main classification
 
-- Exact failed-job extraction command: `gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log`.
-- The retained log records the workflow command `corepack npm run public:snapshot:check` and two nested suites with `861` passing tests and `0` failures. The exact terminal failure was:
+- Exact historical extraction command: `gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log`.
+- The tracked diagnostic extract at `docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log` records the source run/job URLs, extraction command, and both nested suites with `861` passing tests and `0` failures. The exact terminal failure was:
   - `FAIL [release]: retained diagnostics at /tmp/md2vid-public-check-BM230m/snapshot/release-diagnostics`
   - `FAIL [smoke:hyperframes]: Command failed: /opt/hostedtoolcache/node/22.18.0/x64/bin/node /home/runner/.cache/node/corepack/v1/npm/11.15.0/bin/npm-cli.js run check`
   - `public snapshot check: npm run release:check exited with status 1`
   - `##[error]Process completed with exit code 1.`
-- The failed job does not expose a deeper `npm run check` diagnostic beyond that command/error; the failure is therefore recorded exactly, without claiming a project-level root cause. Full extracted evidence remains at `docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log`.
+- The original raw transcript was `11,812` lines, `1,265,359` bytes, and SHA-256 `1aa28ae0609a8d8c5d2b5448a827dabedbab9452ed4fc0d114446ff01225607a`. It is represented by the tracked diagnostic extract rather than retained verbatim because the raw CI output is 1.2 MB, high-noise, and contains trailing whitespace. The failed job exposes no deeper `npm run check` diagnostic beyond the retained command/error chain.
 - Current main was `8cf22d8482bc19650ff10edb83db404647a49493` (`origin/main`) throughout reproduction. `corepack npm ci` exited `0` and installed/audited `153` packages with `0` vulnerabilities. A clean rerun of `corepack npm run public:snapshot:check` from `2026-08-01T05:48:50Z` through `2026-08-01T05:52:33Z` exited `0`; both nested suites reported `863` passed and `0` failed, all release smoke lanes reported `OK`, and the command ended with `public snapshot check passed at f9d3b22577f1609a04073c0d0fef1b19992b1050`.
-- Classification: **non-reproducible on current main**. No project behavior was changed; the historical nested release-check failure is retained as an environment/stale-runtime observation, not reclassified as a dependency defect.
+- Classification: **non-reproducible on current main**. The historical nested release-check failure has no deeper diagnostic in the failed-job log and is not classified as a dependency or project defect.
 
 ### PR #25 refreshed-in-place deviation
 
