@@ -7,7 +7,7 @@
 | #29 | Green checks but stale branch | Human-owned Node-types PR from current main |
 
 - #1–#4: historical `pr-title` reaches the fallback `exit 1` for individual Dependabot action-update titles.
-- #25: `public-snapshot / validate` job `91154094246` failed on 2026-07-31 after an earlier pass on 2026-07-28.
+- #25: `public-snapshot / validate` jobs `90371714621` and `91154094246` failed on 2026-07-28 and 2026-07-31, respectively.
 - #26: `react-dom@19.2.8` peer-requires `react@^19.2.8` while the PR retains `react@19.0.0`.
 - #27: Node 26 `npm ci` fails before tests while downloading `onnxruntime-node` with `ETIMEDOUT` / `ENETUNREACH`.
 - #28: `scripts/dependency_versions.ts` rejects unequal React and React DOM exact versions.
