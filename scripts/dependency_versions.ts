@@ -57,9 +57,6 @@ export const GSAP_VERSION = exactVersion("devDependencies", "gsap");
 export const REACT_TYPES_VERSION = dependencyValue("devDependencies", "@types/react");
 export const TYPESCRIPT_VERSION = dependencyValue("devDependencies", "typescript");
 
-if (dependencyValue("devDependencies", "@types/node") !== "^26.1.2") {
-  throw new Error("@types/node must use the selected update range");
-}
 if (dependencyValue("optionalDependencies", "react-dom") !== REACT_VERSION) {
   throw new Error("react and react-dom must use the same exact version");
 }
