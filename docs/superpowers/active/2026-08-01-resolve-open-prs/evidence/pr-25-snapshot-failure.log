@@ -4,14 +4,24 @@
 
 - Source run: https://github.com/therealhieu/md2vid/actions/runs/30387899259
 - Source failed job: https://github.com/therealhieu/md2vid/actions/runs/30387899259/job/91154094246
-- Historical extraction command:
+- Exact original Mode A extraction command, run before this tracked extract replaced its output path:
 
   ```sh
   gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/pr-25-snapshot-failure.log
   ```
 
+- Safe re-extraction command; it preserves this tracked extract by writing the generated raw transcript outside the worktree:
+
+  ```sh
+  raw_log=/tmp/pr-25-snapshot-failure.raw.log
+  gh run view 30387899259 --repo therealhieu/md2vid --job 91154094246 --log-failed > "$raw_log"
+  wc -lc "$raw_log"
+  shasum -a 256 "$raw_log"
+  ```
+
+- Derivation of this tracked extract from the raw transcript: record the source URLs, raw line/byte count, and SHA-256; then copy raw lines `6332-6339` and `11769-11786` verbatim into the two excerpts below.
 - Full raw transcript before replacement: `11,812` lines, `1,265,359` bytes, SHA-256 `1aa28ae0609a8d8c5d2b5448a827dabedbab9452ed4fc0d114446ff01225607a`.
-- The full raw transcript is preserved temporarily outside this worktree. It is not retained verbatim in Git because it is 1.2 MB of generated CI output with high noise and trailing whitespace. This concise tracked extract is the reviewer-approved durable alternative: it preserves the source URLs, exact extraction command, content identity, both successful nested-suite summaries, and the complete terminal failure chain.
+- The full raw transcript is preserved temporarily outside this worktree. It is not retained verbatim in Git because it is 1.2 MB of generated CI output with high noise and trailing whitespace. This concise tracked extract is the reviewer-approved durable alternative: it preserves the source URLs, original and safe extraction commands, content identity, both successful nested-suite summaries, and the complete terminal failure chain.
 
 ## Exact excerpt from the raw transcript
 
