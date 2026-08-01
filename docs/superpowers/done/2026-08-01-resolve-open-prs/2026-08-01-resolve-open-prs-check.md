@@ -15,11 +15,11 @@
 
 ## Review
 
-- [x] Implementation matches the design and plan: #1–#4 map to [#39](https://github.com/therealhieu/md2vid/pull/39), #26/#28 to [#40](https://github.com/therealhieu/md2vid/pull/40), #25 to its verified guarded in-place merge, #27 to [#42](https://github.com/therealhieu/md2vid/pull/42), and #29 to [#43](https://github.com/therealhieu/md2vid/pull/43).
+- [x] Implementation follows the design and plan, with the documented safe #25 in-place-refresh deviation: #1–#4 map to [#39](https://github.com/therealhieu/md2vid/pull/39), #26/#28 to [#40](https://github.com/therealhieu/md2vid/pull/40), #25 to its verified guarded in-place merge, #27 to [#42](https://github.com/therealhieu/md2vid/pull/42), and #29 to [#43](https://github.com/therealhieu/md2vid/pull/43).
 - [x] No planned tasks are missing: the original-open assertion returned `0`, and the complete live open-PR query returned `[]`.
 - [x] No extra product, dependency, workflow, branch-protection, auto-merge-policy, or canonical-review-artifact scope was added by this final audit. It changes only the feature documentation/evidence/check files and moves the feature folder to `docs/superpowers/done/`.
 - [x] Tests and manual checks passed: `corepack npm ci`; both focused Node test files; `corepack npm run typecheck`; `corepack npm run typecheck:remotion`; `corepack npm run public:snapshot:check`; `corepack npm run check`; `corepack npm run release:check`; and applicable repository/working-tree whitespace checks. The snapshot, full, and release suites each reported 864 passed and 0 failed; focused suites reported 65/65 and 9/9 passed.
-- [x] No placeholders or unfinished work remain: every original, successor head, required-check result, merge SHA/time, and closed-original comment is recorded in `evidence/pr-inventory.md`.
+- [x] No placeholders or unfinished work remain: every original has its applicable successor or direct-merge record, head, required-check result, merge SHA/time, and closed-original comment where applicable in `evidence/pr-inventory.md`.
 
 ## Decisions
 
