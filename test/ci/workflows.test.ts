@@ -1550,11 +1550,13 @@ test("reusable validation declares the exact read-only workflow_call contract", 
 });
 
 test("workflow contracts accept immutable Action major-version comments", () => {
-  const validate = workflow("validate.yml").replace(
-    "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+  const source = workflow("validate.yml");
+  const mutated = source.replace(
     "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+    "actions/setup-node@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v8.0.0",
   );
-  assert.doesNotThrow(() => assertValidationSetupNodePin(validate));
+  assert.notEqual(mutated, source, "major-version mutation must modify the workflow");
+  assert.doesNotThrow(() => assertValidationSetupNodePin(mutated));
 });
 
 test("reusable validation installs and verifies the packageManager npm pin in order", () => {
