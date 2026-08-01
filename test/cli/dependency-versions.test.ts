@@ -84,6 +84,24 @@ test("operational dependency versions come from root package.json", () => {
   );
 });
 
+test("Node type definitions stay at the selected update range", () => {
+  assert.equal(pkg.devDependencies["@types/node"], "^26.1.2");
+});
+
+test("package authority rejects mismatched Node type definitions", async () => {
+  const manifest = structuredClone(pkg);
+  manifest.devDependencies["@types/node"] = "^22.20.0";
+  assert.notEqual(
+    manifest.devDependencies["@types/node"],
+    pkg.devDependencies["@types/node"],
+  );
+
+  await assert.rejects(
+    () => importAuthority(manifest),
+    /@types\/node must use the selected update range/,
+  );
+});
+
 test("React and React DOM reject a split exact version", async () => {
   const manifest = structuredClone(pkg);
   manifest.optionalDependencies.react = "19.2.8";
