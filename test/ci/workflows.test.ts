@@ -223,6 +223,13 @@ function assertValidationNpmOrdering(yaml: string): void {
   assert.ok(globalInstall >= 0 && globalInstall < versionCheck && versionCheck < exactCheck, "exact npm is not installed and asserted before npm ci");
 }
 
+function assertValidationSetupNodePin(yaml: string): void {
+  assert.match(
+    stepBody(yaml, "Set up exact Node"),
+    /actions\/setup-node@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/,
+  );
+}
+
 function assertValidateUploads(yaml: string): void {
   const uploadSteps = yaml
     .split(/(?=^      - name: )/m)
@@ -759,7 +766,7 @@ function assertNightlyPolicy(yaml: string): void {
   const resolver = jobBody(yaml, "resolve-latest-node", "native-matrix");
   assert.match(resolver, /runs-on: ubuntu-latest/);
   assert.match(resolver, /permissions: \{\}/);
-  assert.match(resolver, /actions\/setup-node@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(resolver, /actions\/setup-node@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(resolver, /node-version: node/);
   assert.match(resolver, /version=\$\(node -p 'process\.versions\.node'\)/);
   assert.match(resolver, /version: \$\{\{ steps\.node\.outputs\.version \}\}/);
@@ -1542,12 +1549,22 @@ test("reusable validation declares the exact read-only workflow_call contract", 
   assert.match(stepBody(yaml, "Check out source"), /fetch-depth:\s*0/);
 });
 
+test("workflow contracts accept immutable Action major-version comments", () => {
+  const source = workflow("validate.yml");
+  const mutated = source.replace(
+    "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+    "actions/setup-node@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v8.0.0",
+  );
+  assert.notEqual(mutated, source, "major-version mutation must modify the workflow");
+  assert.doesNotThrow(() => assertValidationSetupNodePin(mutated));
+});
+
 test("reusable validation installs and verifies the packageManager npm pin in order", () => {
   const yaml = workflow("validate.yml");
   assertValidationNpmOrdering(yaml);
   const setup = stepBody(yaml, "Set up exact Node");
   const install = stepBody(yaml, "Install pinned npm");
-  assert.match(setup, /actions\/setup-node@[a-f0-9]{40}\s+# v4/);
+  assertValidationSetupNodePin(yaml);
   assert.match(setup, /node-version:\s*\$\{\{ inputs\.node-version \}\}/);
   assert.match(setup, /cache:\s*npm/);
   assert.match(install, /package_manager=\$\(node -p "require\('\.\/package\.json'\)\.packageManager"\)/);
@@ -1610,7 +1627,7 @@ test("reusable validation supports fast and full modes with narrow diagnostics",
   assert.match(validation, /public-snapshot\) corepack npm run public:snapshot:check ;;/);
   assert.match(validation, /\*\) echo "unsupported validation mode" >&2; exit 2 ;;/);
   assert.match(diagnostics, /if:\s*failure\(\) && inputs\.mode == 'full'/);
-  assert.match(diagnostics, /actions\/upload-artifact@[a-f0-9]{40}\s+# v4/);
+  assert.match(diagnostics, /actions\/upload-artifact@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(diagnostics, /name:\s*release-diagnostics-\$\{\{ inputs\.runner \}\}-\$\{\{ github\.run_id \}\}/);
   assert.match(diagnostics, /path:\s*release-diagnostics/);
   assert.doesNotMatch(diagnostics, /path:\s*[.~/$]|HOME|npmrc|workspace/i);
@@ -1766,8 +1783,9 @@ test("policy helpers reject unsafe workflow mutations", () => {
   const arbitraryWrite = ci.replace("permissions: {}", "permissions: { actions: write }");
   assert.throws(() => assertReadOnlyPermissions(arbitraryWrite), /permission|write|contents/i);
 
-  const staleComment = validate.replace("# v4", "# current");
-  assert.throws(() => assertPinnedUses(staleComment), /version comment|full SHA/i);
+  const nonVersionComment = validate.replace(/# v\d+(?:\.\d+)*/, "# latest");
+  assert.notEqual(nonVersionComment, validate, "non-version comment mutation must modify the workflow");
+  assert.throws(() => assertPinnedUses(nonVersionComment), /version comment|full SHA/i);
 });
 
 test("shell-source policy rejects inline and folded expression mutations", () => {
@@ -1953,10 +1971,10 @@ function assertActionlintQueueSuppression(body?: string): void {
 
 function assertReleaseToolchain(body: string, ref: RegExp): void {
   const checkout = body.match(/- name: Check out verified commit[\s\S]*?(?=\n      - name:|$)/)?.[0] ?? "";
-  assert.match(checkout, /actions\/checkout@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(checkout, /actions\/checkout@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(checkout, ref);
   assert.match(checkout, /persist-credentials:\s*false/);
-  assert.match(body, /actions\/setup-node@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(body, /actions\/setup-node@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(body, /node-version:\s*\$\{\{ needs\.preflight\.outputs\.node_version \}\}/);
   assert.match(body, /npm install --global "\$package_manager"/);
   assert.match(body, /test "\$\(npm --version\)" = "\$expected"/);
@@ -2158,7 +2176,7 @@ test("release obtains a new or retained immutable artifact before upload", () =>
   assert.match(body, /npm run release:pack -- --output release-artifact/);
   const download = stepBody(body, "Download retained release artifact");
   assert.match(download, /if:\s*needs\.preflight\.outputs\.registry_state == 'existing' && steps\.current-artifact\.outputs\.reuse != 'true'/);
-  assert.match(download, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(download, /actions\/download-artifact@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(download, /artifact-ids:\s*\$\{\{ needs\.preflight\.outputs\.artifact_id \}\}/);
   assert.match(download, /run-id:\s*\$\{\{ needs\.preflight\.outputs\.artifact_run_id \}\}/);
   assert.doesNotMatch(download, /^\s+name:/m);
@@ -2230,7 +2248,7 @@ test("release verifies one exact current-run tarball on every supported OS", () 
   assertReleaseVerificationMatrix(yaml);
   assertReleaseArtifactVerificationRequired(yaml);
   assert.match(body, /^    runs-on:\s*\$\{\{ matrix\.runner \}\}\s*$/m);
-  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(body, /name:\s*\$\{\{ needs\.preflight\.outputs\.artifact_name \}\}/);
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
   assert.ok(body.indexOf("Check out verified commit") < body.indexOf("Download current release artifact"), "checkout cleanup must run before artifact download");
@@ -2257,7 +2275,7 @@ test("release publication uses OIDC only and publishes the verified tarball", ()
   const yaml = workflow("release.yml");
   const body = releaseJob(yaml, "publish-npm");
   assertReleaseToolchain(body, /ref:\s*\$\{\{ needs\.preflight\.outputs\.commit \}\}/);
-  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v4(?:\.\d+)*/);
+  assert.match(body, /actions\/download-artifact@[a-f0-9]{40}\s+# v\d+(?:\.\d+)*/);
   assert.match(stepBody(body, "Install publication verification dependencies"), /^\s+run:\s*npm ci --ignore-scripts\s*$/m);
   assert.match(body, /--metadata-only/);
   assert.match(body, /node scripts\/release_preflight\.ts publish-check/);

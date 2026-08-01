@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 282,
-  "hash": "sha256:6e00dd56fee566458bb7263ca7969cc746cf8090cd03239a651f9cada70b45f9",
+  "hash": "sha256:294a235fc97f85dc402db6833bab9343344fb10f2b3089545ba6786fa3abebe9",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -18,8 +18,8 @@
     {
       "path": ".github/workflows/ci.yml",
       "mode": "100644",
-      "bytes": 4244,
-      "sha256": "b2bf78c2911c580f200edbb3be2a9b2184804266ea786ab328b717168b16e7be"
+      "bytes": 4248,
+      "sha256": "13026b8c844faf68205919da0ca911a9c04790e986d30b7eb7486cec4e73a983"
     },
     {
       "path": ".github/workflows/dependabot-auto-merge-observer.yml",
@@ -36,20 +36,20 @@
     {
       "path": ".github/workflows/nightly.yml",
       "mode": "100644",
-      "bytes": 1085,
-      "sha256": "e04445a8433b143627a52f27360a547925b7bb81931b28470777902bbefd29f1"
+      "bytes": 1089,
+      "sha256": "822bb6125bfba7e894528bf6804def6ccc2cd0b224ca3b52546eeacfa2ec3ece"
     },
     {
       "path": ".github/workflows/release.yml",
       "mode": "100644",
-      "bytes": 28711,
-      "sha256": "2a99c4a905d7620cf38fae1147d13239313f173cc7709ca9dfc02ed096d7f769"
+      "bytes": 28787,
+      "sha256": "82cebbe8ddea118b77f17563fc3abdfa655f66c9f0c905ee5f283aefda5872e7"
     },
     {
       "path": ".github/workflows/validate.yml",
       "mode": "100644",
-      "bytes": 2744,
-      "sha256": "7cdcdae4b7f6b6b44bb82b47981df0af97e46c03f035a84e7962d45491335d6c"
+      "bytes": 2756,
+      "sha256": "48cac4d48d6227a13a1fe4d7917de48206596405e0bc84ee7e618bf3df29b03f"
     },
     {
       "path": ".gitignore",
@@ -804,8 +804,8 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 116864,
-      "sha256": "38cce0aca93e944f2792bf3c8fdc86024fe5eb712bc796ca26ea70781c2a938b"
+      "bytes": 117646,
+      "sha256": "94407ddafc573b3c87fe662a59b2b8f3039290c356fbcd7aba482a1ae2cd4439"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
