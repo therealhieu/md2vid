@@ -77,14 +77,14 @@
     "check": "npm run typecheck && npm run typecheck:remotion && npm run test"
   },
   "dependencies": {
-    "hyperframes": "0.7.26"
+    "hyperframes": "0.7.80"
   },
   "optionalDependencies": {
-    "@remotion/google-fonts": "4.0.486",
-    "@remotion/media": "4.0.486",
+    "@remotion/google-fonts": "4.0.500",
+    "@remotion/media": "4.0.500",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "remotion": "4.0.486"
+    "remotion": "4.0.500"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
