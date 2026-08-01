@@ -17,7 +17,7 @@ Scope reviewed in read-only mode:
 
 - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/.github/workflows/dependabot-auto-merge.yml`
 - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/test/ci/workflows.test.ts`
-- `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`
+- `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md`
 - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/public-snapshot.json`
 
 Reviewed for: removal of approval side effect while preserving trusted `workflow_run` validation, exact live-head recheck, exact native auto-squash match-head merge, no checkout/project execution, exact permissions, strict tests, docs/snapshot coherence, and stale approval behavior.
@@ -28,7 +28,7 @@ Reviewed for: removal of approval side effect while preserving trusted `workflow
 
 ### Evidence
 
-`/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:29` still lists:
+`/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:29` still lists:
 
 ```text
 - review POST with commit_id
@@ -38,7 +38,7 @@ That line appears inside the “Approved Mode B architecture revision” replace
 
 It conflicts with the Task 5.2 no-review decision in the same file:
 
-`/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:36-40`
+`/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:36-40`
 
 ```text
 The user explicitly decided: `if green auto merge =&gt; don't need approval`.

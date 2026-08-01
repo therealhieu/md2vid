@@ -12,11 +12,11 @@
 
 ## Source Artifacts
 
-- Design: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-design.md`
+- Design: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-design.md`
 - Standard: `docs/standards/git.md`
-- Core plan: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-1.md`
-- Integration plan: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`
-- Execution goal: `docs/superpowers/active/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-goal.md`
+- Core plan: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-1.md`
+- Integration plan: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-plan-2.md`
+- Execution goal: `docs/superpowers/done/2026-07-27-md2vid-upgrade/2026-07-27-md2vid-upgrade-goal.md`
 
 ## File Responsibility Map
 

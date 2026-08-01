@@ -16,10 +16,10 @@
 ### SPEC-1 — Must fix — Canonical permission requirements contradict the remediation
 - Requirement: “add only `actions: read` to the trusted job’s exact permissions” while retaining top-level `permissions: {}`, `contents: write`, and `pull-requests: write`.
 - Evidence:
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md:61` — success criterion still requires only `contents: write` and `pull-requests: write`.
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md:269` — data-flow contract still says the trusted job grants only those two permissions.
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan.md:164` — completion criterion repeats the obsolete two-permission contract.
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:689-693` correctly documents the canary failure and required deviation before commit `e3044ea`, but does not reconcile the other active canonical criteria.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md:61` — success criterion still requires only `contents: write` and `pull-requests: write`.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md:269` — data-flow contract still says the trusted job grants only those two permissions.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan.md:164` — completion criterion repeats the obsolete two-permission contract.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:689-693` correctly documents the canary failure and required deviation before commit `e3044ea`, but does not reconcile the other active canonical criteria.
   - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/.github/workflows/dependabot-auto-merge.yml:25-28` correctly implements the new three-permission contract.
 - Guidance: Update the active goal, design, and plan-index criteria to require exactly:
   ```yaml

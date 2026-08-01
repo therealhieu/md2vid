@@ -25,7 +25,7 @@
 - Reviewed commits:
   - `c42f616` — `test(ci): define Dependabot patch policy`
   - `bc5f865` — `ci(deps): enable guarded patch auto-merge`
-- Pre-existing untracked paths excluded from scope: the three Part 1 canonical review artifacts under `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/reviews/`
+- Pre-existing untracked paths excluded from scope: the three Part 1 canonical review artifacts under `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/reviews/`
 
 ---
 
@@ -103,7 +103,7 @@
 - Requirement: The execution goal requires every checkbox in `2026-07-28-auto-dependency-updates-plan-2.md` to be executed and the group review/verifier lifecycle to be completed.
 
 - Evidence:
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:23-644` — Task 4, Task 5, and the group review/verifier checklist remain marked `- [ ]`.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:23-644` — Task 4, Task 5, and the group review/verifier checklist remain marked `- [ ]`.
   - The implementation commits and command evidence demonstrate execution, but the plan itself does not record which red tests, green checks, review steps, remediation steps, and verifier checks were completed.
 
 - Guidance:
@@ -123,8 +123,8 @@
 - Requirement: The execution goal requires creation of the post-implementation check file required by the writing-plans workflow after implementation and verification.
 
 - Evidence:
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md:48` — explicitly requires the post-implementation check file.
-  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/active/2026-07-28-auto-dependency-updates/` contains the goal, design, research, plan files, and review directory, but no Part 2 post-implementation check file.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-goal.md:48` — explicitly requires the post-implementation check file.
+  - `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/auto-dependency-updates-impl/docs/superpowers/done/2026-07-28-auto-dependency-updates/` contains the goal, design, research, plan files, and review directory, but no Part 2 post-implementation check file.
 
 - Guidance:
   - Create the required check artifact after SPEC-3 remediation and final verification.

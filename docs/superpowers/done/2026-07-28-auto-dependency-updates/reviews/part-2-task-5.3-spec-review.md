@@ -15,7 +15,7 @@
 
 **Evidence**
 
-- `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:803-806` requires only Tasks 1–5 and Task 5.2 on `main`.
+- `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-plan-2.md:803-806` requires only Tasks 1–5 and Task 5.2 on `main`.
 
 Task 5.3 is now an active prerequisite for the real no-review canary because it fixes the live 404 caused by the unsupported workflow-run pull-requests subendpoint.
 

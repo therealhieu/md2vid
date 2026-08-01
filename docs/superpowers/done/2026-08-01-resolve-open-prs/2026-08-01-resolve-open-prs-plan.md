@@ -15,7 +15,7 @@
 - Requirements: `docs/superpowers/done/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-requirements.md`
 - Design: `docs/superpowers/done/2026-08-01-resolve-open-prs/2026-08-01-resolve-open-prs-design.md`
 - Git standards: `docs/standards/git.md`
-- Prior dependency automation design: `docs/superpowers/active/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`
+- Prior dependency automation design: `docs/superpowers/done/2026-07-28-auto-dependency-updates/2026-07-28-auto-dependency-updates-design.md`
 
 ## File Responsibility Map
 
