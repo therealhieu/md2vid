@@ -82,8 +82,8 @@
   "optionalDependencies": {
     "@remotion/google-fonts": "4.0.486",
     "@remotion/media": "4.0.486",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "remotion": "4.0.486"
   },
   "devDependencies": {

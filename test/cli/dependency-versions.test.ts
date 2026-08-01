@@ -84,6 +84,17 @@ test("operational dependency versions come from root package.json", () => {
   );
 });
 
+test("React and React DOM reject a split exact version", async () => {
+  const manifest = structuredClone(pkg);
+  manifest.optionalDependencies.react = "19.2.8";
+  manifest.optionalDependencies["react-dom"] = "19.0.0";
+
+  await assert.rejects(
+    () => importAuthority(manifest),
+    /react and react-dom must use the same exact version/,
+  );
+});
+
 test("canonical stable versions reject leading-zero package pins", async () => {
   for (const valid of ["0.7.26", "4.0.486", "3.14.1"]) {
     assert.equal(isCanonicalStableVersion(valid), true, valid);
