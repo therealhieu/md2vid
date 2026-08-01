@@ -137,7 +137,7 @@ corepack npm ci
 corepack npm run public:snapshot:check
 ```
 
-Expected: if both commands pass, classify the prior result as non-reproducible. If either fails, create a separate targeted fix PR with a failing regression test in the relevant `test/ci/public-snapshot*.test.ts` file before changing behavior.
+Expected: classify the prior result as non-reproducible when the extracted command and error do not reproduce. Treat a `corepack npm ci` installation or network failure as infrastructure evidence; it does not by itself establish a public-snapshot defect. Create a separate targeted fix PR with a failing regression test in the relevant `test/ci/public-snapshot*.test.ts` file only when the extracted `corepack npm run public:snapshot:check` command and its project-level error reproduce.
 
 - [ ] **Step 3: Record the classification**
 
@@ -373,7 +373,7 @@ Expected: `0`.
 
 - [ ] **Step 2: Record successor and merge evidence**
 
-For each original PR, add one row to `evidence/pr-inventory.md` containing its successor URL, successor head SHA, five required-check conclusions, merge commit SHA, and original closure URL.
+For each original PR, add one row to `evidence/pr-inventory.md` containing the applicable successor URL and head SHA, five required-check conclusions, merge commit SHA, and original closure URL. For a direct in-place merge such as #25, record the original PR URL, final Dependabot head SHA, five required checks, trust proof, merge SHA/time, and no closure URL instead of inventing a successor.
 
 - [ ] **Step 3: Run final main validation**
 
@@ -393,12 +393,14 @@ Expected: every command exits `0` and the diff check prints nothing.
 
 - [ ] **Step 4: Verify the guarded runtime merge remained review-free**
 
-For the merged runtime successor SHA in `RUNTIME_SUCCESSOR_PR`, run:
+For the merged runtime successor PR number in `FRESH_PR`, run:
 
 ```bash
-gh api "repos/therealhieu/md2vid/pulls/$RUNTIME_SUCCESSOR_PR/reviews" \
+gh api "repos/therealhieu/md2vid/pulls/$FRESH_PR/reviews" \
   --jq 'all(.[]?; .user.login != "github-actions[bot]")'
 ```
+
+Keep the merged head SHA separate; record it alongside the PR number in `evidence/pr-inventory.md`.
 
 Expected: `true`.
 

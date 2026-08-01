@@ -224,7 +224,7 @@ Runtime/dependency replacements
   → public-snapshot.json if source inventory changes
 
 Closure evidence
-  → docs/superpowers/active/2026-08-01-resolve-open-prs/evidence/
+  → docs/superpowers/done/2026-08-01-resolve-open-prs/evidence/
 ```
 
 | Replacement | Files / interfaces | Required implementation rule |
