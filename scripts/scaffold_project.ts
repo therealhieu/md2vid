@@ -18,12 +18,55 @@ const AUDIO_REQUEST_EXAMPLE = {
   ],
 };
 
+const REQUIRED_VISUAL_SYNC = {
+  mode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  minLanding: 1,
+};
+
 const NEUTRAL_CONFIG = {
   $comment:
     "Map every audio_meta voices[].id to its frame slug. Voice IDs may be meaningful strings; frame order follows the voices[] array. gap=0 is back-to-back; gap>0 adds a held landing.",
   timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
   canvas: { width: 1920, height: 1080 },
   slugs: {},
+  visualSync: REQUIRED_VISUAL_SYNC,
+};
+
+const VISUAL_BEATS_EXAMPLE = {
+  version: 1,
+  frames: {
+    "replace-with-workflow-slug": {
+      kind: "workflow",
+      beats: [
+        {
+          id: "first-step",
+          text: "First step",
+          cue: { phrase: "first step", occurrence: 1 },
+          workflowStep: 1,
+          sourceRefs: ["source.md:1-3"],
+        },
+        {
+          id: "second-step",
+          text: "Second step",
+          cue: { wordIndex: 8 },
+          workflowStep: 2,
+          sourceRefs: ["source.md:4-6"],
+        },
+      ],
+    },
+    "replace-with-focal-slug": {
+      kind: "focal",
+      beats: [
+        {
+          id: "focal",
+          text: "Main idea",
+          cue: { phrase: "main idea", occurrence: 1 },
+        },
+      ],
+    },
+  },
 };
 
 function sortedRecord(values: Record<string, string>): Record<string, string> {
@@ -33,6 +76,7 @@ function sortedRecord(values: Record<string, string>): Record<string, string> {
 export function mergePackageManifest(slug: string, spec: FrameworkScaffoldSpec): Record<string, unknown> {
   const commonScripts = {
     build: "md2vid build . && md2vid regroup . --max-chars 54",
+    plan: "md2vid plan .",
     transcribe: "md2vid transcribe .",
     verify: "md2vid verify .",
     check: `md2vid verify . && ${spec.frameworkCheck}`,
@@ -72,6 +116,7 @@ export function writeCommonScaffold(
   });
   writeJson(join(stageDir, "video.config.json"), NEUTRAL_CONFIG);
   writeJson(join(stageDir, "audio_request.json.example"), AUDIO_REQUEST_EXAMPLE);
+  writeJson(join(stageDir, "visual_beats.json.example"), VISUAL_BEATS_EXAMPLE);
   writeJson(join(stageDir, "output.config.json"), spec.outputConfig);
   writeJson(join(stageDir, "package.json"), mergePackageManifest(slug, spec));
 
@@ -104,6 +149,7 @@ export function validateCommonScaffold(stageDir: string, slug: string): void {
     "meta.json",
     "video.config.json",
     "audio_request.json.example",
+    "visual_beats.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",
@@ -124,6 +170,14 @@ export function validateCommonScaffold(stageDir: string, slug: string): void {
   for (const key of ["framework", "gsapSrc", "visualContract"]) {
     if (Object.hasOwn(neutral, key)) throw new Error(`video.config.json contains framework-local key "${key}"`);
   }
+  if (JSON.stringify(neutral.visualSync) !== JSON.stringify(REQUIRED_VISUAL_SYNC)) {
+    throw new Error("video.config.json visualSync must equal the required scaffold policy");
+  }
+
+  const visualBeats = JSON.parse(readFileSync(join(stageDir, "visual_beats.json.example"), "utf8"));
+  if (JSON.stringify(visualBeats) !== JSON.stringify(VISUAL_BEATS_EXAMPLE)) {
+    throw new Error("visual_beats.json.example must equal the required scaffold example");
+  }
 
   const local = JSON.parse(readFileSync(join(stageDir, "output.config.json"), "utf8")) as {
     framework?: unknown;
@@ -140,6 +194,7 @@ export function validateFrameworkRuntime(stageDir: string, framework: string): v
       "hyperframes.json",
       "caption-overrides.json",
       join(".hyperframes", "caption-skin.html"),
+      join(".hyperframes", "frame-template.html"),
     ]) {
       requireFile(join(stageDir, rel));
     }

@@ -37,6 +37,7 @@ test("mergePackageManifest merges common and adapter package fields deterministi
     type: "module",
     scripts: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
+      plan: "md2vid plan .",
       transcribe: "md2vid transcribe .",
       verify: "md2vid verify .",
       check: "md2vid verify . && md2vid hyperframes lint",
@@ -48,7 +49,7 @@ test("mergePackageManifest merges common and adapter package fields deterministi
 });
 
 test("mergePackageManifest rejects adapter conflicts with common script names", () => {
-  for (const name of ["build", "transcribe", "verify", "check"]) {
+  for (const name of ["build", "plan", "transcribe", "verify", "check"]) {
     assert.throws(
       () => mergePackageManifest("demo-video", { ...spec, packageScripts: { [name]: "other" } }),
       new RegExp(`common package script "${name}"`),
@@ -71,6 +72,7 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
       timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
       canvas: { width: 1920, height: 1080 },
       slugs: {},
+      visualSync: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 },
     });
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8")), {
       lines: [
@@ -79,6 +81,34 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
       ],
     });
     assert.equal(existsSync(join(stage, "audio_meta.json")), false);
+    assert.deepEqual(JSON.parse(readFileSync(join(stage, "visual_beats.json.example"), "utf8")), {
+      version: 1,
+      frames: {
+        "replace-with-workflow-slug": {
+          kind: "workflow",
+          beats: [
+            {
+              id: "first-step",
+              text: "First step",
+              cue: { phrase: "first step", occurrence: 1 },
+              workflowStep: 1,
+              sourceRefs: ["source.md:1-3"],
+            },
+            {
+              id: "second-step",
+              text: "Second step",
+              cue: { wordIndex: 8 },
+              workflowStep: 2,
+              sourceRefs: ["source.md:4-6"],
+            },
+          ],
+        },
+        "replace-with-focal-slug": {
+          kind: "focal",
+          beats: [{ id: "focal", text: "Main idea", cue: { phrase: "main idea", occurrence: 1 } }],
+        },
+      },
+    });
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "output.config.json"), "utf8")), spec.outputConfig);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "package.json"), "utf8")), mergePackageManifest("demo-video", spec));
     assert.equal(readFileSync(join(stage, "CLAUDE.md"), "utf8"), "@.md2vid/standards/hyperframes.md\n");
@@ -100,6 +130,31 @@ test("validateCommonScaffold requires the narration request example", () => {
     assert.throws(
       () => validateCommonScaffold(stage, "demo-video"),
       new RegExp(`missing required scaffold file ${requestPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+});
+
+test("validateCommonScaffold requires visual timing files and required policy defaults", () => {
+  const stage = mkdtempSync(join(tmpdir(), "common-scaffold-visual-timing-"));
+  try {
+    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+    const beatsPath = join(stage, "visual_beats.json.example");
+    rmSync(beatsPath);
+    assert.throws(
+      () => validateCommonScaffold(stage, "demo-video"),
+      new RegExp(`missing required scaffold file ${beatsPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`),
+    );
+
+    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+    const configPath = join(stage, "video.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    delete config.visualSync;
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    assert.throws(
+      () => validateCommonScaffold(stage, "demo-video"),
+      /video\.config\.json visualSync must equal the required scaffold policy/,
     );
   } finally {
     rmSync(stage, { recursive: true, force: true });

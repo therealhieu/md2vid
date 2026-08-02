@@ -35,6 +35,7 @@ const TEMPLATES = existsSync(SOURCE_TEMPLATES)
   ? SOURCE_TEMPLATES
   : PACKED_DIST_TEMPLATES;
 const CAPTION_SKIN_TEMPLATE = join(TEMPLATES, "caption-skin.html");
+const FRAME_TEMPLATE = join(TEMPLATES, "frame-template.html");
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -114,6 +115,7 @@ export function validateGsapSrc(videoDir: string, input: unknown): string {
 function assertTemplates(): void {
   for (const [label, path] of [
     ["caption-skin.html", CAPTION_SKIN_TEMPLATE],
+    ["frame-template.html", FRAME_TEMPLATE],
   ]) {
     if (!existsSync(path)) throw new Error(`missing template ${label} — expected at ${path}`);
   }
@@ -131,6 +133,7 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
         allowMixedThemes: false,
         allowLegacyThemeInference: false,
       },
+      render: { profile: "final", fps: 30, minimumFinalFps: 24 },
     },
     frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
@@ -140,11 +143,15 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
     },
     nextSteps: [
       "review audio_request.json.example and generate narration",
-      "author frames in compositions/frames/",
+      "run transcription when needed",
       "fill video.config.json voice-id -> frame-slug mappings",
+      "author visual_beats.json",
+      "npm run plan",
+      "author cue-bound frames in compositions/frames/",
       "npm run build",
       "npm run check",
       "npm run dev",
+      "npm run render after review",
     ],
   };
 }
@@ -181,6 +188,10 @@ export function ensureRuntime(videoDir: string, _slug: string): void {
   writeMaterializedIfMissing(
     CAPTION_SKIN_TEMPLATE,
     join(videoDir, ".hyperframes", "caption-skin.html"),
+  );
+  writeMaterializedIfMissing(
+    FRAME_TEMPLATE,
+    join(videoDir, ".hyperframes", "frame-template.html"),
   );
 }
 

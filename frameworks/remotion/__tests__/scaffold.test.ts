@@ -94,8 +94,26 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
     const visualBeats = readFileSync(join(tmp, "src", "VisualBeats.tsx"), "utf8");
     const types = readFileSync(join(tmp, "src", "types.ts"), "utf8");
     const video = readFileSync(join(tmp, "src", "Video.tsx"), "utf8");
-    const nextSteps = scaffoldSpec("remotion").nextSteps.join("\n");
+    const root = readFileSync(join(tmp, "src", "Root.tsx"), "utf8");
+    const spec = scaffoldSpec("remotion");
+    const nextSteps = spec.nextSteps.join("\n");
 
+    assert.deepEqual(spec.outputConfig, { framework: "remotion" }, "do not add unused Remotion render config");
+    assert.deepEqual(spec.nextSteps, [
+      "npm install",
+      "review audio_request.json.example and generate narration",
+      "run transcription when needed",
+      "fill video.config.json voice-id -> frame-slug mappings",
+      "author visual_beats.json",
+      "npm run plan",
+      "author and register cue-bound src/scenes/*.tsx",
+      "npm run build",
+      "npm run check",
+      "npm run still or npm run studio",
+      "npm run render after review",
+    ]);
+    assert.match(root, /export const FPS = 30;/);
+    assert.match(root, /fps=\{FPS\}/);
     assert.match(visualBeats, /VisualBeatProvider/);
     assert.match(visualBeats, /BeatReveal/);
     assert.match(types, /visualBeats\?: ResolvedVisualBeat\[\]/);

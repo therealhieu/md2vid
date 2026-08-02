@@ -50,12 +50,15 @@ export function scaffoldSpec(_slug: string): FrameworkScaffoldSpec {
     nextSteps: [
       "npm install",
       "review audio_request.json.example and generate narration",
-      "author visual_beats.json from transcript cues and run npm run plan",
-      "author and register src/scenes/*.tsx",
+      "run transcription when needed",
       "fill video.config.json voice-id -> frame-slug mappings",
+      "author visual_beats.json",
+      "npm run plan",
+      "author and register cue-bound src/scenes/*.tsx",
       "npm run build",
       "npm run check",
       "npm run still or npm run studio",
+      "npm run render after review",
     ],
   };
 }

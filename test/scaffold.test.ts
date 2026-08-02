@@ -42,6 +42,7 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     const local = JSON.parse(readFileSync(join(dir, "output.config.json"), "utf8"));
     assert.equal(neutral.framework, undefined, "neutral config excludes framework choice");
     assert.equal(neutral.gsapSrc, undefined, "neutral config excludes framework assets");
+    assert.deepEqual(neutral.visualSync, { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 });
     assert.deepEqual(local, {
       framework: "hyperframes",
       gsapSrc: DEFAULT_GSAP_SRC,
@@ -51,6 +52,7 @@ test("default scaffold creates an HF project with pinned CDN config and no local
         allowMixedThemes: false,
         allowLegacyThemeInference: false,
       },
+      render: { profile: "final", fps: 30, minimumFinalFps: 24 },
     });
 
     const claude = readFileSync(join(dir, "CLAUDE.md"), "utf8");
@@ -65,7 +67,10 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     assert.ok(existsSync(join(dir, "compositions", "frames")), "frames dir scaffolded");
 
     // Every file the scaffolder promises must land, so a dropped write fails CI.
-    for (const rel of ["meta.json", "package.json", "audio_request.json.example", "hyperframes.json", "AGENTS.md", "caption-overrides.json"]) {
+    for (const rel of [
+      "meta.json", "package.json", "audio_request.json.example", "visual_beats.json.example",
+      "hyperframes.json", "AGENTS.md", "caption-overrides.json", join(".hyperframes", "frame-template.html"),
+    ]) {
       assert.ok(existsSync(join(dir, rel)), `scaffolder wrote ${rel}`);
     }
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "audio_request.json.example"), "utf8")), {

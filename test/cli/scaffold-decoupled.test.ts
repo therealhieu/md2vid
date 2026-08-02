@@ -35,22 +35,29 @@ const REPO_RELATIVE = /\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs/;
 
 const HYPERFRAMES_NEXT_STEPS = [
   "review audio_request.json.example and generate narration",
-  "author frames in compositions/frames/",
+  "run transcription when needed",
   "fill video.config.json voice-id -> frame-slug mappings",
+  "author visual_beats.json",
+  "npm run plan",
+  "author cue-bound frames in compositions/frames/",
   "npm run build",
   "npm run check",
   "npm run dev",
+  "npm run render after review",
 ];
 
 const REMOTION_NEXT_STEPS = [
   "npm install",
   "review audio_request.json.example and generate narration",
-  "author visual_beats.json from transcript cues and run npm run plan",
-  "author and register src/scenes/*.tsx",
+  "run transcription when needed",
   "fill video.config.json voice-id -> frame-slug mappings",
+  "author visual_beats.json",
+  "npm run plan",
+  "author and register cue-bound src/scenes/*.tsx",
   "npm run build",
   "npm run check",
   "npm run still or npm run studio",
+  "npm run render after review",
 ];
 
 function scaffold(slug: string, extraArgs: string[], outputsRoot: string) {
@@ -147,6 +154,7 @@ test("HF scaffold: runtime artifacts remain without local GSAP bytes", () => {
       "caption-overrides.json",
       "assets",
       join(".hyperframes", "caption-skin.html"),
+      join(".hyperframes", "frame-template.html"),
       join("compositions", "frames"),
     ]) {
       assert.ok(existsSync(join(dir, rel)), `scaffolder still writes ${rel}`);
@@ -232,6 +240,19 @@ test("HyperFrames frame template documents the canonical project-root-relative l
   assert.match(template, /assets\/gsap\/gsap\.min\.js/);
   assert.match(template, /unchanged|same project-root-relative path/i);
   assert.doesNotMatch(template, /\.\.\/\.\.\/.*gsap/i);
+});
+
+test("HyperFrames frame template teaches declarative and helper-owned cue bindings without copied beat times", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  assert.match(template, /data-md2vid-beat="focal"/);
+  assert.match(template, /data-md2vid-enter="rise"/);
+  assert.match(template, /data-md2vid-custom-bindings/);
+  assert.match(template, /window\.__md2vidTiming\.forFrame\("NN-slug"\)/);
+  assert.match(template, /timing\.from\(\s*tl,\s*"second-step"/);
+  assert.doesNotMatch(template, /"beat"\s*:\s*"second-step"[^}]*"start"\s*:/);
 });
 
 test("canonical HyperFrames frame template nests frame styles inside the composition root", () => {
@@ -332,6 +353,7 @@ test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts
         allowMixedThemes: false,
         allowLegacyThemeInference: false,
       },
+      render: { profile: "final", fps: 30, minimumFinalFps: 24 },
     },
     frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
@@ -395,6 +417,7 @@ test("generated framework package scripts expose verified workflows", () => {
   const expected = {
     hyperframes: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
+      plan: "md2vid plan .",
       transcribe: "md2vid transcribe .",
       verify: "md2vid verify .",
       check: "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
@@ -404,6 +427,7 @@ test("generated framework package scripts expose verified workflows", () => {
     },
     remotion: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
+      plan: "md2vid plan .",
       transcribe: "md2vid transcribe .",
       verify: "md2vid verify .",
       check: "md2vid verify . && tsc --noEmit -p tsconfig.json",
@@ -465,7 +489,8 @@ for (const framework of ["hyperframes", "remotion"] as const) {
       const dir = join(root, `complete-${framework}`);
       const neutral = JSON.parse(readFileSync(join(dir, "video.config.json"), "utf8"));
       const local = JSON.parse(readFileSync(join(dir, "output.config.json"), "utf8"));
-      assert.deepEqual(Object.keys(neutral), ["$comment", "timing", "canvas", "slugs"]);
+      assert.deepEqual(Object.keys(neutral), ["$comment", "timing", "canvas", "slugs", "visualSync"]);
+      assert.deepEqual(neutral.visualSync, { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 });
       assert.equal(neutral.framework, undefined);
       assert.equal(neutral.gsapSrc, undefined);
       assert.equal(local.framework, framework);
@@ -473,6 +498,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
         "meta.json",
         "package.json",
         "audio_request.json.example",
+        "visual_beats.json.example",
         "video.config.json",
         "output.config.json",
         "CLAUDE.md",
@@ -487,6 +513,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
             "caption-overrides.json",
             "assets",
             join(".hyperframes", "caption-skin.html"),
+            join(".hyperframes", "frame-template.html"),
             join("compositions", "frames"),
           ]
         : [
