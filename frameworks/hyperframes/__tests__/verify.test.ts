@@ -7,6 +7,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_GSAP_SRC } from "../scaffold.ts";
+import { getAdapter } from "../../index.ts";
 import { resolveVerificationFps, verify, verifyFrameShell, verifyHyperframesCaptionArtifact } from "../verify.ts";
 import type { AdapterVerifyContext, BuildPlan, VisualBindingManifest } from "../../../engine/types.ts";
 
@@ -186,6 +187,45 @@ test("verifies semantic binding manifests against the current plan", () => {
       bindings: [{ ...semanticManifest().bindings[0], beatId: "stale" }],
     }))));
     assert.ok(unknown.some((message) => message.includes("unknown beat \"stale\"")), JSON.stringify(unknown));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("registered HyperFrames adapter preserves semantic verification context", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(30) });
+  try {
+    const findings = getAdapter("hyperframes").verify(semanticContext(output, 30));
+    assert.ok(errs(findings).some((message) => message.includes("visual binding manifest is missing")), JSON.stringify(findings));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads emitted host duration for planned frames without visual bindings", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(30, 2.4) });
+  try {
+    const bindings = semanticManifest({
+      bindings: [],
+      frames: [{ frameSlug: "reserve-flow", authoredDuration: 1.9 }],
+    });
+    const messages = errs(verify(semanticContext(output, 30, bindings)));
+    assert.ok(messages.some((message) => message.includes("has no visual binding")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("authored duration")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("outer duration")), JSON.stringify(messages));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses main-root FPS even when captions advertise a conflicting FPS", () => {
+  const index = semanticIndex(24).replace(
+    'data-composition-id="captions"',
+    'data-composition-id="captions" data-fps="60"',
+  );
+  const { root, output } = makeVideo({ index });
+  try {
+    assert.equal(resolveVerificationFps({}, output), 24);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -121,6 +121,72 @@ function captureConsole(run: () => number): { code: number; stdout: string; stde
   }
 }
 
+test("verify applies current semantic visual timing through the registered HyperFrames adapter", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync = { mode: "required", maxLead: 0.05, maxLag: 0.75, minLanding: 0.5 };
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-intro": { beats: [{ id: "workflow", text: "workflow", cue: { wordIndex: 3 } }] },
+      },
+    }, null, 2)}\n`);
+    const framePath = join(project.outputDir, "compositions", "frames", "01-intro.html");
+    writeFileSync(
+      framePath,
+      readFileSync(framePath, "utf8").replace(
+        "</div>\n<script",
+        '<div id="workflow" data-md2vid-beat="workflow"></div></div>\n<script',
+      ),
+    );
+    assert.equal(buildRun([project.outputDir]), 0);
+
+    const aligned = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const frontLoaded = structuredClone(aligned);
+    frontLoaded.bindings[0].revealStart = 0;
+    writeFileSync(manifestPath, `${JSON.stringify(frontLoaded, null, 2)}\n`);
+    let result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /lead is/);
+
+    const unknown = structuredClone(aligned);
+    unknown.bindings[0].beatId = "stale";
+    writeFileSync(manifestPath, `${JSON.stringify(unknown, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /unknown beat "stale"/);
+
+    const durationMismatch = structuredClone(aligned);
+    durationMismatch.frames[0].authoredDuration = 0;
+    writeFileSync(manifestPath, `${JSON.stringify(durationMismatch, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /authored duration/);
+
+    rmSync(manifestPath);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /visual binding manifest is missing/);
+
+    config.visualSync.mode = "warn";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /WARN: visual binding manifest is missing/);
+
+    config.visualSync.mode = "off";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 test("build emits one actionable visual-sync warning for a legacy project", () => {
   const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
   const warnings: string[] = [];

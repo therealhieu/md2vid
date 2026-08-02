@@ -232,6 +232,26 @@ test("uses the active FPS frame quantization tolerance for authored and outer du
   }
 });
 
+test("checks independent frame durations even when no visual target is bound", () => {
+  for (const fps of [24, 30, 60]) {
+    const tolerance = Math.max(0.001, 0.5 / fps);
+    const noTargetManifest = {
+      version: 1,
+      framework: "hyperframes",
+      bindings: [],
+      frames: [{
+        frameSlug: "reserve-flow",
+        authoredDuration: 18 + tolerance + 0.00001,
+        outerDuration: 18.5 - tolerance - 0.00001,
+      }],
+    } as unknown as VisualBindingManifest;
+    const findings = verifyVisualSync({ plan: makePlan(), manifest: noTargetManifest, policy: POLICY, fps });
+    assert.ok(findings.some((finding) => finding.msg.includes('beat "reserve" has no visual binding')), JSON.stringify(findings));
+    assert.ok(findings.some((finding) => finding.msg.includes("authored duration") && finding.msg.includes(`at ${fps} FPS`)), JSON.stringify(findings));
+    assert.ok(findings.some((finding) => finding.msg.includes("outer duration") && finding.msg.includes(`at ${fps} FPS`)), JSON.stringify(findings));
+  }
+});
+
 test("downgrades semantic failures to warnings in warn mode", () => {
   const findings = verifyVisualSync({
     plan: makePlan(),

@@ -339,16 +339,17 @@ export function preflight(
     });
     return {
       template: sanitizeCompositionTemplate(prepared.html, frame.slug, gsapSrc, documentPath),
-      bindings: prepared.bindings.map((binding) => ({
-        ...binding,
-        outerDuration: frame.frameDur,
-      })),
+      bindings: prepared.bindings,
+      duration: prepared.authoredDuration === undefined
+        ? undefined
+        : { frameSlug: frame.slug, authoredDuration: prepared.authoredDuration },
     };
   });
   const manifest: VisualBindingManifest = {
     version: 1,
     framework: "hyperframes",
     bindings: preparedFrames.flatMap((frame) => frame.bindings),
+    frames: preparedFrames.flatMap((frame) => frame.duration ? [frame.duration] : []),
   };
   return {
     embeddedFrameTemplates: preparedFrames.map((frame) => frame.template),

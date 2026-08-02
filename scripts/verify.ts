@@ -79,6 +79,14 @@ function isVisualBinding(value: unknown): value is VisualBinding {
     && (binding.outerDuration === undefined || typeof binding.outerDuration === "number");
 }
 
+function isVisualFrameDuration(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const frame = value as Record<string, unknown>;
+  return typeof frame.frameSlug === "string"
+    && (frame.authoredDuration === undefined || typeof frame.authoredDuration === "number")
+    && (frame.outerDuration === undefined || typeof frame.outerDuration === "number");
+}
+
 export function readBindingManifest(path: string): VisualBindingManifest | undefined {
   if (!isFile(path)) return undefined;
   let value: unknown;
@@ -96,6 +104,9 @@ export function readBindingManifest(path: string): VisualBindingManifest | undef
   }
   if (!manifest.bindings.every(isVisualBinding)) {
     throw new Error(`invalid visual binding manifest at ${path}: bindings must use the normalized visual-binding shape`);
+  }
+  if (manifest.frames !== undefined && (!Array.isArray(manifest.frames) || !manifest.frames.every(isVisualFrameDuration))) {
+    throw new Error(`invalid visual binding manifest at ${path}: frames must use the normalized duration-evidence shape`);
   }
   return manifest as unknown as VisualBindingManifest;
 }

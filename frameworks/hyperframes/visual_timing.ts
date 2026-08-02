@@ -22,6 +22,7 @@ type CustomDeclaration = {
 type PreparedTiming = {
   html: string;
   bindings: VisualBinding[];
+  authoredDuration?: number;
 };
 
 const ENTRANCES: Record<HyperframesEntranceToken, {
@@ -31,31 +32,42 @@ const ENTRANCES: Record<HyperframesEntranceToken, {
   fade: {
     revealDuration: (duration) => duration,
     statement: (target, duration, start) =>
-      `timeline.from(${JSON.stringify(target)}, { opacity: 0, duration: ${duration}, ease: "power2.out" }, ${start});`,
+      `timeline.from(${serializeScriptData(target)}, { opacity: 0, duration: ${duration}, ease: "power2.out" }, ${start});`,
   },
   rise: {
     revealDuration: (duration) => duration,
     statement: (target, duration, start) =>
-      `timeline.from(${JSON.stringify(target)}, { opacity: 0, y: 28, duration: ${duration}, ease: "power3.out" }, ${start});`,
+      `timeline.from(${serializeScriptData(target)}, { opacity: 0, y: 28, duration: ${duration}, ease: "power3.out" }, ${start});`,
   },
   "slide-left": {
     revealDuration: (duration) => duration,
     statement: (target, duration, start) =>
-      `timeline.from(${JSON.stringify(target)}, { opacity: 0, x: 28, duration: ${duration}, ease: "power3.out" }, ${start});`,
+      `timeline.from(${serializeScriptData(target)}, { opacity: 0, x: 28, duration: ${duration}, ease: "power3.out" }, ${start});`,
   },
   scale: {
     revealDuration: (duration) => duration,
     statement: (target, duration, start) =>
-      `timeline.from(${JSON.stringify(target)}, { opacity: 0, scale: 0.96, duration: ${duration}, ease: "power2.out" }, ${start});`,
+      `timeline.from(${serializeScriptData(target)}, { opacity: 0, scale: 0.96, duration: ${duration}, ease: "power2.out" }, ${start});`,
   },
   none: {
     revealDuration: () => 0,
     statement: (target, _duration, start) =>
-      `timeline.set(${JSON.stringify(target)}, { opacity: 1 }, ${start});`,
+      `timeline.set(${serializeScriptData(target)}, { autoAlpha: 0 }, 0);\n  timeline.set(${serializeScriptData(target)}, { autoAlpha: 1 }, ${start});`,
   },
 };
 
 const CUSTOM_METHODS = new Set<CustomMethod>(["from", "fromTo", "set"]);
+const SAFE_ID_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+function serializeScriptData(value: unknown): string {
+  const json = JSON.stringify(value) ?? "undefined";
+  return json
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(new RegExp(String.fromCharCode(0x2028), "g"), "\\u2028")
+    .replace(new RegExp(String.fromCharCode(0x2029), "g"), "\\u2029");
+}
 
 function fail(mode: VisualSyncMode, documentPath: string, message: string): never | false {
   if (mode === "required") throw new Error(`${documentPath}: ${message}`);
@@ -77,12 +89,12 @@ function compositionRootTag(tags: readonly HtmlTag[], compositionId: string): Ht
   return matches[0];
 }
 
-function elementIds(tags: readonly HtmlTag[]): Map<string, HtmlTag> {
-  const ids = new Map<string, HtmlTag>();
+function elementIds(tags: readonly HtmlTag[]): Map<string, HtmlTag[]> {
+  const ids = new Map<string, HtmlTag[]>();
   for (const tag of tags) {
     if (tag.closing) continue;
     const id = htmlAttribute(tag, "id");
-    if (id !== undefined && id.length > 0) ids.set(id, tag);
+    if (id !== undefined && id.length > 0) ids.set(id, [...(ids.get(id) ?? []), tag]);
   }
   return ids;
 }
@@ -110,7 +122,7 @@ function parseCustomDeclarations(
   tags: readonly HtmlTag[],
   html: string,
   beats: ReadonlyMap<string, ResolvedVisualBeat>,
-  ids: ReadonlyMap<string, HtmlTag>,
+  ids: ReadonlyMap<string, readonly HtmlTag[]>,
   frame: PlanFrame,
   mode: VisualSyncMode,
   documentPath: string,
@@ -124,6 +136,9 @@ function parseCustomDeclarations(
   );
   if (blocks.length === 0) return [];
   if (blocks.length !== 1) return fail(mode, documentPath, "exactly one data-md2vid-custom-bindings block is allowed");
+  if (htmlAttribute(blocks[0].tag, "type") !== "application/json") {
+    return fail(mode, documentPath, "custom binding declaration must use type=\"application/json\"");
+  }
   const body = blocks[0].body;
   if (body === undefined) return fail(mode, documentPath, "custom binding declaration script is unclosed");
 
@@ -153,18 +168,21 @@ function parseCustomDeclarations(
     if (typeof beatId !== "string" || !beats.has(beatId)) {
       return fail(mode, documentPath, `custom binding references unknown beat "${String(beatId)}"`);
     }
-    if (typeof target !== "string" || !/^#[A-Za-z0-9][A-Za-z0-9_-]*$/.test(target)) {
-      return fail(mode, documentPath, `custom binding target must be an ID selector (got ${JSON.stringify(target)})`);
+    if (typeof target !== "string" || !target.startsWith("#") || !SAFE_ID_SELECTOR.test(target.slice(1))) {
+      return fail(mode, documentPath, `custom binding target must be an ID selector (got ${serializeScriptData(target)})`);
     }
     const id = target.slice(1);
-    if (!ids.has(id)) {
-      return fail(mode, documentPath, `custom binding target "${target}" does not match an element id`);
+    if ((ids.get(id)?.length ?? 0) !== 1) {
+      return fail(mode, documentPath, `custom binding target "${target}" does not match exactly one element id`);
     }
     if (typeof method !== "string" || !CUSTOM_METHODS.has(method as CustomMethod)) {
       return fail(mode, documentPath, `unsupported custom method "${String(method)}"`);
     }
     if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) {
       return fail(mode, documentPath, `custom binding duration must be a finite non-negative duration`);
+    }
+    if (method === "set" && duration !== 0) {
+      return fail(mode, documentPath, "custom set duration must be exactly zero");
     }
     const key = `${beatId}:${target}:${method}`;
     if (seen.has(key)) return fail(mode, documentPath, `duplicate custom declaration "${key}"`);
@@ -177,7 +195,7 @@ function parseCustomDeclarations(
 function readDeclarativeBindings(
   tags: readonly HtmlTag[],
   beats: ReadonlyMap<string, ResolvedVisualBeat>,
-  ids: ReadonlyMap<string, HtmlTag>,
+  ids: ReadonlyMap<string, readonly HtmlTag[]>,
   frame: PlanFrame,
   mode: VisualSyncMode,
   documentPath: string,
@@ -192,8 +210,11 @@ function readDeclarativeBindings(
     const beat = beats.get(beatId);
     if (!beat) return fail(mode, documentPath, `data-md2vid-beat references unknown beat "${beatId}"`);
     const id = htmlAttribute(tag, "id");
-    if (id === undefined || id.length === 0 || !ids.has(id)) {
-      return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a unique non-empty id`);
+    if (id === undefined || id.length === 0 || !SAFE_ID_SELECTOR.test(id)) {
+      return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a safe ID selector`);
+    }
+    if ((ids.get(id)?.length ?? 0) !== 1) {
+      return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a unique non-empty id that matches exactly one element id`);
     }
     const token = (htmlAttribute(tag, "data-md2vid-enter") ?? "fade") as HyperframesEntranceToken;
     if (!Object.hasOwn(ENTRANCES, token)) {
@@ -250,8 +271,9 @@ export function prepareFrameVisualTiming(input: {
       || hasHtmlAttribute(tag, "data-md2vid-custom-bindings")
     ),
   );
-  if (!hasTimingDeclaration) return { html: input.authoredHtml, bindings: [] };
-  if (!frame.visualBeats?.length) {
+  const hasPlannedVisualBeats = Boolean(frame.visualBeats?.length);
+  if (!hasTimingDeclaration && !hasPlannedVisualBeats) return { html: input.authoredHtml, bindings: [] };
+  if (!hasPlannedVisualBeats) {
     if (input.mode === "warn") return { html: input.authoredHtml, bindings: [] };
     fail(input.mode, input.documentPath, "data-md2vid-beat exists but the frame has no planned visual beats");
   }
@@ -266,6 +288,9 @@ export function prepareFrameVisualTiming(input: {
   const root = compositionRootTag(tags, frame.slug);
   const authoredDuration = readDuration(root, input.mode, input.documentPath);
   if (authoredDuration === false) return { html: input.authoredHtml, bindings: [] };
+  if (!hasTimingDeclaration) {
+    return { html: input.authoredHtml, bindings: [], authoredDuration };
+  }
   const ids = elementIds(tags);
   const beats = new Map((frame.visualBeats ?? []).map((beat) => [beat.id, beat]));
   const declarative = readDeclarativeBindings(tags, beats, ids, frame, input.mode, input.documentPath);
@@ -300,7 +325,7 @@ export function prepareFrameVisualTiming(input: {
   );
   const suffix = wrapGeneratedScript(
     "visual-timing-finalizer",
-    buildTimelineFinalizer(frame.slug, declarative.statements),
+    buildTimelineFinalizer(frame.slug, declarative.statements, customDeclarations.length > 0),
   );
   const timedBody = insertCompositionRootScripts(body, frame.slug, prefix, suffix);
   if (hasTemplate) {
@@ -310,7 +335,7 @@ export function prepareFrameVisualTiming(input: {
   } else {
     html = timedBody;
   }
-  return { html, bindings };
+  return { html, bindings, authoredDuration };
 }
 
 function wrapGeneratedScript(name: string, source: string): string {
@@ -339,8 +364,8 @@ export function buildHyperframesTimingRuntime(
       };
     });
   return `(function () {
-  var FRAME_BEATS = ${JSON.stringify({ [frame.slug]: beats })};
-  var FRAME_BINDINGS = ${JSON.stringify({ [frame.slug]: declarations })};
+  var FRAME_BEATS = ${serializeScriptData({ [frame.slug]: beats })};
+  var FRAME_BINDINGS = ${serializeScriptData({ [frame.slug]: declarations })};
   window.__md2vidTiming = window.__md2vidTiming || {};
   function requireBeat(slug, beatId) {
     var frameBeats = FRAME_BEATS[slug];
@@ -358,28 +383,51 @@ export function buildHyperframesTimingRuntime(
     }
     return declaration;
   }
+  function requireExplicitFiniteDuration(vars) {
+    if (!vars || typeof vars.duration !== "number" || !Number.isFinite(vars.duration)) {
+      throw new Error("custom binding requires an explicit finite duration");
+    }
+    return vars.duration;
+  }
+  function requireZeroSetDuration(vars) {
+    if (vars && Object.prototype.hasOwnProperty.call(vars, "duration") && vars.duration !== 0) {
+      throw new Error("custom set duration must be exactly zero");
+    }
+  }
+  window.__md2vidTiming.assertFrameConsumed = function (slug) {
+    var unused = (FRAME_BINDINGS[slug] || []).find(function (declaration) {
+      return declaration.used !== true;
+    });
+    if (unused) {
+      throw new Error("custom binding declaration was not consumed: " + unused.beat + " / " + unused.target + " / " + unused.method);
+    }
+  };
   window.__md2vidTiming.forFrame = function (slug) {
     return {
       from: function (timeline, beatId, target, vars) {
         var beat = requireBeat(slug, beatId);
         var declaration = requireBinding(slug, beatId, target, "from");
-        var duration = Number(vars.duration || 0);
+        var duration = requireExplicitFiniteDuration(vars);
         if (duration !== declaration.duration) throw new Error("custom binding duration mismatch");
         timeline.from(target, vars, beat.start);
+        declaration.used = true;
         return timeline;
       },
       fromTo: function (timeline, beatId, target, fromVars, toVars) {
         var beat = requireBeat(slug, beatId);
         var declaration = requireBinding(slug, beatId, target, "fromTo");
-        var duration = Number(toVars.duration || 0);
+        var duration = requireExplicitFiniteDuration(toVars);
         if (duration !== declaration.duration) throw new Error("custom binding duration mismatch");
         timeline.fromTo(target, fromVars, toVars, beat.start);
+        declaration.used = true;
         return timeline;
       },
       set: function (timeline, beatId, target, vars) {
         var beat = requireBeat(slug, beatId);
-        requireBinding(slug, beatId, target, "set");
+        var declaration = requireBinding(slug, beatId, target, "set");
+        requireZeroSetDuration(vars);
         timeline.set(target, vars, beat.start);
+        declaration.used = true;
         return timeline;
       }
     };
@@ -387,11 +435,16 @@ export function buildHyperframesTimingRuntime(
 })();`;
 }
 
-function buildTimelineFinalizer(frameSlug: string, declarativeStatements: readonly string[]): string {
-  if (declarativeStatements.length === 0) return "";
+function buildTimelineFinalizer(
+  frameSlug: string,
+  declarativeStatements: readonly string[],
+  hasCustomDeclarations: boolean,
+): string {
+  if (declarativeStatements.length === 0 && !hasCustomDeclarations) return "";
   return `(function () {
-  const timeline = window.__timelines[${JSON.stringify(frameSlug)}];
-  if (!timeline) throw new Error("authored timeline is not registered for frame ${frameSlug}");
+  const timeline = window.__timelines[${serializeScriptData(frameSlug)}];
+  if (!timeline) throw new Error("authored timeline is not registered for frame " + ${serializeScriptData(frameSlug)});
 ${declarativeStatements.map((statement) => `  ${statement}`).join("\n")}
+${hasCustomDeclarations ? `  window.__md2vidTiming.assertFrameConsumed(${serializeScriptData(frameSlug)});` : ""}
 })();`;
 }

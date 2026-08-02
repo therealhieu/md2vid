@@ -112,10 +112,17 @@ export interface VisualBinding {
   outerDuration?: number;
 }
 
+export interface VisualFrameDuration {
+  frameSlug: string;
+  authoredDuration?: number;
+  outerDuration?: number;
+}
+
 export interface VisualBindingManifest {
   version: 1;
   framework: string;
   bindings: VisualBinding[];
+  frames?: VisualFrameDuration[];
 }
 
 // ── Config (merged neutral video.config.json + local output.config.json) ─────

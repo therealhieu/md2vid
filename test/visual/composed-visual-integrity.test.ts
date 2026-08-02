@@ -5,11 +5,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer from "puppeteer-core";
 import { verifyVisualSync } from "../../engine/visual_sync.ts";
 import type { BuildPlan, VisualBindingManifest } from "../../engine/types.ts";
-import { prepareFrameVisualTiming } from "../../frameworks/hyperframes/visual_timing.ts";
+import { emit } from "../../frameworks/hyperframes/emit.ts";
+import { buildHyperframesTimingRuntime, prepareFrameVisualTiming } from "../../frameworks/hyperframes/visual_timing.ts";
+import { makePcmWav } from "../helpers/wav.ts";
 import { runComposedVisualIntegrity, validatePlan } from "./composed-visual-integrity.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -498,33 +500,64 @@ test("visual seek quantization outside the intended frame window fails every rep
   }
 });
 
-test("cue-bound states are deterministic across direct, reverse, and sequential seeks", async () => {
+test("script-context serialization cannot inject executable timing payloads", async () => {
   const fixture = join(FIXTURES, "visual-timing-sync");
   const plan = JSON.parse(readFileSync(join(fixture, "build", "build_plan.json"), "utf8")) as BuildPlan;
-  const prepared = prepareFrameVisualTiming({
-    frame: plan.frames[0],
-    authoredHtml: readFileSync(join(fixture, "authored.html"), "utf8"),
-    documentPath: "visual-timing-sync/authored.html",
-    mode: "required",
-  });
-  const aligned: VisualBindingManifest = {
-    version: 1,
-    framework: "hyperframes",
-    bindings: prepared.bindings.map((binding) => ({ ...binding, outerDuration: plan.frames[0].frameDur })),
+  const payload = '</script><script>window.__injected = true</script>&"\\\\雪';
+  const frame = {
+    ...plan.frames[0],
+    slug: payload,
+    visualBeats: [{ ...plan.frames[0].visualBeats![0], id: payload }],
   };
+  const source = buildHyperframesTimingRuntime(frame, [{
+    frameSlug: payload,
+    beatId: payload,
+    target: "#safe-target",
+    revealStart: 2.95,
+    revealDuration: 0.25,
+    source: "custom",
+  }], [{ beat: payload, target: "#safe-target", method: "from", duration: 0.25 }]);
+  const browser = await puppeteer.launch({ executablePath: browserPath(), headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<script data-md2vid-generated="visual-timing">${source}</script>`);
+    const parsed = await page.evaluate(() => ({
+      scripts: (globalThis as any).document.scripts.length,
+      injected: (globalThis as any).__injected === true,
+      hasTimingHelper: typeof (globalThis as any).__md2vidTiming?.forFrame === "function",
+    }));
+    assert.deepEqual(parsed, { scripts: 1, injected: false, hasTimingHelper: true });
+  } finally {
+    await browser.close();
+  }
+});
+
+test("emitted HyperFrames runtime keeps cue-bound states deterministic across seeks", async () => {
+  const fixture = join(FIXTURES, "visual-timing-sync");
+  const plan = JSON.parse(readFileSync(join(fixture, "build", "build_plan.json"), "utf8")) as BuildPlan;
   const policy = { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 } as const;
-  assert.deepEqual(verifyVisualSync({ plan, manifest: aligned, policy, fps: 30 }), []);
+  const root = mkdtempSync(join(tmpdir(), "md2vid-real-hyperframes-"));
+  const shared = join(root, "shared");
+  const output = join(root, "hyperframes");
+  const gsapSource = join(REPO_ROOT, "node_modules", "gsap", "dist", "gsap.min.js");
+  const runtimeSource = join(REPO_ROOT, "node_modules", "hyperframes", "dist", "hyperframe-runtime.js");
+  mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+  mkdirSync(join(output, "assets"), { recursive: true });
+  mkdirSync(join(output, "compositions", "frames"), { recursive: true });
+  writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: [] }));
+  writeFileSync(join(shared, "assets", "voice", "reserve-flow.wav"), makePcmWav({ sampleRate: 48_000, sampleFrames: 48_000 }));
+  writeFileSync(join(output, "assets", "gsap.min.js"), readFileSync(gsapSource));
+  writeFileSync(join(output, "compositions", "frames", "reserve-flow.html"), readFileSync(join(fixture, "authored.html"), "utf8"));
 
   const frontLoaded = JSON.parse(
     readFileSync(join(fixture, "front-loaded-manifest.json"), "utf8"),
   ) as VisualBindingManifest;
   const frontLoadedFindings = verifyVisualSync({ plan, manifest: frontLoaded, policy, fps: 30 });
-  assert.ok(frontLoadedFindings.some((finding) =>
-    finding.msg.includes('beat "execute"') && finding.msg.includes("lead is 7.360s")
-  ), JSON.stringify(frontLoadedFindings));
-  assert.ok(frontLoadedFindings.some((finding) =>
-    finding.msg.includes('beat "settle"') && finding.msg.includes("lead is 8.450s")
-  ), JSON.stringify(frontLoadedFindings));
+  for (const [beatId, lead] of [["reserve", "1.450"], ["execute", "7.360"], ["settle", "8.450"]] as const) {
+    assert.ok(frontLoadedFindings.some((finding) =>
+      finding.msg.includes(`beat "${beatId}"`) && finding.msg.includes(`lead is ${lead}s`)
+    ), JSON.stringify(frontLoadedFindings));
+  }
 
   const browser = await puppeteer.launch({
     executablePath: browserPath(),
@@ -532,30 +565,40 @@ test("cue-bound states are deterministic across direct, reverse, and sequential 
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   try {
-    const page = await browser.newPage();
     for (const fps of [24, 30, 60]) {
+      emit(plan, shared, output, { gsapSrc: "assets/gsap.min.js", render: { fps } });
+      const aligned = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8")) as VisualBindingManifest;
+      assert.deepEqual(verifyVisualSync({ plan, manifest: aligned, policy, fps }), []);
+
+      const page = await browser.newPage();
       await page.setViewport({ width: 960, height: 540 });
-      await page.setContent(`<!doctype html><div data-composition-id="main" data-fps="${fps}">${prepared.html}</div>`);
+      await page.goto(pathToFileURL(join(output, "index.html")).href);
+      await page.addScriptTag({ path: runtimeSource });
+      await page.waitForFunction(() => (globalThis as any).__playerReady === true);
       const runtime = await page.evaluate(() => {
         const pageRuntime = globalThis as any;
         return {
           timelineKeys: Object.keys(pageRuntime.__timelines),
-          paused: pageRuntime.__timelines["reserve-flow"].paused(),
+          paused: pageRuntime.__timelines["reserve-flow"]?.paused(),
           fps: Number(pageRuntime.document.querySelector('[data-composition-id="main"]')?.getAttribute("data-fps")),
         };
       });
-      assert.deepEqual(runtime.timelineKeys, ["reserve-flow"]);
+      assert.ok(runtime.timelineKeys.includes("reserve-flow"), JSON.stringify(runtime));
       assert.equal(runtime.paused, true);
       assert.equal(runtime.fps, fps);
 
-      for (const cue of [2.95, 11.06, 14.35]) {
+      for (const [cueIndex, cue] of [2.95, 11.06, 14.35].entries()) {
         const before = Math.max(0, (Math.ceil(cue * fps) - 1) / fps);
-        const after = Math.ceil(cue * fps) / fps;
+        const after = (Math.ceil(cue * fps) + 1) / fps;
+        let beforeCue: Array<{ opacity: string; visibility: string }> | undefined;
         for (const time of [before, after]) {
           const direct = await page.evaluate((seekTime) => {
             const pageRuntime = globalThis as any;
             pageRuntime.__player.seek(seekTime);
-            return pageRuntime.__captureVisualState();
+            return ["reserve", "execute", "settle"].map((id) => {
+              const style = (globalThis as any).getComputedStyle((globalThis as any).document.getElementById(id));
+              return { opacity: style.opacity, visibility: style.visibility };
+            });
           }, time);
           const sequential = await page.evaluate(({ seekTime, activeFps }) => {
             const pageRuntime = globalThis as any;
@@ -563,7 +606,10 @@ test("cue-bound states are deterministic across direct, reverse, and sequential 
             for (let frame = 1; frame <= Math.round(seekTime * activeFps); frame += 1) {
               pageRuntime.__player.seek(frame / activeFps);
             }
-            return pageRuntime.__captureVisualState();
+            return ["reserve", "execute", "settle"].map((id) => {
+              const style = (globalThis as any).getComputedStyle((globalThis as any).document.getElementById(id));
+              return { opacity: style.opacity, visibility: style.visibility };
+            });
           }, { seekTime: time, activeFps: fps });
           const reverseForward = await page.evaluate(({ seekTime, activeFps }) => {
             const pageRuntime = globalThis as any;
@@ -571,15 +617,34 @@ test("cue-bound states are deterministic across direct, reverse, and sequential 
             for (let frame = Math.ceil(18 * activeFps); frame >= Math.round(seekTime * activeFps); frame -= 1) {
               pageRuntime.__player.seek(frame / activeFps);
             }
-            return pageRuntime.__captureVisualState();
+            return ["reserve", "execute", "settle"].map((id) => {
+              const style = (globalThis as any).getComputedStyle((globalThis as any).document.getElementById(id));
+              return { opacity: style.opacity, visibility: style.visibility };
+            });
           }, { seekTime: time, activeFps: fps });
           assert.deepEqual(direct, sequential, `direct state differs at ${time}s / ${fps} FPS`);
           assert.deepEqual(reverseForward, sequential, `reverse state differs at ${time}s / ${fps} FPS`);
+          if (time === before) {
+            beforeCue = direct;
+          } else {
+            assert.ok(beforeCue);
+            if (cueIndex === 0) {
+              assert.equal(beforeCue[0].visibility, "hidden", `none must be hidden before ${cue}s / ${fps} FPS`);
+              assert.equal(direct[0].visibility, "visible", `none must be visible at ${cue}s / ${fps} FPS`);
+            } else {
+              assert.ok(
+                Number(direct[cueIndex].opacity) > Number(beforeCue[cueIndex].opacity),
+                `custom target must begin revealing at ${cue}s / ${fps} FPS`,
+              );
+            }
+          }
         }
       }
+      await page.close();
     }
   } finally {
     await browser.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

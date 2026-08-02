@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { validateVideoConfig } from "../../engine/config.ts";
 import type {
   AdapterVerifyContext,
+  BuildPlan,
   CaptionArtifactContext,
   Finding,
   VerifyOptions,
@@ -90,6 +91,7 @@ export function verify(
       plan: context.plan,
       manifest: withObservedOuterDurations(
         videoDir,
+        context.plan,
         context.bindings,
         findings,
         context.policy.mode === "required" ? "error" : "warn",
@@ -120,6 +122,7 @@ export function resolveVerificationFps(_config: VideoConfig, videoDir: string): 
 
 function withObservedOuterDurations(
   videoDir: string,
+  plan: BuildPlan,
   manifest: VisualBindingManifest | undefined,
   findings: Finding[],
   level: Finding["level"],
@@ -128,30 +131,45 @@ function withObservedOuterDurations(
   const indexPath = join(videoDir, "index.html");
   if (!isFile(indexPath)) return manifest;
   const tags = scanHtmlTags(readFileSync(indexPath, "utf8"));
+  const durations = new Map((manifest.frames ?? []).map((frame) => [frame.frameSlug, { ...frame }]));
+  const observed = new Map<string, number>();
+
+  for (const frame of plan.frames) {
+    if (!frame.visualBeats?.length) continue;
+    const hosts = tags.filter((tag) =>
+      !tag.closing && htmlAttribute(tag, "id") === `el-${frame.slug}`
+    );
+    if (hosts.length !== 1) {
+      findings.push({
+        level,
+        msg: `frame "${frame.slug}" must have exactly one emitted host duration; found ${hosts.length}`,
+      });
+      continue;
+    }
+    const rawDuration = htmlAttribute(hosts[0], "data-duration");
+    const outerDuration = rawDuration === undefined ? Number.NaN : Number(rawDuration);
+    if (!Number.isFinite(outerDuration) || outerDuration < 0) {
+      findings.push({
+        level,
+        msg: `frame "${frame.slug}" emitted host has invalid data-duration ${JSON.stringify(rawDuration)}`,
+      });
+      continue;
+    }
+    observed.set(frame.slug, outerDuration);
+    durations.set(frame.slug, {
+      ...(durations.get(frame.slug) ?? { frameSlug: frame.slug }),
+      outerDuration,
+    });
+  }
+
   return {
     ...manifest,
-    bindings: manifest.bindings.map((binding) => {
-      const hosts = tags.filter((tag) =>
-        !tag.closing && htmlAttribute(tag, "id") === `el-${binding.frameSlug}`
-      );
-      if (hosts.length !== 1) {
-        findings.push({
-          level,
-          msg: `frame "${binding.frameSlug}" must have exactly one emitted host duration; found ${hosts.length}`,
-        });
-        return binding;
-      }
-      const rawDuration = htmlAttribute(hosts[0], "data-duration");
-      const outerDuration = rawDuration === undefined ? Number.NaN : Number(rawDuration);
-      if (!Number.isFinite(outerDuration) || outerDuration < 0) {
-        findings.push({
-          level,
-          msg: `frame "${binding.frameSlug}" emitted host has invalid data-duration ${JSON.stringify(rawDuration)}`,
-        });
-        return binding;
-      }
-      return { ...binding, outerDuration };
-    }),
+    frames: [...durations.values()],
+    bindings: manifest.bindings.map((binding) => (
+      observed.has(binding.frameSlug)
+        ? { ...binding, outerDuration: observed.get(binding.frameSlug)! }
+        : binding
+    )),
   };
 }
 

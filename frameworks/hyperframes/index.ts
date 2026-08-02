@@ -23,9 +23,7 @@ const adapter: FrameworkAdapter = {
   resolveVerificationFps,
   verify(context, sharedDir, options) {
     if (typeof context === "string") return verify(context, sharedDir, options);
-    return verify(context.videoDir, context.sharedDir, {
-      voiceSnapshots: context.voiceSnapshots,
-    });
+    return verify(context);
   },
 };
 export default adapter;

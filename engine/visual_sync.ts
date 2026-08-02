@@ -6,6 +6,7 @@ import type {
   ResolvedVisualSyncPolicy,
   VisualBinding,
   VisualBindingManifest,
+  VisualFrameDuration,
 } from "./types.ts";
 
 export function verifyVisualSync(input: {
@@ -31,6 +32,18 @@ export function verifyVisualSync(input: {
   const durationTolerance = Math.max(0.001, 0.5 / input.fps);
   const frames = new Map(input.plan.frames.map((frame) => [frame.slug, frame]));
   const byKey = new Map<string, VisualBinding[]>();
+  const durationEvidence = new Map<string, VisualFrameDuration>();
+  for (const evidence of input.manifest.frames ?? []) {
+    if (!frames.has(evidence.frameSlug)) {
+      push(`frame duration evidence references unknown frame "${evidence.frameSlug}"`);
+      continue;
+    }
+    if (durationEvidence.has(evidence.frameSlug)) {
+      push(`duplicate frame duration evidence for frame "${evidence.frameSlug}"`);
+      continue;
+    }
+    durationEvidence.set(evidence.frameSlug, evidence);
+  }
 
   for (const binding of input.manifest.bindings) {
     const frame = frames.get(binding.frameSlug);
@@ -66,14 +79,20 @@ export function verifyVisualSync(input: {
     if (landing < input.policy.minLanding) {
       push(formatLandingFinding(frame, beat, binding, landing, input.policy.minLanding));
     }
-    appendDurationFindings(
-      findings,
-      level,
-      frame,
-      binding,
-      durationTolerance,
-      input.fps,
-    );
+    const existingEvidence = durationEvidence.get(frame.slug) ?? { frameSlug: frame.slug };
+    if (existingEvidence.authoredDuration === undefined && binding.authoredDuration !== undefined) {
+      existingEvidence.authoredDuration = binding.authoredDuration;
+    }
+    if (existingEvidence.outerDuration === undefined && binding.outerDuration !== undefined) {
+      existingEvidence.outerDuration = binding.outerDuration;
+    }
+    durationEvidence.set(frame.slug, existingEvidence);
+  }
+
+  for (const frame of input.plan.frames) {
+    if (!frame.visualBeats?.length) continue;
+    const evidence = durationEvidence.get(frame.slug);
+    if (evidence) appendDurationFindings(findings, level, frame, evidence, durationTolerance, input.fps);
   }
 
   for (const { frame, beat, key } of planned) {
@@ -132,27 +151,27 @@ function appendDurationFindings(
   findings: Finding[],
   level: Finding["level"],
   frame: PlanFrame,
-  binding: VisualBinding,
+  evidence: VisualFrameDuration,
   durationTolerance: number,
   fps: number,
 ): void {
   if (
-    binding.authoredDuration !== undefined
-    && Math.abs(binding.authoredDuration - frame.voiceDur) > durationTolerance
+    evidence.authoredDuration !== undefined
+    && Math.abs(evidence.authoredDuration - frame.voiceDur) > durationTolerance
   ) {
     findings.push({
       level,
-      msg: `frame "${frame.slug}" authored duration ${seconds(binding.authoredDuration)}s does not match `
+      msg: `frame "${frame.slug}" authored duration ${seconds(evidence.authoredDuration)}s does not match `
         + `voiceDur ${seconds(frame.voiceDur)}s within ${seconds(durationTolerance)}s at ${fps} FPS`,
     });
   }
   if (
-    binding.outerDuration !== undefined
-    && Math.abs(binding.outerDuration - frame.frameDur) > durationTolerance
+    evidence.outerDuration !== undefined
+    && Math.abs(evidence.outerDuration - frame.frameDur) > durationTolerance
   ) {
     findings.push({
       level,
-      msg: `frame "${frame.slug}" outer duration ${seconds(binding.outerDuration)}s does not match `
+      msg: `frame "${frame.slug}" outer duration ${seconds(evidence.outerDuration)}s does not match `
         + `frameDur ${seconds(frame.frameDur)}s within ${seconds(durationTolerance)}s at ${fps} FPS`,
     });
   }

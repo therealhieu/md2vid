@@ -24,6 +24,7 @@ import {
   sanitizeCompositionTemplate,
 } from "../emit.ts";
 import { extractTemplateById, replaceTemplateById } from "../html.ts";
+import { resolveVerificationFps } from "../verify.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
 import { contrastRatio, parseCssColor } from "../visual_contract.ts";
 import { DEFAULT_GSAP_SRC } from "../../../scripts/dependency_versions.ts";
@@ -131,6 +132,25 @@ test("full emit replaces the generated visual binding manifest", () => {
   }
 });
 
+test("full emit records frame duration evidence without a visual target", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    writeFileSync(
+      join(output, "compositions", "frames", "01-a.html"),
+      authoredFrame("01-a").replace('data-duration="2"', 'data-duration="1.9"'),
+    );
+
+    emit(plan, shared, output, {});
+    const manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.deepEqual(manifest.bindings, []);
+    assert.deepEqual(manifest.frames, [{ frameSlug: "01-a", authoredDuration: 1.9 }]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("captions-only emit retains an existing visual binding manifest", () => {
   const { tmp, shared, output } = setup();
   try {
@@ -151,6 +171,18 @@ test("captions-only emit retains an existing visual binding manifest", () => {
 test("full emit writes the effective FPS on the main composition root", () => {
   const index = buildIndexHtml(makePlan(), { render: { fps: 24 } });
   assert.match(index, /data-composition-id="main"[\s\S]*?data-fps="24"/);
+});
+
+test("full emit and verification resolve the same main-root FPS", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, { render: { fps: 60 } });
+    assert.equal(resolveVerificationFps({ render: { fps: 24 } }, output), 60);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("canonical emit stages real voice files under the HyperFrames root", () => {
