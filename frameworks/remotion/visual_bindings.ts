@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { BuildPlan, VisualBindingManifest } from "../../engine/types.ts";
+import { REMOTION_COMPOSITION_FPS } from "./verify.ts";
+import { quantizeVisualTiming } from "./timing.ts";
 
 export type RemotionEntrance = "fade" | "rise" | "slide-left" | "scale" | "none";
 
@@ -14,6 +16,7 @@ export interface RemotionBindingSpec {
 }
 
 const ENTRANCES = new Set<RemotionEntrance>(["fade", "rise", "slide-left", "scale", "none"]);
+const hasOwn = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
 
 type Binding = RemotionBindingSpec["frames"][string][number];
 
@@ -24,26 +27,42 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function assertOnlyKeys(record: Record<string, unknown>, keys: readonly string[], label: string): void {
+  for (const key of Object.keys(record)) {
+    if (!keys.includes(key)) throw new Error(`${label} has unknown field "${key}"`);
+  }
+}
+
+function readOwn(record: Record<string, unknown>, key: string, label: string): unknown {
+  if (!hasOwn(record, key)) throw new Error(`${label} is missing required field "${key}"`);
+  return record[key];
+}
+
+function nonBlankString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
 function readBinding(value: unknown, label: string): Binding {
   const binding = asRecord(value, label);
-  if (typeof binding.beat !== "string" || binding.beat.length === 0) {
-    throw new Error(`${label}.beat must be a non-empty string`);
-  }
-  if (typeof binding.target !== "string" || binding.target.length === 0) {
-    throw new Error(`${label}.target must be a non-empty string`);
-  }
-  if (typeof binding.enter !== "string" || !ENTRANCES.has(binding.enter as RemotionEntrance)) {
+  assertOnlyKeys(binding, ["beat", "target", "enter", "duration"], label);
+  const beat = nonBlankString(readOwn(binding, "beat", label), `${label}.beat`);
+  const target = nonBlankString(readOwn(binding, "target", label), `${label}.target`);
+  const enter = readOwn(binding, "enter", label);
+  const duration = readOwn(binding, "duration", label);
+  if (typeof enter !== "string" || !ENTRANCES.has(enter as RemotionEntrance)) {
     throw new Error(`${label}.enter must be a supported entrance token`);
   }
-  if (typeof binding.duration !== "number" || !Number.isFinite(binding.duration) || binding.duration < 0) {
+  if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0) {
     throw new Error(`${label}.duration must be a finite non-negative number`);
   }
-  return {
-    beat: binding.beat,
-    target: binding.target,
-    enter: binding.enter as RemotionEntrance,
-    duration: binding.duration,
-  };
+  return { beat, target, enter: enter as RemotionEntrance, duration };
+}
+
+export function emptyRemotionBindingManifest(): VisualBindingManifest {
+  return { version: 1, framework: "remotion", bindings: [], frames: [] };
 }
 
 export function readRemotionBindingSpec(path: string): RemotionBindingSpec {
@@ -55,13 +74,20 @@ export function readRemotionBindingSpec(path: string): RemotionBindingSpec {
   }
 
   const spec = asRecord(value, `${path}: visual bindings`);
-  if (spec.version !== 1) throw new Error(`${path}: visual bindings version must be 1`);
-  const rawFrames = asRecord(spec.frames, `${path}: visual bindings frames`);
-  const frames: RemotionBindingSpec["frames"] = {};
+  assertOnlyKeys(spec, ["version", "frames"], `${path}: visual bindings`);
+  if (readOwn(spec, "version", `${path}: visual bindings`) !== 1) {
+    throw new Error(`${path}: visual bindings version must be 1`);
+  }
+  const rawFrames = asRecord(readOwn(spec, "frames", `${path}: visual bindings`), `${path}: visual bindings frames`);
+  const frames: RemotionBindingSpec["frames"] = Object.create(null) as RemotionBindingSpec["frames"];
 
   for (const [frameSlug, rawBindings] of Object.entries(rawFrames)) {
-    if (frameSlug.length === 0) throw new Error(`${path}: visual bindings frame slug must be non-empty`);
-    if (!Array.isArray(rawBindings)) throw new Error(`${path}: visual bindings for frame "${frameSlug}" must be an array`);
+    if (frameSlug.trim().length === 0) {
+      throw new Error(`${path}: visual bindings frame slug must be a non-empty string`);
+    }
+    if (!Array.isArray(rawBindings)) {
+      throw new Error(`${path}: visual bindings for frame "${frameSlug}" must be an array`);
+    }
 
     const targets = new Set<string>();
     frames[frameSlug] = rawBindings.map((binding, index) => {
@@ -80,9 +106,10 @@ export function readRemotionBindingSpec(path: string): RemotionBindingSpec {
 export function resolveRemotionBindings(
   spec: RemotionBindingSpec,
   plan: BuildPlan,
+  fps = REMOTION_COMPOSITION_FPS,
 ): { runtimeBindings: RemotionBindingSpec["frames"]; manifest: VisualBindingManifest } {
   const frames = new Map(plan.frames.map((frame) => [frame.slug, frame]));
-  const runtimeBindings: RemotionBindingSpec["frames"] = {};
+  const runtimeBindings: RemotionBindingSpec["frames"] = Object.create(null) as RemotionBindingSpec["frames"];
   const bindings: VisualBindingManifest["bindings"] = [];
 
   for (const [frameSlug, authoredBindings] of Object.entries(spec.frames)) {
@@ -100,12 +127,13 @@ export function resolveRemotionBindings(
       if (!beat) {
         throw new Error(`visual bindings frame "${frameSlug}" references unknown beat "${authored.beat}"`);
       }
+      const timing = quantizeVisualTiming(beat.start, authored.duration, fps);
       bindings.push({
         frameSlug,
         beatId: authored.beat,
         target: authored.target,
-        revealStart: beat.start,
-        revealDuration: authored.duration,
+        revealStart: timing.revealStart,
+        revealDuration: timing.revealDuration,
         source: "custom",
         authoredDuration: frame.voiceDur,
         outerDuration: frame.frameDur,

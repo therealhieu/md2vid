@@ -137,12 +137,17 @@ test("README copy commands overlay a repo-root scaffold without touching unrelat
 
     execFileSync("sh", ["-c", COPY_VIDEO], { cwd: project });
     execFileSync("sh", ["-c", COPY_SCENES], { cwd: project });
+    execFileSync("sh", ["-c", COPY_BINDINGS], { cwd: project });
 
     assert.equal(readFileSync(sentinel, "utf8"), "// unrelated authored file\n");
     assert.equal(readFileSync(config, "utf8"), "{\"custom\":true}\n");
     assert.equal(
       readFileSync(join(project, "src", "Video.tsx"), "utf8"),
       readFileSync(join(EXAMPLE, "src", "Video.tsx"), "utf8"),
+    );
+    assert.equal(
+      readFileSync(join(project, "visual_bindings.json"), "utf8"),
+      readFileSync(join(EXAMPLE, "visual_bindings.json"), "utf8"),
     );
     for (const scene of EXPECTED_SCENES) {
       assert.equal(existsSync(join(project, "src", "scenes", `${scene}.tsx`)), true);

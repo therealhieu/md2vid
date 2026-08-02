@@ -19,6 +19,7 @@ import {
 } from "../visual_bindings.ts";
 import type { BuildPlan, VideoConfig } from "../../../engine/types.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
+import { verifyVisualSync } from "../../../engine/visual_sync.ts";
 
 const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 48_000 });
 const VOICE02 = Buffer.from(VOICE01);
@@ -310,14 +311,15 @@ test("Remotion reads static JSON bindings without importing authored TSX", () =>
 
     const resolved = resolveRemotionBindings(readRemotionBindingSpec(path), visualFixture().plan);
 
-    assert.deepEqual(resolved.runtimeBindings, registry().frames);
+    assert.equal(Object.getPrototypeOf(resolved.runtimeBindings), null);
+    assert.deepEqual(Object.entries(resolved.runtimeBindings), Object.entries(registry().frames));
     assert.deepEqual(resolved.manifest, {
       version: 1,
       framework: "remotion",
       bindings: [
-        { frameSlug: "reserve-flow", beatId: "reserve", target: "WorkflowStep:reserve", revealStart: 2.95, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
-        { frameSlug: "reserve-flow", beatId: "execute", target: "WorkflowStep:execute", revealStart: 11.06, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
-        { frameSlug: "reserve-flow", beatId: "settle", target: "WorkflowStep:settle", revealStart: 14.35, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+        { frameSlug: "reserve-flow", beatId: "reserve", target: "WorkflowStep:reserve", revealStart: 89 / 30, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+        { frameSlug: "reserve-flow", beatId: "execute", target: "WorkflowStep:execute", revealStart: 332 / 30, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+        { frameSlug: "reserve-flow", beatId: "settle", target: "WorkflowStep:settle", revealStart: 431 / 30, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
       ],
       frames: [{ frameSlug: "reserve-flow", authoredDuration: 16, outerDuration: 17 }],
     });
@@ -386,7 +388,7 @@ test("Remotion emit replaces full-build evidence and preserves runtime bindings 
     emit(plan, shared, output, config);
     const replacement = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
     assert.equal(replacement.bindings.length, 1, "a full build replaces stale manifest evidence");
-    assert.equal(replacement.bindings[0].revealDuration, 0.25);
+    assert.equal(replacement.bindings[0].revealDuration, 8 / 30);
 
     emit(plan, shared, staged, config, { captionsOnly: true, runtimeSourceDir: output });
     assert.deepEqual(
@@ -411,6 +413,146 @@ test("Remotion required mode rejects planned beats without an output-local regis
     const { plan, config } = visualFixture();
 
     assert.throws(() => emit(plan, shared, output, config), /visual_bindings\.json.*required/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("strict registry parsing preserves prototype-like frame slugs through normalization and serialization", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-prototype-"));
+  try {
+    const path = join(tmp, "visual_bindings.json");
+    writeFileSync(path, `{
+      "version": 1,
+      "frames": {
+        "__proto__": [{"beat":"beat","target":"Target:proto","enter":"fade","duration":0}],
+        "constructor": [{"beat":"beat","target":"Target:constructor","enter":"fade","duration":0}],
+        "prototype": [{"beat":"beat","target":"Target:prototype","enter":"fade","duration":0}]
+      }
+    }`);
+    const spec = readRemotionBindingSpec(path);
+    assert.equal(Object.getPrototypeOf(spec.frames), null);
+    assert.deepEqual(Object.keys(spec.frames), ["__proto__", "constructor", "prototype"]);
+
+    const base = visualFixture().plan.frames[0];
+    const plan: BuildPlan = {
+      ...visualFixture().plan,
+      frames: ["__proto__", "constructor", "prototype"].map((slug, index) => ({
+        ...base,
+        id: `${index}`,
+        frameNum: index + 1,
+        slug,
+        visualBeats: [{ ...base.visualBeats![0], id: "beat" }],
+      })),
+    };
+    const resolved = resolveRemotionBindings(spec, plan, 30);
+    assert.equal(Object.getPrototypeOf(resolved.runtimeBindings), null);
+    assert.equal(Object.hasOwn(resolved.runtimeBindings, "__proto__"), true);
+    assert.deepEqual(
+      Object.keys(JSON.parse(JSON.stringify(resolved.runtimeBindings))),
+      ["__proto__", "constructor", "prototype"],
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("strict registry parsing rejects unknown fields and whitespace identifiers", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-strict-"));
+  try {
+    const path = join(tmp, "visual_bindings.json");
+    for (const value of [
+      { version: 1, frames: {}, extra: true },
+      { version: 1, frames: { " ": [] } },
+      { version: 1, frames: { frame: [{ beat: " ", target: "target", enter: "fade", duration: 0 }] } },
+      { version: 1, frames: { frame: [{ beat: "beat", target: " ", enter: "fade", duration: 0 }] } },
+      { version: 1, frames: { frame: [{ beat: "beat", target: "target", enter: "fade", duration: 0, extra: true }] } },
+    ]) {
+      writeFileSync(path, JSON.stringify(value));
+      assert.throws(() => readRemotionBindingSpec(path));
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("normalized bindings quantify runtime scheduling and preserve independent multi-frame durations", () => {
+  const { plan } = visualFixture();
+  const first = {
+    ...plan.frames[0],
+    slug: "first",
+    voiceDur: 1.01,
+    frameDur: 1.51,
+    visualBeats: [{ ...plan.frames[0].visualBeats![0], id: "first", start: 0.01, tolerance: { maxLead: 1, maxLag: 1 } }],
+  };
+  const second = {
+    ...plan.frames[0],
+    id: "second",
+    frameNum: 2,
+    slug: "second",
+    voiceDur: 2.02,
+    frameDur: 2.52,
+    visualBeats: [{ ...plan.frames[0].visualBeats![0], id: "second", start: 0.99, tolerance: { maxLead: 1, maxLag: 1 } }],
+  };
+  const multi: BuildPlan = { ...plan, totalDuration: 4.03, frames: [first, second] };
+  const resolved = resolveRemotionBindings({
+    version: 1,
+    frames: {
+      first: [{ beat: "first", target: "Target:first", enter: "fade", duration: 0 }],
+      second: [{ beat: "second", target: "Target:second", enter: "fade", duration: 0.01 }],
+    },
+  }, multi, 24);
+
+  assert.deepEqual(resolved.manifest.bindings.map((binding) => [binding.revealStart, binding.revealDuration]), [
+    [0, 1 / 24],
+    [1, 1 / 24],
+  ]);
+  assert.deepEqual(resolved.manifest.frames, [
+    { frameSlug: "first", authoredDuration: 1.01, outerDuration: 1.51 },
+    { frameSlug: "second", authoredDuration: 2.02, outerDuration: 2.52 },
+  ]);
+
+  const corrupted = structuredClone(resolved.manifest);
+  corrupted.frames![1].outerDuration = 0;
+  const findings = verifyVisualSync({
+    plan: multi,
+    manifest: corrupted,
+    policy: { mode: "required", maxLead: 1, maxLag: 1, minLanding: 0 },
+    fps: 24,
+  });
+  assert.deepEqual(
+    findings.filter((finding) => finding.msg.includes("outer duration")).map((finding) => finding.msg.match(/frame "([^"]+)"/)?.[1]),
+    ["second"],
+  );
+});
+
+test("direct emission distinguishes required, warn, off, and legacy registry behavior", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-modes-"));
+  try {
+    const shared = join(tmp, "shared");
+    const output = join(tmp, "output");
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    mkdirSync(output, { recursive: true });
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: [] }));
+    const { plan } = visualFixture();
+
+    emit(plan, shared, output, { framework: "remotion", visualSync: { mode: "warn" } });
+    assert.equal(JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8")).bindings.length, 0);
+
+    writeFileSync(join(output, "visual_bindings.json"), "{ malformed");
+    emit(plan, shared, output, { framework: "remotion", visualSync: { mode: "off" } });
+    assert.deepEqual(JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8")), {
+      version: 1,
+      framework: "remotion",
+      bindings: [],
+      frames: [],
+    });
+    assert.equal("visualBindings" in JSON.parse(readFileSync(join(output, "build_plan.json"), "utf8")), false);
+
+    const legacy: BuildPlan = { ...plan, frames: plan.frames.map((frame) => ({ ...frame, visualBeats: undefined })) };
+    emit(legacy, shared, output, { framework: "remotion" });
+    assert.equal("visualBindings" in JSON.parse(readFileSync(join(output, "build_plan.json"), "utf8")), false);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

@@ -259,10 +259,20 @@ function enableIntroVisualBeat(project: WorkflowProject): void {
   }, null, 2)}\n`);
 }
 
+function writeIntroRemotionBindings(outputDir: string): void {
+  writeFileSync(join(outputDir, "visual_bindings.json"), `${JSON.stringify({
+    version: 1,
+    frames: {
+      "01-intro": [{ beat: "intro", target: "Intro:reveal", enter: "fade", duration: 0.5 }],
+    },
+  }, null, 2)}\n`);
+}
+
 test("regroup preserves resolved visual beats in Remotion output", () => {
   const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
   try {
     enableIntroVisualBeat(project);
+    writeIntroRemotionBindings(project.outputDir);
     assert.equal(buildRun([project.outputDir]), 0);
     const before = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
 
@@ -284,6 +294,7 @@ test("multi-framework builds preserve one shared neutral plan", () => {
   try {
     createProject(remotionOutput, "video", getAdapter("remotion"));
     enableIntroVisualBeat(hyperframes);
+    writeIntroRemotionBindings(remotionOutput);
 
     assert.equal(buildRun([hyperframes.outputDir]), 0);
     const hyperframesPlan = JSON.parse(readFileSync(join(hyperframes.sharedDir, "build", "build_plan.json"), "utf8"));
@@ -1486,5 +1497,61 @@ test("verify keeps argument errors at exit 2", () => {
     assert.equal(result.code, 2, argv.join(" "));
     assert.match(result.stderr, /Usage: md2vid verify/);
     assert.equal(result.stdout, "");
+  }
+});
+
+test("captions-only Remotion build atomically promotes refreshed binding evidence", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    const configPath = join(project.sharedDir, "video.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync = { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 0.5 };
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-intro": { beats: [{ id: "intro", text: "Intro", cue: { wordIndex: 1 } }] },
+      },
+    }, null, 2)}\n`);
+    const registryPath = join(project.outputDir, "visual_bindings.json");
+    const registry = (target: string) => ({
+      version: 1,
+      frames: {
+        "01-intro": [{ beat: "intro", target, enter: "fade", duration: 0.2 }],
+      },
+    });
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:initial"), null, 2)}\n`);
+
+    const full = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(full.code, 0, full.stderr);
+    const planPath = join(project.outputDir, "build_plan.json");
+    const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+    const sourcePath = join(project.outputDir, "src", "Video.tsx");
+    const voicePath = join(project.outputDir, "public", "assets", "voice", "intro.wav");
+    const sourceBefore = readFileSync(sourcePath, "utf8");
+    const voiceBefore = readFileSync(voicePath);
+
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:updated"), null, 2)}\n`);
+    const captionsOnly = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+    assert.equal(captionsOnly.code, 0, captionsOnly.stderr);
+    const plan = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(plan.visualBindings["01-intro"][0].target, "Target:updated");
+    assert.equal(manifest.bindings[0].target, "Target:updated");
+    assert.equal(readFileSync(sourcePath, "utf8"), sourceBefore);
+    assert.equal(readFileSync(voicePath).equals(voiceBefore), true);
+
+    const planBeforeFailure = readFileSync(planPath, "utf8");
+    const manifestBeforeFailure = readFileSync(manifestPath, "utf8");
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:rollback"), null, 2)}\n`);
+    const failed = captureConsole(() => buildRun(
+      [project.outputDir, "--captions-only"],
+      failingBuildDependencies("remotion", 2),
+    ));
+    assert.equal(failed.code, 1, failed.stderr);
+    assert.equal(readFileSync(planPath, "utf8"), planBeforeFailure);
+    assert.equal(readFileSync(manifestPath, "utf8"), manifestBeforeFailure);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
   }
 });

@@ -198,3 +198,62 @@ test("resolveVisualBeatBinding rejects invalid registered bindings", async () =>
     /registry frame other-frame does not match reserve-flow/,
   );
 });
+
+test("owned reveal timing quantizes at active FPS and covers progress/token boundaries", async () => {
+  const runtime = await loadVisualBeats() as {
+    resolveVisualBeatBinding: (input: {
+      frame: typeof FRAME;
+      bindings: ReadonlyArray<{ beat: string; target: string; enter: string; duration: number }>;
+      target: string;
+      fps: number;
+    }) => { startFrame: number; durationFrames: number };
+    resolveVisualBeatProgress: (currentFrame: number, startFrame: number, durationFrames: number) => number;
+    resolveVisualBeatStyle: (enter: string, progress: number, visible: boolean) => Record<string, unknown>;
+  };
+
+  for (const fps of [24, 30, 60]) {
+    const timing = runtime.resolveVisualBeatBinding({
+      frame: FRAME,
+      bindings: REGISTRY.frames["reserve-flow"],
+      target: "WorkflowStep:execute",
+      fps,
+    });
+    assert.equal(timing.startFrame, Math.round(11.06 * fps));
+    assert.equal(timing.durationFrames, Math.max(1, Math.round(0.5 * fps)));
+  }
+
+  const zeroDuration = runtime.resolveVisualBeatBinding({
+    frame: FRAME,
+    bindings: [{ beat: "execute", target: "WorkflowStep:execute", enter: "fade", duration: 0 }],
+    target: "WorkflowStep:execute",
+    fps: 24,
+  });
+  assert.equal(zeroDuration.durationFrames, 1);
+
+  assert.equal(runtime.resolveVisualBeatProgress(9, 10, 4), 0);
+  assert.equal(runtime.resolveVisualBeatProgress(10, 10, 4), 0);
+  assert.equal(runtime.resolveVisualBeatProgress(12, 10, 4), 0.5);
+  assert.equal(runtime.resolveVisualBeatProgress(14, 10, 4), 1);
+  assert.equal(runtime.resolveVisualBeatProgress(15, 10, 0), 1);
+
+  assert.deepEqual(runtime.resolveVisualBeatStyle("fade", 0.5, false), { opacity: 0.5 });
+  assert.deepEqual(runtime.resolveVisualBeatStyle("rise", 0.5, false), { opacity: 0.5, transform: "translateY(9px)" });
+  assert.deepEqual(runtime.resolveVisualBeatStyle("slide-left", 0.5, false), { opacity: 0.5, transform: "translateX(12px)" });
+  const scale = runtime.resolveVisualBeatStyle("scale", 0.5, false);
+  assert.equal(scale.opacity, 0.5);
+  assert.ok(Math.abs(Number(String(scale.transform).slice(6, -1)) - 0.96) < Number.EPSILON);
+  assert.deepEqual(runtime.resolveVisualBeatStyle("none", 0, false), { opacity: 0 });
+  assert.deepEqual(runtime.resolveVisualBeatStyle("none", 0, true), { opacity: 1 });
+
+  for (const fps of [Number.NaN, Number.POSITIVE_INFINITY, 0, -1]) {
+    assert.throws(
+      () => runtime.resolveVisualBeatBinding({
+        frame: FRAME,
+        bindings: REGISTRY.frames["reserve-flow"],
+        target: "WorkflowStep:execute",
+        fps,
+      }),
+      /finite positive number/,
+    );
+  }
+});

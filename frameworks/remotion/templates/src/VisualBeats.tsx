@@ -65,8 +65,21 @@ export function resolveVisualBeatBinding({
     beat,
     binding,
     startFrame: secToFrames(beat.start, fps),
-    durationFrames: secToFrames(binding.duration, fps),
+    durationFrames: Math.max(1, secToFrames(binding.duration, fps)),
   };
+}
+
+export function resolveVisualBeatProgress(
+  currentFrame: number,
+  startFrame: number,
+  durationFrames: number,
+): number {
+  return interpolate(
+    currentFrame,
+    [startFrame, startFrame + Math.max(1, durationFrames)],
+    [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+  );
 }
 
 export const VisualBeatProvider: React.FC<VisualBeatContextValue & { children: React.ReactNode }> = ({
@@ -89,15 +102,10 @@ export function useVisualBeatBinding(target: string): VisualBeatBindingResolutio
 export function useVisualBeatProgress(target: string): number {
   const current = useCurrentFrame();
   const { startFrame, durationFrames } = useVisualBeatBinding(target);
-  return interpolate(
-    current,
-    [startFrame, startFrame + Math.max(1, durationFrames)],
-    [0, 1],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
-  );
+  return resolveVisualBeatProgress(current, startFrame, durationFrames);
 }
 
-function getRevealStyle(enter: Entrance, progress: number, visible: boolean): React.CSSProperties {
+export function resolveVisualBeatStyle(enter: Entrance, progress: number, visible: boolean): React.CSSProperties {
   switch (enter) {
     case "rise":
       return { opacity: progress, transform: `translateY(${(1 - progress) * 18}px)` };
@@ -116,5 +124,5 @@ export const BeatReveal: React.FC<{ target: string; children: React.ReactNode }>
   const { binding, startFrame } = useVisualBeatBinding(target);
   const current = useCurrentFrame();
   const progress = useVisualBeatProgress(target);
-  return <div style={getRevealStyle(binding.enter, progress, current >= startFrame)}>{children}</div>;
+  return <div style={resolveVisualBeatStyle(binding.enter, progress, current >= startFrame)}>{children}</div>;
 };

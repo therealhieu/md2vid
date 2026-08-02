@@ -79,7 +79,9 @@ export const Video: React.FC<{ plan: BuildPlan }> = ({ plan }) => {
     <AbsoluteFill style={{ backgroundColor: THEME.cream }}>
       {plan.frames.map((frame) => {
         const dur = secToFrames(frame.frameDur, fps);
-        const bindings = plan.visualBindings?.[frame.slug] ?? [];
+        const bindings = plan.visualBindings && Object.hasOwn(plan.visualBindings, frame.slug)
+          ? plan.visualBindings[frame.slug]
+          : [];
         return (
           <Sequence key={frame.id} from={secToFrames(frame.start, fps)} durationInFrames={dur} name={frame.slug}>
             <SceneRouter frame={frame} bindings={bindings} xfade={plan.timing.xfade} durationInFrames={dur} />
