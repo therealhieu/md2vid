@@ -71,7 +71,13 @@ Every frame carries the **same beat across all three channels at the same timest
 The 3-scene spine is universal: anchor the headline + focal by t≤0.5s (Scene 1), reveal beat-by-beat
 on VO cues (Scene 2), land and hold (Scene 3).
 
-## 4. Escape hatch
+## 4. Ordered beat coverage and grouped sources
+
+Flow, Enumerate, Matrix, and Contrast treatments require **ordered beat coverage**: each narrated station, item, row, or compared pair has a resolved beat ID and appears on that cue in source order. A visual may stay on screen after its beat; it may not reveal early merely to make the frame look complete.
+
+When several source steps intentionally share one visual beat, record the grouping explicitly with **grouped source references** on that beat. Do not silently collapse a source item: the grouped references make the coverage and the treatment reviewable. This rule applies equally to a Flow station, Enumerate card, Matrix row, and Contrast pair.
+
+## 5. Escape hatch
 
 If a unit of knowledge genuinely fits no row in §1, do not force it into the nearest treatment.
 Name the new knowledge type and the treatment it needs, author it against the atoms in `frame.md`,

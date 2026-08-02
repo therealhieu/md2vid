@@ -16,7 +16,7 @@ Content frames are paired with `compositions/shared/frame-shell.html` by the par
 - Transition/helper tracks use `10-19`.
 - The reusable shell uses track `20`.
 - Captions use track `30`.
-- Each content frame registers exactly one paused timeline under its own `data-composition-id`.
+- Each content frame registers exactly one paused timeline under its own `data-composition-id`. One registered parent timeline may compose generated and authored child timelines; child scheduling must remain deterministic and seek-safe under that parent.
 - Keep frame `<style>` and `<script>` elements inside the matching `data-composition-id` root. During embedding, md2vid removes only the exact configured external GSAP script, then relocates any authored top-level sibling `<style>` and `<script>` elements into that root while preserving pre-root → existing-root → post-root order. Unrelated external scripts are retained; arbitrary sibling text, comments, and elements are not transported.
 
 ## Allowed content

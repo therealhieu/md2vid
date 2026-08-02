@@ -77,6 +77,42 @@ test("narration timing policy is authoritative and synchronized", () => {
   }
 });
 
+test("canonical and bundled standards require cue-bound visual timing", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /visual_beats\.json/, label);
+    assert.match(body, /npm run plan/, label);
+    assert.match(body, /--allow-low-fps/, label);
+    assertOrder(body, ["transcription", "visual_beats.json", "npm run plan", "cue-bound", "npm run build", "npm run check", "review", "render"], label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame.md")) {
+    assert.match(body, /every narrated (?:node|row|card|code line|station).*beat ID/is, label);
+    assert.match(body, /no copied semantic offsets/i, label);
+    assert.match(body, /front-loaded workflows/i, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/knowledge-expression.md")) {
+    assert.match(body, /ordered beat coverage/i, label);
+    assert.match(body, /grouped source references/i, label);
+    for (const treatment of ["Flow", "Enumerate", "Matrix", "Contrast"]) assert.match(body, new RegExp(`\\b${treatment}\\b`), label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /data-md2vid-beat/, label);
+    assert.match(body, /data-md2vid-custom-bindings/, label);
+    assert.match(body, /--profile final\|draft\|gif/, label);
+    assert.match(body, /owned helper/i, label);
+    assert.match(body, /visual_bindings\.json/, label);
+    assert.match(body, /seek-safe/i, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /static.*visual_bindings\.json/is, label);
+    assert.match(body, /VisualBeatProvider/, label);
+    assert.match(body, /BeatReveal/, label);
+    assert.match(body, /30 FPS/, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
+    assert.match(body, /one registered parent timeline may compose generated and authored child timelines/i, label);
+  }
+});
+
 test("public and skill guidance use canonical HyperFrames paths without inventing an audio command", () => {
   const documents = [
     { label: "README.md", body: readFileSync(join(REPO_ROOT, "README.md"), "utf8") },

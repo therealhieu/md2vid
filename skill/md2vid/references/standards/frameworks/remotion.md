@@ -25,6 +25,31 @@ The scaffold creates the complete common md2vid contract and Remotion runtime be
 
 Run all generated-project commands from the Remotion output directory. The installed workflow does not require repository source paths.
 
+## Cue-bound visual timing
+
+Resolve neutral timing before scene authoring:
+
+```text
+prepare/transcribe audio → author visual_beats.json → npm run plan
+  → author cue-bound scenes → npm run build → npm run check → review → render
+```
+
+Each output authors a static `visual_bindings.json` registry. The adapter validates this pure data, produces normalized binding evidence, and never parses or executes arbitrary TSX to infer timing. Registry targets are consumed by the scene template rather than copied into a second cue array.
+
+Use the generated timing through the provider and components:
+
+```tsx
+<VisualBeatProvider frame={frame}>
+  <BeatReveal target="WorkflowStep:execute">
+    <WorkflowStep>Execute operation</WorkflowStep>
+  </BeatReveal>
+</VisualBeatProvider>
+```
+
+`BeatReveal` resolves its static target to a beat, converts the resolved seconds to frames using the active composition FPS, and owns standard reveal progress. Custom interpolation uses an owned helper with the same registered target; it cannot accept a copied numeric semantic offset. The authored scene semantic duration must match `voiceDur`; its outer `<Sequence>` duration must match `frameDur`.
+
+Remotion compositions run at 30 FPS by default. Keep duration calculations and reveal progress frame-derived and seek-safe; do not use CSS transitions, wall-clock state, or playback callbacks.
+
 ## Default and opt-in scenes
 
 The default `src/Video.tsx` is a content-neutral title card driven only by each plan frame's slug. It contains no example subject matter.

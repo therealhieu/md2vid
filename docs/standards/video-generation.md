@@ -46,6 +46,27 @@ Rules:
 - **Vary framing between consecutive same-type frames** so two lists (or two flows) never read as the same slide.
 - **Allocate breather frames on purpose** — against dense neighbors, hold some frames calm (a single line, a two-card pair) for rhythm.
 
+## Cue-bound visual timing and render policy
+
+Semantic timing is a required workflow gate, not an animation afterthought:
+
+```text
+transcription
+  → visual_beats.json
+  → npm run plan
+  → cue-bound visual authoring
+  → npm run build + npm run check
+  → review
+  → render
+```
+
+- After narration has word timings, author `visual_beats.json` with stable beat IDs, transcript anchors, source references, and ordered workflow steps where applicable.
+- Run `npm run plan` before authoring framework visuals. It resolves the beat anchors against the transcript and writes the neutral timing authority; authors bind targets to beat IDs rather than copying numeric semantic offsets.
+- `npm run check` is the semantic gate: it verifies planned-beat coverage, cue lead/lag, workflow order, landing time, and framework duration before review or render.
+- Existing projects without visual beats remain in actionable legacy **warn** mode. New scaffolds use **required** mode and must provide binding evidence.
+- For MP4/MOV delivery, the final profile defaults to 30 FPS and rejects an effective rate below 24 FPS. Use `--profile draft` or `--profile gif` for intentionally low-rate work, or pass `--allow-low-fps` only as an explicit final-delivery override. `--quality` remains independent from the md2vid profile.
+- Review still judges source interpretation, treatment, hierarchy, and polish. Machine checks judge the declared timing contract; manual review does not waive it.
+
 ## Storyboard requirements
 
 - The storyboard must include a source coverage map from document sections to video frames.

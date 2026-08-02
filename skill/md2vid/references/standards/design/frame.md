@@ -136,6 +136,13 @@ Eyeball tests gate every frame before any structural check:
 frame-relative units are `cqw`/`cqh` against it — never `vw`. Hairlines stay 1px; card radii stay
 6/8/12px; the warm-paper reading must survive every ratio.
 
+## Cue-bound visual timing
+
+- Every narrated node, row, card, code line, and workflow station binds to one resolved beat ID from `visual_beats.json`. The beat, not a copied timestamp, is the semantic timing authority.
+- No copied semantic offsets are permitted in authored CSS, GSAP, or scene code. Use the framework declarative binding or its owned scheduling helper so the reveal remains attached to the beat ID.
+- Do not use front-loaded workflows. A workflow station appears on the narration cue for its ordered step; it may remain visible after that cue, but later stations may not appear before their own beats.
+- Pre-place dim structure only when it improves orientation. The narrated node, row, card, code line, or station must become the focal on its beat and must not compete with a future step.
+
 ## Colors
 
 Tokens identical to the source. Default ground `{colors.cream}`; content gathers on

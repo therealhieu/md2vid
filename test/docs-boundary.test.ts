@@ -48,6 +48,17 @@ test("root AGENTS.md does NOT globally inherit framework docs", () => {
   }
 });
 
+test("canonical framework and frame-content docs preserve the cue-binding boundary", () => {
+  const hyperframes = readFileSync(join(FRAMEWORK_DOCS, "hyperframes.md"), "utf8");
+  const remotion = readFileSync(join(FRAMEWORK_DOCS, "remotion.md"), "utf8");
+  const frameContent = readFileSync(join(REPO_ROOT, "docs", "standards", "design", "frame-content.md"), "utf8");
+
+  assert.match(hyperframes, /data-md2vid-beat/);
+  assert.match(hyperframes, /data-md2vid-custom-bindings/);
+  assert.match(remotion, /static.*visual_bindings\.json/is);
+  assert.match(frameContent, /one registered parent timeline may compose generated and authored child timelines/i);
+});
+
 // Every video's CLAUDE.md/AGENTS.md that imports a framework doc must resolve it to a
 // real file (a video reaches its one framework's mechanics ONLY through this import).
 test("every private-tree video framework-doc @import resolves, while public snapshots may omit outputs", () => {

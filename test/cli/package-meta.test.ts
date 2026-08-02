@@ -147,6 +147,18 @@ test("public README documents supported install, usage, rendering, and release f
   assert.doesNotMatch(readme, /npm install -g md2vid@\d+\.\d+\.\d+/);
 });
 
+test("public README documents semantic timing and final-render policy", () => {
+  for (const term of [
+    "md2vid plan <dir>",
+    "visual_beats.json",
+    "legacy warn vs scaffold required",
+    "--profile final|draft|gif",
+    "--allow-low-fps",
+    "30 FPS final default / 24 FPS minimum",
+    "<output>.md2vid-render.json",
+  ]) assert.match(readme, new RegExp(escapeRegex(term)), term);
+});
+
 test("public README uses synchronized upgrade with manual recovery", () => {
   assert.match(readme, /## Update\s+```bash\s+md2vid upgrade\s+```/);
   assert.match(

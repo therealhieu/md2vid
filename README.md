@@ -75,12 +75,35 @@ Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID mus
 
 The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
 
+## Semantic visual timing
+
+`visual_beats.json` is the neutral authoring contract for narrated visuals. Give each narrated node, row, card, code line, or workflow station a stable beat ID and a transcript phrase/occurrence or word-index anchor. Resolve it before framework visual authoring:
+
+```text
+transcription → visual_beats.json → md2vid plan <dir> → cue-bound visual authoring
+  → md2vid build <dir> → md2vid verify <dir> → review → render
+```
+
+`md2vid plan <dir>` writes neutral resolved timing artifacts without framework emission or authored-source mutation. HyperFrames binds targets through `data-md2vid-beat` or a declared custom binding with an owned helper. Remotion binds its static `visual_bindings.json` registry through generated beat components. `md2vid verify` machine-checks beat coverage, timing tolerance, workflow order, landing, and duration; review still checks source interpretation, treatment, hierarchy, and polish.
+
+Existing projects without `visual_beats.json` stay in **legacy warn vs scaffold required** mode: legacy projects warn until they migrate, while new scaffolds use required mode, include a `visual_beats.json.example`, and require cue-bound framework bindings.
+
+HyperFrames render profiles are md2vid policy flags:
+
+```text
+--profile final|draft|gif
+--allow-low-fps
+```
+
+The final profile is the default: **30 FPS final default / 24 FPS minimum** for MP4/MOV. `--allow-low-fps` explicitly overrides the final minimum; draft and GIF profiles permit intentionally lower rates. `--quality` remains independent. After a successful known-output render, md2vid writes `<output>.md2vid-render.json` beside the output with the effective profile, FPS, and override state.
+
 ## CLI
 
 ```text
 md2vid --help
 md2vid --version
 md2vid new <slug> [--framework hyperframes|remotion]
+md2vid plan <dir>
 md2vid build <dir> [--captions-only]
 md2vid transcribe <dir>
 md2vid regroup <dir> [--max-chars 54]
@@ -102,10 +125,11 @@ HyperFrames projects:
 
 ```bash
 cd <video-project>
+npm run plan       # resolve visual_beats.json before HTML authoring
 npm run build
 npm run check
 npm run dev        # review in preview
-npm run render     # only after review
+npm run render     # final profile defaults to 30 FPS; only after review
 ```
 
 New projects use the exact GSAP version pinned by md2vid, materialized as `https://cdn.jsdelivr.net/npm/gsap@<version>/dist/gsap.min.js` in `output.config.json`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.

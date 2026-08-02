@@ -84,6 +84,58 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 > In Claude Code, always run it with `run_in_background: true`. Never run it as a foreground
 > command — it will time out and the server will die, breaking the browser preview.
 
+## Cue-bound visual timing
+
+Plan narration cues before authoring visual motion:
+
+```text
+prepare/transcribe audio → author visual_beats.json → npm run plan
+  → bind cue-bound visuals → npm run build → npm run check → review → render
+```
+
+`visual_beats.json` is neutral input. `npm run plan` resolves its phrase or word-index anchors before HTML authoring. Every narrated node, row, card, code line, and workflow station binds to a beat ID; authored frames never copy the resolved seconds.
+
+### Declarative bindings
+
+Use a supported declarative target for the standard path:
+
+```html
+<li id="reserve-step" data-md2vid-beat="reserve" data-md2vid-enter="rise" data-md2vid-duration="0.48">
+  Reserve value
+</li>
+```
+
+Supported entrance tokens are `fade`, `rise`, `slide-left`, `scale`, and `none`. md2vid owns the generated paused, seek-safe scheduling timeline and writes each observed reveal to `build/visual_bindings.json`.
+
+### Custom bindings
+
+A custom motion path declares inert JSON and uses the owned helper that schedules at the resolved beat:
+
+```html
+<script type="application/json" data-md2vid-custom-bindings>
+{"bindings":[{"beat":"execute","target":"#execute-step","method":"from","duration":0.7}]}
+</script>
+<script>
+  const timing = window.__md2vidTiming.forFrame("reserve-flow");
+  timing.from(tl, "execute", "#execute-step", { opacity: 0, y: 36, duration: 0.7 });
+</script>
+```
+
+The `data-md2vid-custom-bindings` script is inert machine-readable declaration, not executable scheduling code. The owned helper validates its declared beat/target/method, owns the actual timeline position, and records the same `build/visual_bindings.json` evidence. It must not return numeric semantic timestamps for authors to reuse freely.
+
+Keep one paused registered parent timeline per composition. Its authored and generated child timelines must seek to the same state whether playback is sequential, directly sought, or sought backward then forward. The semantic composition duration must match `voiceDur`; the emitted host duration must match `frameDur`.
+
+### Render profiles
+
+`md2vid hyperframes render` consumes md2vid policy flags before spawning HyperFrames:
+
+```text
+--profile final|draft|gif
+--allow-low-fps
+```
+
+The final profile defaults to 30 FPS and enforces a minimum of 24 FPS for MP4/MOV unless `--allow-low-fps` is explicit. Draft and GIF profiles permit intentional low rates. `--quality` is a HyperFrames encoding setting and does not select the md2vid profile. Successful known-output renders write `<output>.md2vid-render.json` beside the artifact.
+
 ## GSAP source
 
 New projects use the exact GSAP version pinned by md2vid, materialized as `https://cdn.jsdelivr.net/npm/gsap@<version>/dist/gsap.min.js` in `output.config.json` → `gsapSrc`. This default requires network access during preview and render. md2vid does not copy GSAP runtime bytes. For offline use, supply your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and in standalone `compositions/captions.html`; HyperFrames resolves it from the project root, so never rewrite it as `../` or `../../` traversal.

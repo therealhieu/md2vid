@@ -134,10 +134,13 @@ test("single-framework branch is a complete flat-project workflow", () => {
     "<slug>/audio_meta.json",
     "<slug>/assets/voice/",
     "<slug>/video.config.json",
-    "<slug>/compositions/frames/",
-    "<slug>/src/scenes/",
     "cd <slug>",
     "npm run transcribe",
+    "<slug>/visual_beats.json",
+    "npm run plan",
+    "Author framework visuals",
+    "<slug>/compositions/frames/",
+    "<slug>/src/scenes/",
     "npm run build",
     "npm run check",
     "npm run dev",
@@ -147,12 +150,35 @@ test("single-framework branch is a complete flat-project workflow", () => {
   ]);
 });
 
+test("cue-bound timing precedes framework authoring in both skill workflows", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  assertOrder(flat, ["npm run transcribe", "visual_beats.json", "npm run plan", "Author framework visuals", "npm run build", "npm run check"]);
+
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+  assertOrder(canonical, ["npm run transcribe", "visual_beats.json", "npm run plan", "Author framework visuals", "npm run build", "npm run check"]);
+
+  for (const binding of ["data-md2vid-beat", "data-md2vid-custom-bindings"]) assert.match(body, new RegExp(binding));
+  assert.match(body, /machine checks enforce declared beat coverage, reveal timing, order, landing, and duration/i);
+  assert.match(body, /manual review.*source interpretation, treatment quality, hierarchy, and polish/is);
+  assert.match(body, /--profile final\|draft\|gif/);
+  assert.match(body, /legacy.*warn.*required/i);
+});
+
 test("multi-framework branch is a complete canonical-project workflow", () => {
   const body = readFileSync(SKILL, "utf8");
   const canonical = sectionBetween(
     body,
     "### Branch B — Multiple frameworks (canonical)",
-    "## What build does",
+    "## What plan and build do",
   );
   assertOrder(canonical, [
     "md2vid new <slug>-hyperframes",
@@ -163,10 +189,13 @@ test("multi-framework branch is a complete canonical-project workflow", () => {
     "outputs/<slug>/shared/audio_meta.json",
     "outputs/<slug>/shared/assets/voice/",
     "outputs/<slug>/shared/video.config.json",
-    "outputs/<slug>/hyperframes/compositions/frames/",
-    "outputs/<slug>/remotion/src/scenes/",
     "cd outputs/<slug>/hyperframes",
     "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
+    "Author framework visuals",
+    "outputs/<slug>/hyperframes/compositions/frames/",
+    "outputs/<slug>/remotion/src/scenes/",
     "npm run build",
     "npm run check",
     "npm run dev",
