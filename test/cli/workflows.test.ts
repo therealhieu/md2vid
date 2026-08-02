@@ -139,6 +139,75 @@ test("build emits one actionable visual-sync warning for a legacy project", () =
   }
 });
 
+function enableIntroVisualBeat(project: WorkflowProject): void {
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = { mode: "required" };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 1,
+    frames: {
+      "01-intro": {
+        beats: [{ id: "intro", text: "Intro", cue: { wordIndex: 0 } }],
+      },
+    },
+  }, null, 2)}\n`);
+}
+
+test("regroup preserves resolved visual beats in Remotion output", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    enableIntroVisualBeat(project);
+    assert.equal(buildRun([project.outputDir]), 0);
+    const before = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    const after = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+
+    assert.deepEqual(
+      after.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
+      before.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
+    );
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("multi-framework builds preserve one shared neutral plan", () => {
+  const hyperframes = createWorkflowCase({ framework: "hyperframes", layout: "canonical" });
+  const remotionOutput = join(hyperframes.root, "remotion");
+  try {
+    createProject(remotionOutput, "video", getAdapter("remotion"));
+    enableIntroVisualBeat(hyperframes);
+
+    assert.equal(buildRun([hyperframes.outputDir]), 0);
+    const hyperframesPlan = JSON.parse(readFileSync(join(hyperframes.sharedDir, "build", "build_plan.json"), "utf8"));
+    assert.equal(buildRun([remotionOutput]), 0);
+    const remotionPlan = JSON.parse(readFileSync(join(hyperframes.sharedDir, "build", "build_plan.json"), "utf8"));
+
+    assert.deepEqual(hyperframesPlan.frames, remotionPlan.frames);
+    assert.equal(hyperframesPlan.frames[0].start, 0);
+  } finally {
+    rmSync(hyperframes.root, { recursive: true, force: true });
+  }
+});
+
+test("build rejects neutral timing keys in output-local configuration", () => {  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    writeFileSync(join(project.outputDir, "output.config.json"), `${JSON.stringify({
+      framework: "remotion",
+      visualSync: { mode: "off" },
+    }, null, 2)}\n`);
+
+    const result = captureConsole(() => buildRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /output\.config\.json\.visualSync is neutral-only/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 function writeNeutralConfig(shared: string): void {
   writeFileSync(join(shared, "video.config.json"), JSON.stringify({
     timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
@@ -254,6 +323,11 @@ function regroupProject(framework: "hyperframes" | "remotion"): Project & {
         { text: "six.", start: 1.5, end: 2 },
       ],
     }],
+  }));
+  mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+  writeFileSync(join(shared, "assets", "voice", "intro.wav"), makePcmWav({
+    sampleRate: 48_000,
+    sampleFrames: 96_000,
   }));
   const neutralPath = join(shared, "caption_groups.json");
   writeFileSync(neutralPath, ORIGINAL_JSON);
@@ -534,10 +608,10 @@ function failingRegroupDependencies(
   point: "config" | "planning" | "emit" | "verify" | "first-promotion" | "second-promotion" | "third-promotion",
 ): RegroupDependencies {
   if (point === "config") {
-    return { loadConfig() { throw new Error("injected config failure"); } };
+    return { createProjectPlan() { throw new Error("injected config failure"); } };
   }
   if (point === "planning") {
-    return { buildPlan() { throw new Error("injected planning failure"); } };
+    return { createProjectPlan() { throw new Error("injected planning failure"); } };
   }
   if (point === "emit") {
     return {

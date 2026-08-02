@@ -313,7 +313,7 @@ git commit -m "feat(cli): add neutral plan command"
 
 ---
 
-- [ ] **Task 6: Preserve visual timing through build and regroup** `[Group: planning-workflow]` `[Tester: yes]`
+- [x] **Task 6: Preserve visual timing through build and regroup** `[Group: planning-workflow]` `[Tester: yes]`
 
 **Files:**
 - Modify: `scripts/build.ts`
@@ -322,7 +322,7 @@ git commit -m "feat(cli): add neutral plan command"
 - Modify: `test/cli/workflows.test.ts`
 - Modify: `test/cli/run-exports.test.ts`
 
-- [ ] **Step 1: Write the failing regroup regression**
+- [x] **Step 1: Write the failing regroup regression**
 
 Create a canonical Remotion fixture with visual beats, run build and regroup, then compare fields:
 
@@ -343,7 +343,7 @@ assert.deepEqual(hyperframesPlan.frames, remotionPlan.frames);
 assert.equal(sharedPlan.frames[0].start, expectedNeutralStart);
 ```
 
-- [ ] **Step 2: Run and confirm the regression fails**
+- [x] **Step 2: Run and confirm the regression fails**
 
 Run:
 
@@ -353,7 +353,7 @@ node --test test/cli/workflows.test.ts test/cli/run-exports.test.ts
 
 Expected: FAIL because regroup currently recomputes the legacy plan without visual beats.
 
-- [ ] **Step 3: Make regroup use the shared planning result**
+- [x] **Step 3: Make regroup use the shared planning result**
 
 Replace direct audio/config/`plan(meta, config)` reconstruction with `createProjectPlan(outputDir, ...)`. Preserve regroup's caption-only behavior:
 
@@ -373,7 +373,7 @@ adapter.emit(regroupedPlan, stagedShared, stagedOutput, planning.adapterConfig, 
 
 Ensure Remotion `build_plan.json` receives the full `regroupedPlan`, including `visualKind` and `visualBeats`.
 
-- [ ] **Step 4: Enforce neutral planning ownership**
+- [x] **Step 4: Enforce neutral planning ownership**
 
 In `createProjectPlan`, call:
 
@@ -390,7 +390,7 @@ output.config.json.visualSync is neutral-only; move it to video.config.json
 
 Framework/render keys remain output-local.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -400,7 +400,7 @@ node --test test/cli/workflows.test.ts test/cli/run-exports.test.ts engine/__tes
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/build.ts scripts/regroup.ts frameworks/remotion/emit.ts test/cli/workflows.test.ts test/cli/run-exports.test.ts engine/__tests__/config.test.ts

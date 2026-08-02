@@ -70,7 +70,8 @@ export function emit(
     });
   }
 
-  // Publish the plan only after a full emit has staged every required voice asset.
+  // Publish the full neutral plan only after a full emit has staged every required
+  // voice asset. Replacing caption groups must retain additive visual timing fields.
   const inputPlan: BuildPlan = { ...plan, captionGroups: groups };
   writeFileSync(join(outputDir, "build_plan.json"), JSON.stringify(inputPlan, null, 2) + "\n");
 }

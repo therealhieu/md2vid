@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   loadConfig,
+  loadConfigFiles,
   validateSlugMappings,
   validateVideoConfig,
 } from "../config.ts";
@@ -304,6 +305,27 @@ test("rejects malformed nested and framework-local config fields", () => {
       ? "output.config.json"
       : "video.config.json";
     assert.throws(() => validateVideoConfig(config, path), expected);
+  }
+});
+
+test("rejects neutral-only configuration keys in output config", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-config-local-neutral-"));
+  const output = join(root, "hyperframes");
+  try {
+    writeFileSync(join(root, "video.config.json"), JSON.stringify({ slugs: { intro: "01-intro" } }));
+    for (const field of ["slugs", "timing", "canvas", "visualSync"] as const) {
+      mkdirSync(output, { recursive: true });
+      writeFileSync(join(output, "output.config.json"), JSON.stringify({
+        framework: "hyperframes",
+        [field]: field === "slugs" ? { intro: "local" } : {},
+      }));
+      assert.throws(
+        () => loadConfigFiles(root, output),
+        new RegExp(`output\\.config\\.json\\.${field} is neutral-only; move it to video\\.config\\.json`),
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
