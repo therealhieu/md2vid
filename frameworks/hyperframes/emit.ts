@@ -331,14 +331,20 @@ export function preflight(
       join(outputDir, "compositions", "frames", `${frame.slug}.html`),
       "utf8",
     );
+    const sanitizedHtml = sanitizeCompositionTemplate(
+      authoredHtml,
+      frame.slug,
+      gsapSrc,
+      documentPath,
+    );
     const prepared = prepareFrameVisualTiming({
       frame,
-      authoredHtml,
+      authoredHtml: sanitizedHtml,
       documentPath,
       mode,
     });
     return {
-      template: sanitizeCompositionTemplate(prepared.html, frame.slug, gsapSrc, documentPath),
+      template: prepared.html,
       bindings: prepared.bindings,
       duration: prepared.authoredDuration === undefined
         ? undefined

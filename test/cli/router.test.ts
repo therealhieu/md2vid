@@ -456,6 +456,7 @@ test("new forwards --framework into a temp outputs root", () => {
         allowMixedThemes: false,
         allowLegacyThemeInference: false,
       },
+      render: { profile: "final", fps: 30, minimumFinalFps: 24 },
     });
     assert.equal(existsSync(join(root, "router-demo", "assets", "gsap.min.js")), false);
   } finally {

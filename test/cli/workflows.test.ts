@@ -87,6 +87,10 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
     details: "02-details",
     recap: "03-recap",
   };
+  // These workflow fixtures exercise legacy build/transaction behavior, not the
+  // scaffold default. Preserve legacy compatibility explicitly rather than
+  // weakening scaffolded required mode.
+  config.visualSync = { mode: "warn", maxLead: 0.25, maxLag: 0.75, minLanding: 1 };
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
   if (framework === "hyperframes") {

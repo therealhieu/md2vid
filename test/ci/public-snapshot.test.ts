@@ -18,6 +18,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   buildPublicSnapshot,
+  writePublicSnapshotManifest,
   parsePublicSnapshotArgs,
   PUBLIC_SNAPSHOT_MANIFEST,
   type PublicSnapshotReport,
@@ -234,6 +235,22 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
   assert.equal(paths.some((path) => path === ".git" || path.startsWith(".git/")), false);
   const packageFiles = JSON.parse(readFileSync(join(output, "package.json"), "utf8")).files as string[];
   assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
+});
+
+test("manifest regeneration writes the current repository report without self-reference", (t) => {
+  const repo = createRepository(t, {
+    "README.md": "# Public\n",
+    "engine/visual_beats.ts": "export {};\n",
+    "frameworks/remotion/visual_bindings.ts": "export {};\n",
+  });
+
+  const report = writePublicSnapshotManifest(repo);
+  const tracked = JSON.parse(readFileSync(join(repo, PUBLIC_SNAPSHOT_MANIFEST), "utf8")) as PublicSnapshotReport;
+
+  assert.deepEqual(tracked, report);
+  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
+  assert.ok(report.paths.some((entry) => entry.path === "engine/visual_beats.ts"));
+  assert.ok(report.paths.some((entry) => entry.path === "frameworks/remotion/visual_bindings.ts"));
 });
 
 test("snapshot rejects symlinks, submodules, and non-blob selected entries", (t) => {
@@ -760,6 +777,13 @@ test("actual repository HEAD snapshot contains required public code and excludes
     "examples/hash-table/remotion/README.md",
     "examples/hash-table/remotion/src/Video.tsx",
     "frameworks/hyperframes/scaffold.ts",
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
     "test/golden/fixtures/hash-table-example/expected/index.html",
   ]) {
     assert.ok(paths.includes(required), `missing actual HEAD content: ${required}`);

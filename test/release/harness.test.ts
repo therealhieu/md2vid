@@ -176,6 +176,19 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.match(source, /smoke\.mp4/);
 });
 
+test("release smoke supplies required visual timing inputs and consumes draft render policy", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /visual_beats\.json/);
+  assert.match(source, /data-md2vid-beat/);
+  assert.match(source, /visual_bindings\.json/);
+  assert.match(source, /VisualBeatProvider/);
+  assert.match(source, /BeatReveal/);
+  assert.match(source, /--profile",\s*"draft"/);
+  assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
+  assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);
+  assert.match(source, /md2vid-render\.json/);
+});
+
 test("release harness has no Windows command or process execution path", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
 
@@ -472,6 +485,15 @@ test("extracts canonical local GSAP URLs from generated and authored HTML", () =
     <script src="assets/gsap/gsap.min.js"></script>
     <script>gsap.timeline();</script>
   `), ["assets/gsap/gsap.min.js"]);
+});
+
+test("HyperFrames smoke leaves beat-bound target scheduling to the generated helper", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
+  for (const [frameSlug, target] of [["01-smoke", "s01-future"], ["02-smoke", "s02-future"]] as const) {
+    const frame = readFileSync(join(fixtureRoot, `${frameSlug}.html`), "utf8");
+    assert.match(frame, new RegExp(`id="${target}"[^>]*data-md2vid-beat="reveal"`));
+    assert.doesNotMatch(frame, new RegExp(`tl\\.to\\("#${target}"`));
+  }
 });
 
 test("HyperFrames smoke fixture composition roots declare the light frame theme", () => {

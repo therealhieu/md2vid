@@ -98,6 +98,31 @@ function transactionResidue(root: string): string[] {
   return readdirSync(assets).filter((name) => name.includes("md2vid"));
 }
 
+test("preflight finalizes declarative timing after a transported authored controller", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+
+    const template = preflight(plan, shared, output, {}).embeddedFrameTemplates![0];
+    const helper = template.indexOf("window.__md2vidTiming");
+    const controller = template.indexOf('window.__timelines["01-a"] = gsap.timeline');
+    const finalizer = template.lastIndexOf('const timeline = window.__timelines["01-a"]');
+
+    assert.ok(helper >= 0 && helper < controller, "generated helper must initialize before authored controller");
+    assert.ok(controller < finalizer, "generated declarative timing must finalize after authored controller");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("full emit replaces the generated visual binding manifest", () => {
   const { tmp, shared, output } = setup();
   try {

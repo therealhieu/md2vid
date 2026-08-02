@@ -126,6 +126,7 @@ test("golden: visual timing plan and build artifacts are byte-identical", () => 
       copyFileSync(join(fixture, "inputs", name), join(shared, name));
     }
     copyFileSync(join(fixture, "inputs", "output.config.json"), join(output, "output.config.json"));
+    copyFileSync(join(fixture, "inputs", "visual_bindings.json"), join(output, "visual_bindings.json"));
     const meta = JSON.parse(readFileSync(join(shared, "audio_meta.json"), "utf8"));
     for (const voice of meta.voices) {
       writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));

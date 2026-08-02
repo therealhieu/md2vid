@@ -532,6 +532,22 @@ export function verifyMaterializedSnapshot(root: string, report: PublicSnapshotR
   }
 }
 
+export function writePublicSnapshotManifest(
+  repo = process.cwd(),
+  ref = "HEAD",
+): PublicSnapshotReport {
+  const gitRoot = resolveGitRoot(repo);
+  const { commit, entries } = parseTree(gitRoot, ref);
+  const report = createReport(entries, scanSelectedContent(gitRoot, commit, entries));
+  const target = join(gitRoot, PUBLIC_SNAPSHOT_MANIFEST);
+  const existing = existingLstat(target);
+  if (existing?.isSymbolicLink() || (existing !== undefined && !existing.isFile())) {
+    fail(`tracked public snapshot manifest is not a regular file: ${target}`);
+  }
+  writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
 export function buildPublicSnapshot(options: BuildPublicSnapshotOptions): PublicSnapshotReport {
   const gitRoot = resolveGitRoot(options.repo ?? process.cwd());
   const output = prepareOutput(gitRoot, options.output);
@@ -575,8 +591,13 @@ export function parsePublicSnapshotArgs(args: string[]): PublicSnapshotCliOption
 
 function main(): void {
   try {
-    const options = parsePublicSnapshotArgs(process.argv.slice(2));
-    const report = buildPublicSnapshot({ output: options.output, ref: options.ref });
+    const args = process.argv.slice(2);
+    const report = args.length === 0
+      ? writePublicSnapshotManifest()
+      : (() => {
+          const options = parsePublicSnapshotArgs(args);
+          return buildPublicSnapshot({ output: options.output, ref: options.ref });
+        })();
     process.stdout.write(`${report.count} files ${report.hash}\n`);
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

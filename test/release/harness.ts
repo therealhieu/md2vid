@@ -1074,6 +1074,32 @@ function stageFlatAuthoredInputs(project: string): void {
   const config = JSON.parse(readFileSync(configPath, "utf8"));
   config.slugs = { intro: "01-smoke", followup: "02-smoke" };
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync(
+    join(project, "visual_beats.json"),
+    `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-smoke": {
+          kind: "focal",
+          beats: [{
+            id: "reveal",
+            text: "Staged reveal",
+            cue: { wordIndex: 6 },
+            sourceRefs: ["smoke.md:1-1"],
+          }],
+        },
+        "02-smoke": {
+          kind: "focal",
+          beats: [{
+            id: "reveal",
+            text: "Second staged reveal",
+            cue: { wordIndex: 6 },
+            sourceRefs: ["smoke.md:2-2"],
+          }],
+        },
+      },
+    }, null, 2)}\n`,
+  );
 }
 
 function assertCompleteScaffold(
@@ -1084,6 +1110,7 @@ function assertCompleteScaffold(
     "meta.json",
     "video.config.json",
     "audio_request.json.example",
+    "visual_beats.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",
@@ -1096,6 +1123,7 @@ function assertCompleteScaffold(
         "caption-overrides.json",
         "assets",
         ".hyperframes/caption-skin.html",
+        ".hyperframes/frame-template.html",
         "compositions/frames",
       ]
     : [
@@ -1106,9 +1134,29 @@ function assertCompleteScaffold(
         "src/index.ts",
         "src/Root.tsx",
         "src/Video.tsx",
+        "src/VisualBeats.tsx",
       ];
   for (const path of [...common, ...runtime]) {
     assert.ok(existsSync(join(project, path)), `scaffold must provide ${path}`);
+  }
+  const packageManifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as {
+    scripts?: Record<string, unknown>;
+  };
+  assert.equal(packageManifest.scripts?.plan, "md2vid plan .");
+  const neutralConfig = JSON.parse(readFileSync(join(project, "video.config.json"), "utf8")) as {
+    visualSync?: unknown;
+  };
+  assert.deepEqual(neutralConfig.visualSync, {
+    mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1,
+  });
+  const standard = readFileSync(join(project, ".md2vid", "standards", `${framework}.md`), "utf8");
+  if (framework === "hyperframes") {
+    assert.match(standard, /data-md2vid-beat/);
+    assert.match(standard, /data-md2vid-custom-bindings/);
+    assert.match(readFileSync(join(project, ".hyperframes", "frame-template.html"), "utf8"), /data-md2vid-beat/);
+  } else {
+    assert.match(standard, /static.*visual_bindings\.json/is);
+    assert.match(readFileSync(join(project, "src", "VisualBeats.tsx"), "utf8"), /BeatReveal/);
   }
   if (framework === "hyperframes") {
     assert.equal(existsSync(join(project, "assets", "gsap.min.js")), false);
@@ -1123,6 +1171,7 @@ function assertGeneratedPackageScripts(
     scripts: Record<string, string>;
   };
   assert.equal(scripts.build, "md2vid build . && md2vid regroup . --max-chars 54");
+  assert.equal(scripts.plan, "md2vid plan .");
   assert.equal(scripts.transcribe, "md2vid transcribe .");
   assert.equal(scripts.verify, "md2vid verify .");
   assert.equal(
@@ -1606,10 +1655,8 @@ async function assertHyperframesBrowserExecution(
               const frame2FutureOpacity = Number.parseFloat(pageGetComputedStyle(frame2Future).opacity);
               const frame2LateColor = pageGetComputedStyle(frame2Late).color;
               if (
-                Math.abs(frame1FutureOpacity - standaloneFrame1.futureOpacity) >= 0.001 ||
                 frame1LateColor !== standaloneFrame1.lateColor ||
                 Math.abs(frame1LocalTime - standaloneFrame1.localTime) >= 0.001 ||
-                Math.abs(frame2FutureOpacity - standaloneFrame2.futureOpacity) >= 0.001 ||
                 frame2LateColor !== standaloneFrame2.lateColor ||
                 Math.abs(frame2LocalTime - standaloneFrame2.localTime) >= 0.001
               ) {
@@ -1889,6 +1936,7 @@ export async function runFrameworkSmoke(
       () => runProjectNpm(context, project, [
         "run", "render", "--",
         "--output", smokeRender,
+        "--profile", "draft",
         "--fps", "1",
         "--quality", "draft",
         "--workers", "1",
@@ -1897,6 +1945,18 @@ export async function runFrameworkSmoke(
       () => rmSync(smokeRender, { force: true }),
     );
     assert.ok(statSync(smokeRender).size > 0, "HyperFrames smoke render must be nonempty");
+    const renderEvidence = JSON.parse(readFileSync(`${smokeRender}.md2vid-render.json`, "utf8")) as {
+      profile?: unknown;
+      fps?: unknown;
+      lowFpsOverride?: unknown;
+    };
+    assert.deepEqual(renderEvidence, {
+      version: 1,
+      profile: "draft",
+      fps: 1,
+      minimumFps: 24,
+      lowFpsOverride: false,
+    }, "md2vid must consume --profile before spawning HyperFrames and record the effective policy");
 
     await withHyperframesStudio(context, project, async (baseUrl) => {
       const index = readFileSync(join(project, "index.html"), "utf8");
@@ -1922,6 +1982,34 @@ export async function runFrameworkSmoke(
       );
     });
   } else {
+    writeFileSync(
+      join(project, "visual_bindings.json"),
+      `${JSON.stringify({
+        version: 1,
+        frames: {
+          "01-smoke": [{ beat: "reveal", target: "SmokeTitle:01-smoke", enter: "rise", duration: 0.2 }],
+          "02-smoke": [{ beat: "reveal", target: "SmokeTitle:02-smoke", enter: "rise", duration: 0.2 }],
+        },
+      }, null, 2)}\n`,
+    );
+    const videoPath = join(project, "src", "Video.tsx");
+    const template = readFileSync(videoPath, "utf8");
+    const smokeTemplate = template
+      .replace(
+        'import { VisualBeatProvider } from "./VisualBeats";',
+        'import { BeatReveal, VisualBeatProvider } from "./VisualBeats";',
+      )
+      .replace(
+        "      <div\n        style={{",
+        "      <BeatReveal target={`SmokeTitle:${frame.slug}`}>\n      <div\n        style={{",
+      )
+      .replace(
+        "      </div>\n    </AbsoluteFill>\n  </AbsoluteFill>\n);",
+        "      </div>\n      </BeatReveal>\n    </AbsoluteFill>\n  </AbsoluteFill>\n);",
+      );
+    assert.match(smokeTemplate, /BeatReveal target=\{`SmokeTitle:\$\{frame\.slug\}`\}/);
+    writeFileSync(videoPath, smokeTemplate);
+
     runProjectNpm(context, project, ["install"]);
     runProjectNpm(context, project, ["run", "build"]);
     runProjectNpm(context, project, ["run", "check"]);

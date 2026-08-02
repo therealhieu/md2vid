@@ -198,10 +198,13 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
           staged: join(stagedOutput, adapter.captionIndexArtifactPath),
         });
       }
-      if (adapter.bindingManifestPath) {
+      const stagedBindingManifest = adapter.bindingManifestPath
+        ? join(stagedOutput, adapter.bindingManifestPath)
+        : undefined;
+      if (adapter.bindingManifestPath && stagedBindingManifest && existsSync(stagedBindingManifest)) {
         managedFiles.push({
           target: relative(projectRoot, join(OUTPUT, adapter.bindingManifestPath)),
-          staged: join(stagedOutput, adapter.bindingManifestPath),
+          staged: stagedBindingManifest,
         });
       }
       const promotion = promoteManagedFiles(

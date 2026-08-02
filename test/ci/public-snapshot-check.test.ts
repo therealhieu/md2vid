@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -47,6 +47,21 @@ async function createAuthenticSnapshot(t: TestContext): Promise<string> {
   checker.initializePublicSnapshotRepository(snapshot, template);
   return snapshot;
 }
+
+test("tracked public snapshot records visual timing delivery files", () => {
+  const tracked = JSON.parse(readFileSync(join(ROOT, "public-snapshot.json"), "utf8")) as {
+    paths: Array<{ path: string }>;
+  };
+  for (const path of [
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
+  ]) assert.ok(tracked.paths.some((entry) => entry.path === path), `missing ${path}`);
+});
 
 test("source boundary accepts deterministic regeneration of an authentic public snapshot", async (t) => {
   const source = await createAuthenticSnapshot(t);

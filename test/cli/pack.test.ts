@@ -28,6 +28,13 @@ test("release package manifest covers executable, assets, postinstall, and all r
     "dist/scripts/project_layout.js",
     "dist/scripts/managed_file_transaction.js",
     "dist/scripts/upgrade.js",
+    "dist/scripts/plan.js",
+    "dist/scripts/plan_project.js",
+    "dist/engine/visual_beats.js",
+    "dist/engine/visual_sync.js",
+    "dist/frameworks/hyperframes/visual_timing.js",
+    "dist/frameworks/remotion/visual_bindings.js",
+    "dist/frameworks/remotion/templates/src/VisualBeats.tsx",
     "scripts/dependency_versions.ts",
     "scripts/package_root.ts",
   ]) {

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "frames": {
+    "reserve-flow": [
+      { "beat": "reserve", "target": "WorkflowStep:reserve", "enter": "rise", "duration": 0.5 },
+      { "beat": "execute", "target": "WorkflowStep:execute", "enter": "rise", "duration": 0.5 },
+      { "beat": "settle", "target": "WorkflowStep:settle", "enter": "rise", "duration": 0.5 }
+    ]
+  }
+}
