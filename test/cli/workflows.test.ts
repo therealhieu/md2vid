@@ -139,6 +139,24 @@ test("build emits one actionable visual-sync warning for a legacy project", () =
   }
 });
 
+test("build and regroup emit one legacy visual-sync warning", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+
+    assert.deepEqual(warnings, [
+      `WARN [build] ${join(project.sharedDir, "visual_beats.json")}: no visual beat specification; semantic checks are skipped`,
+    ]);
+  } finally {
+    console.warn = originalWarn;
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 function enableIntroVisualBeat(project: WorkflowProject): void {
   const configPath = join(project.sharedDir, "video.config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8"));

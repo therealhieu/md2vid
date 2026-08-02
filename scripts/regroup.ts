@@ -78,7 +78,6 @@ export function run(argv: string[], dependencies: RegroupDependencies = {}): num
     const data = JSON.parse(readFileSync(captionGroupsPath, "utf8"));
 
     const planning = (dependencies.createProjectPlan ?? createProjectPlan)(layout.outputDir);
-    for (const warning of planning.warnings) console.warn(`WARN [regroup] ${warning}`);
     const adapter = (dependencies.getAdapter ?? getAdapter)(planning.adapterConfig.framework);
     const plan = planning.plan;
     const newGroups = regroup(data.groups, maxChars);
