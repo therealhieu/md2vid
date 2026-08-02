@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import {
   appendFileSync,
@@ -21,7 +21,7 @@ import {
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { readPackageMetadata } from "../../scripts/package_root.ts";
@@ -1065,9 +1065,146 @@ export function assertInstalledSkill(
   }
 }
 
-function stageFlatAuthoredInputs(project: string): void {
-  cpSync(join(FIXTURES, "audio_meta.json"), join(project, "audio_meta.json"));
-  cpSync(join(FIXTURES, "assets", "voice"), join(project, "assets", "voice"), {
+export const RETAINED_KOKORO_FIXTURE_ROOT = join(
+  REPO_ROOT,
+  "test",
+  "release",
+  "fixtures",
+  "kokoro-am-michael",
+);
+
+interface FixtureMeta {
+  version: number;
+  kind: string;
+  freshSynthesisDuringTest: boolean;
+  freshTranscriptionDuringTest: boolean;
+  provider: string;
+  voice: string;
+  requestedSpeed: number;
+  transcriptSource: string;
+  transcriptSha256: string;
+  sourceLines: Record<string, string>;
+  wavSha256: Record<string, string>;
+}
+
+interface RetainedNarrationRequest {
+  version: 1;
+  provider: "kokoro";
+  voice: "am_michael";
+  lang: "en";
+  speed: 0.9;
+  lines: Array<{ id: string; text: string }>;
+}
+
+interface RetainedTranscriptWord {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+}
+
+interface RetainedKokoroFixture {
+  meta: FixtureMeta;
+  request: RetainedNarrationRequest;
+  expectedWords: Record<string, RetainedTranscriptWord[]>;
+  audioMeta: {
+    tts_provider: string;
+    voice_id: string;
+    voices: Array<{ id: string; path: string; duration_s: number; words: unknown[] }>;
+  };
+}
+
+function assertRetainedKokoroFixture(meta: FixtureMeta): void {
+  assert.equal(meta.kind, "retained-kokoro-fixture");
+  assert.equal(meta.freshSynthesisDuringTest, false);
+  assert.equal(meta.freshTranscriptionDuringTest, false);
+  assert.equal(meta.transcriptSource, "retained-md2vid-transcribe");
+  assert.equal(meta.provider, "kokoro");
+  assert.equal(meta.voice, "am_michael");
+  assert.equal(meta.requestedSpeed, 0.9);
+}
+
+function readRetainedKokoroFixture(): RetainedKokoroFixture {
+  const meta = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "fixture.json"), "utf8")) as FixtureMeta;
+  assertRetainedKokoroFixture(meta);
+  const request = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_request.json"), "utf8")) as RetainedNarrationRequest;
+  assert.deepEqual(request, {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "followup", text: "Recap the key idea." },
+    ],
+  });
+  assert.deepEqual(meta.sourceLines, Object.fromEntries(request.lines.map((line) => [line.id, line.text])));
+
+  const transcriptBytes = readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "expected_words.json"));
+  assert.equal(createHash("sha256").update(transcriptBytes).digest("hex"), meta.transcriptSha256);
+  const expectedWords = JSON.parse(transcriptBytes.toString("utf8")) as Record<string, RetainedTranscriptWord[]>;
+  assert.deepEqual(Object.keys(expectedWords), request.lines.map((line) => line.id));
+  for (const [path, digest] of Object.entries(meta.wavSha256)) {
+    assert.equal(
+      createHash("sha256").update(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, path))).digest("hex"),
+      digest,
+      `retained fixture hash for ${path}`,
+    );
+  }
+
+  const audioMeta = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_meta.json"), "utf8")) as RetainedKokoroFixture["audioMeta"];
+  assert.equal(audioMeta.tts_provider, meta.provider);
+  assert.equal(audioMeta.voice_id, meta.voice);
+  assert.deepEqual(audioMeta.voices.map((voice) => voice.id), request.lines.map((line) => line.id));
+  assert.ok(audioMeta.voices.every((voice) => voice.words.length === 0), "retained metadata must be pre-transcription input");
+  return { meta, request, expectedWords, audioMeta };
+}
+
+function assertScaffoldNarrationRequest(project: string): void {
+  assert.deepEqual(JSON.parse(readFileSync(join(project, "audio_request.json.example"), "utf8")), {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "recap", text: "Recap the key idea." },
+    ],
+  });
+}
+
+function copyRetainedNarrationRequest(project: string): void {
+  cpSync(
+    join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_request.json"),
+    join(project, "audio_request.json"),
+  );
+}
+
+function captureTestOwnedMediaArguments(project: string, request: RetainedNarrationRequest): string[] {
+  let captured: string[] | undefined;
+  const fakeMediaRunner = (args: string[]): void => { captured = [...args]; };
+  const effective = [
+    "--request", join(project, "audio_request.json"),
+    "--hyperframes", project,
+    "--out", join(project, "audio_meta.json"),
+    "--only", "tts",
+    "--provider", request.provider,
+    "--voice", request.voice,
+    "--lang", request.lang,
+    "--speed", String(request.speed),
+  ];
+  fakeMediaRunner(effective);
+  if (captured === undefined) throw new Error("test-owned media runner did not capture effective arguments");
+  assert.deepEqual(captured, effective);
+  return captured;
+}
+
+function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixture): void {
+  cpSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_meta.json"), join(project, "audio_meta.json"));
+  mkdirSync(join(project, "assets"), { recursive: true });
+  cpSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "assets", "voice"), join(project, "assets", "voice"), {
     recursive: true,
   });
   const configPath = join(project, "video.config.json");
@@ -1084,7 +1221,7 @@ function stageFlatAuthoredInputs(project: string): void {
           beats: [{
             id: "reveal",
             text: "Staged reveal",
-            cue: { wordIndex: 6 },
+            cue: { wordIndex: 0 },
             sourceRefs: ["smoke.md:1-1"],
           }],
         },
@@ -1093,13 +1230,134 @@ function stageFlatAuthoredInputs(project: string): void {
           beats: [{
             id: "reveal",
             text: "Second staged reveal",
-            cue: { wordIndex: 6 },
+            cue: { wordIndex: 0 },
             sourceRefs: ["smoke.md:2-2"],
           }],
         },
       },
     }, null, 2)}\n`,
   );
+  assert.deepEqual(
+    retained.audioMeta.voices.map(({ id, path, duration_s }) => ({ id, path, duration_s })),
+    JSON.parse(readFileSync(join(project, "audio_meta.json"), "utf8")).voices.map(
+      ({ id, path, duration_s }: { id: string; path: string; duration_s: number }) => ({ id, path, duration_s }),
+    ),
+  );
+}
+
+async function runInstalledFixtureTranscription(
+  context: ReleaseContext,
+  project: string,
+  retained: RetainedKokoroFixture,
+): Promise<void> {
+  const packageRoot = join(context.prefix, "node_modules", "md2vid");
+  const transcribe = await import(pathToFileURL(join(packageRoot, "dist", "scripts", "transcribe.js")).href) as typeof import("../../scripts/transcribe.ts");
+  const engine = await import(pathToFileURL(join(packageRoot, "dist", "engine", "transcribe.js")).href) as typeof import("../../engine/transcribe.ts");
+  const code = transcribe.run([project], {
+    transcribeVoices(meta, baseDir) {
+      return engine.transcribeVoices(meta, baseDir, {
+        run(args) {
+          const voicePath = args[1];
+          if (!voicePath) throw new Error("injected transcript runner received no voice path");
+          const voice = meta.voices.find((candidate) => candidate.path === voicePath);
+          if (!voice) throw new Error(`injected transcript runner has no voice for ${voicePath}`);
+          const words = retained.expectedWords[voice.id];
+          if (!words) throw new Error(`retained transcript has no words for ${voice.id}`);
+          const outIndex = args.indexOf("--dir");
+          const output = outIndex === -1 ? undefined : args[outIndex + 1];
+          if (!output) throw new Error("injected transcript runner received no output directory");
+          writeFileSync(join(output, "transcript.json"), `${JSON.stringify(words)}\n`);
+          return 0;
+        },
+      });
+    },
+  });
+  assert.equal(code, 0, "installed transcribe must accept retained absolute transcript words");
+}
+
+async function assertRetainedNarrationArtifacts(
+  context: ReleaseContext,
+  project: string,
+  retained: RetainedKokoroFixture,
+): Promise<void> {
+  assertRetainedKokoroFixture(retained.meta);
+  const packageRoot = join(context.prefix, "node_modules", "md2vid");
+  const requestModule = await import(pathToFileURL(join(packageRoot, "dist", "engine", "narration_request.js")).href) as typeof import("../../engine/narration_request.ts");
+  const voiceAssets = await import(pathToFileURL(join(packageRoot, "dist", "engine", "voice_assets.js")).href) as typeof import("../../engine/voice_assets.ts");
+  const request = requestModule.validateVersionedNarrationRequest(
+    JSON.parse(readFileSync(join(project, "audio_request.json"), "utf8")),
+    join(project, "audio_request.json"),
+  );
+  const metadata = JSON.parse(readFileSync(join(project, "audio_meta.json"), "utf8")) as RetainedKokoroFixture["audioMeta"];
+  const evidence = JSON.parse(readFileSync(join(project, "narration_evidence.json"), "utf8")) as {
+    requestSha256: string;
+    provider: string;
+    voice: string;
+    transcription: { source: string };
+    voices: Array<{ id: string; path: string; duration_s: number; sha256: string }>;
+  };
+  assert.equal(metadata.tts_provider, "kokoro");
+  assert.equal(metadata.voice_id, "am_michael");
+  assert.equal(evidence.requestSha256, requestModule.narrationRequestSha256(request));
+  assert.equal(evidence.provider, "kokoro");
+  assert.equal(evidence.voice, "am_michael");
+  assert.equal(evidence.transcription.source, "md2vid transcribe");
+  assert.deepEqual(evidence.voices.map((voice) => voice.id), metadata.voices.map((voice) => voice.id));
+  for (const voice of metadata.voices) {
+    const snapshot = voiceAssets.captureVoiceWavSnapshot(project, voice.path);
+    const evidenceVoice = evidence.voices.find((candidate) => candidate.id === voice.id);
+    if (!evidenceVoice) throw new Error(`narration evidence has no ${voice.id} voice`);
+    assert.equal(voice.duration_s, snapshot.duration_s, `${voice.id} metadata safe WAV duration`);
+    assert.equal(evidenceVoice.duration_s, snapshot.duration_s, `${voice.id} evidence safe WAV duration`);
+    assert.equal(evidenceVoice.sha256, retained.meta.wavSha256[voice.path], `${voice.id} evidence retained WAV hash`);
+    assert.equal(snapshot.digest, retained.meta.wavSha256[voice.path], `${voice.id} retained WAV hash`);
+    assert.deepEqual(voice.words, retained.expectedWords[voice.id], `${voice.id} must replay retained absolute words unchanged`);
+  }
+}
+
+function mutateNarrationAndAssertPlanRejects(context: ReleaseContext, project: string): Buffer {
+  const requestPath = join(project, "audio_request.json");
+  const original = readFileSync(requestPath);
+  const request = JSON.parse(original.toString("utf8")) as RetainedNarrationRequest;
+  request.lines[0] = { ...request.lines[0]!, text: "Introduce this topic." };
+  writeFileSync(requestPath, JSON.stringify(request, null, 2) + "\n");
+  const beforeOutputs = fileTree(project);
+  try {
+    runInstalledCli(context, ["plan", "."], project);
+    assert.fail("stale retained narration evidence must reject planning");
+  } catch (error) {
+    const commandError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+    const diagnostic = [commandError.message, commandError.stdout, commandError.stderr]
+      .filter((value) => value !== undefined)
+      .map(String)
+      .join("\n");
+    assert.match(diagnostic, /narration request digest.*Re-synthesize narration and rerun `md2vid transcribe`/);
+  }
+  assert.deepEqual(fileTree(project), beforeOutputs, "stale planning must not create or modify outputs");
+  return original;
+}
+
+function restoreRetainedNarrationRequest(project: string, original: Buffer): void {
+  writeFileSync(join(project, "audio_request.json"), original);
+}
+
+function stageFixtureSmokeFrame(
+  project: string,
+  frameSlug: "01-smoke" | "02-smoke",
+  duration: number,
+  gsapSrc: string,
+): void {
+  assert.ok(Number.isFinite(duration) && duration > 0.3, `retained ${frameSlug} duration must leave a smoke handoff window`);
+  const framePath = join(project, "compositions", "frames", `${frameSlug}.html`);
+  const source = readFileSync(join(FIXTURES, `${frameSlug}.html`), "utf8");
+  const authored = source
+    .replaceAll('data-duration="3"', `data-duration="${duration}"`)
+    .replace("}, 2.7);", `}, ${duration - 0.3});`)
+    .replace("duration: 3, ease: \"none\"", `duration: ${duration}, ease: \"none\"`)
+    .replace("__MD2VID_DEFAULT_GSAP_SRC__", gsapSrc);
+  assert.notEqual(authored, source, `retained ${frameSlug} smoke frame must use the actual WAV duration`);
+  assert.doesNotMatch(authored, /data-duration="3"/);
+  writeFileSync(framePath, authored);
 }
 
 function assertCompleteScaffold(
@@ -1304,22 +1562,33 @@ export function deriveSmokeRevealChecks(
     return {
       frameSlug: probe.compositionId,
       target,
-      before: frame.start + binding.revealStart - epsilon,
-      after: frame.start + binding.revealStart + binding.revealDuration + epsilon,
+      before: frameSafeSeekTime(frame.start + binding.revealStart - epsilon, fps),
+      after: frameSafeSeekTime(frame.start + binding.revealStart + binding.revealDuration + epsilon, fps),
     };
   });
 }
 
-function smokeSeekPoints(frame2HostStart: number, revealChecks: readonly SmokeRevealCheck[]): number[] {
+function frameSafeSeekTime(time: number, fps: number): number {
+  assert.ok(Number.isFinite(time) && time >= 0, `seek time must be non-negative and finite, got ${time}`);
+  assert.ok(Number.isFinite(fps) && fps > 0, `seek FPS must be positive and finite, got ${fps}`);
+  return Math.floor(time * fps) / fps;
+}
+
+function smokeSeekPoints(
+  frame2HostStart: number,
+  frame2Duration: number,
+  revealChecks: readonly SmokeRevealCheck[],
+  fps: number,
+): number[] {
   return [
     0.5,
     frame2HostStart - 0.1,
     frame2HostStart,
     frame2HostStart + 0.1,
-    frame2HostStart + 2.9,
+    frame2HostStart + frame2Duration - 0.1,
     ...revealChecks.flatMap((check) => [check.before, check.after, check.before, check.after]),
     0.2,
-  ];
+  ].map((time) => frameSafeSeekTime(time, fps));
 }
 
 function derivedLocalPoints(
@@ -1422,8 +1691,9 @@ async function assertHyperframesBrowserExecution(
   assert.ok(frame1 && frame2, "packed smoke plan must contain both frame timings");
   const frame2HostStart = frame2.start;
   assert.ok(frame2HostStart > 0, "second smoke frame must start at a nonzero global time");
+  const frame2StartSample = frameSafeSeekTime(frame2HostStart, fps);
   const revealChecks = deriveSmokeRevealChecks(expectedFrames, visualBindings, fps);
-  const globalSeekPoints = smokeSeekPoints(frame2HostStart, revealChecks);
+  const globalSeekPoints = smokeSeekPoints(frame2HostStart, frame2.frameDur, revealChecks, fps);
   const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
   const browser = await puppeteer.launch({
     executablePath,
@@ -1712,7 +1982,7 @@ async function assertHyperframesBrowserExecution(
               }
               const actualClasses = Array.from(captionHost.querySelectorAll(".caption-word") as any[])
                 .map((element: any) => String(element.className));
-              const captionBoundaryIsExact = Math.abs(time - frame2HostStart) < 0.001;
+              const captionBoundaryIsExact = Math.abs(time - frameTimings["02-smoke"].sampleStart) < 0.001;
               if (!captionBoundaryIsExact && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
                 throw new Error(
                   `caption classes at ${time} (player=${player.getTime()}, main=${main.time()}/${main.duration()} paused=${main.paused()}, captions=${captions.time()}/${captions.duration()} paused=${captions.paused()}): ${JSON.stringify(actualClasses)}`,
@@ -1773,7 +2043,11 @@ async function assertHyperframesBrowserExecution(
             standaloneFrameStates,
             frameTimings: {
               "01-smoke": { start: frame1.start, frameDur: frame1.frameDur },
-              "02-smoke": { start: frame2.start, frameDur: frame2.frameDur },
+              "02-smoke": {
+                start: frame2.start,
+                frameDur: frame2.frameDur,
+                sampleStart: frame2StartSample,
+              },
             },
           });
           if (candidate) {
@@ -1797,9 +2071,9 @@ async function assertHyperframesBrowserExecution(
       return sample;
     };
     const samplesAt = (time: number) => execution!.samples.filter((sample) => sample.time === time);
-    const beforeFrame2 = frame2HostStart - 0.1;
-    const afterFrame2 = frame2HostStart + 0.1;
-    const frame2HandoffGlobal = frame2HostStart + 2.9;
+    const beforeFrame2 = frameSafeSeekTime(frame2HostStart - 0.1, fps);
+    const afterFrame2 = frameSafeSeekTime(frame2HostStart + 0.1, fps);
+    const frame2HandoffGlobal = frameSafeSeekTime(frame2HostStart + frame2.frameDur - 0.1, fps);
     const revealFor = (
       sample: { frame1FutureOpacity: number; frame2FutureOpacity: number },
       frameSlug: SmokeRevealCheck["frameSlug"],
@@ -1813,26 +2087,30 @@ async function assertHyperframesBrowserExecution(
     }
     const frame1Reveal = revealChecks.find((check) => check.frameSlug === "01-smoke")!;
     const frame2Reveal = revealChecks.find((check) => check.frameSlug === "02-smoke")!;
-    assert.ok(sampleAt(0.5).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
+    assert.ok(sampleAt(frame1Reveal.before).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
     assert.equal(sampleAt(frame1Reveal.after).frame1LateColor, "rgb(20, 20, 19)", "frame 1 authored handoff must coexist with the generated reveal");
-    assert.equal(sampleAt(frame2HostStart).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
+    assert.equal(sampleAt(frame2StartSample).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
 
     assert.equal(sampleAt(beforeFrame2).frame2LocalTime, 0, "frame 2 local time must clamp before host start");
-    assert.equal(sampleAt(frame2HostStart).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
-    assert.ok(Math.abs(sampleAt(afterFrame2).frame2LocalTime - 0.1) < 0.001, "frame 2 local time must offset after host start");
+    assert.equal(sampleAt(frame2StartSample).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
+    const expectedAfterFrame2Local = afterFrame2 - frame2HostStart;
+    assert.ok(
+      Math.abs(sampleAt(afterFrame2).frame2LocalTime - expectedAfterFrame2Local) < 0.001,
+      "frame 2 local time must offset after host start",
+    );
     assert.equal(sampleAt(frame2Reveal.after).frame2LateColor, "rgb(31, 41, 55)", "frame 2 authored handoff must remain neutral through generated reveal");
-    assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off at local 2.9");
+    assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off before its retained WAV ends");
     for (const sample of execution.samples) {
       assert.ok(Math.abs(sample.playerTime - sample.time) < 0.001, `player time mismatch at ${sample.time}`);
       assert.ok(Math.abs(sample.mainTime - sample.time) < 0.001, `main timeline mismatch at ${sample.time}`);
       assert.ok(Math.abs(sample.captionTime - sample.time) < 0.001, `caption timeline mismatch at ${sample.time}`);
-      if (Math.abs(sample.time - frame2HostStart) >= 0.001) {
-        assert.equal(
-          sample.visibleGroups,
-          Math.abs(sample.time - beforeFrame2) < 0.001 ? 0 : 1,
-          `caption group visibility at ${sample.time}`,
-        );
-      }
+      const expectation = browserExpectations.find((candidate) => candidate.time === sample.time);
+      assert.ok(expectation, `missing caption expectation at ${sample.time}`);
+      assert.equal(
+        sample.visibleGroups,
+        expectation.visibleGroups.length,
+        `caption group visibility at ${sample.time}`,
+      );
     }
     assert.ok(execution.wallClockElapsed >= 250, "wall-clock drift probe must span at least 250ms");
     assert.ok(execution.playerDrift < 0.001, `paused player drifted ${execution.playerDrift}s`);
@@ -1901,9 +2179,28 @@ export async function runFrameworkSmoke(
   const project = join(caseRoot, framework);
   const shared = project;
   assertCompleteScaffold(project, framework);
+  // assert scaffold audio_request.json.example
+  assertScaffoldNarrationRequest(project);
   assertGeneratedPackageScripts(project, framework);
   assertNoRepoRelativePaths(project);
-  stageFlatAuthoredInputs(project);
+  const retained = readRetainedKokoroFixture();
+  // copy versioned retained fixture request
+  copyRetainedNarrationRequest(project);
+  // run installed narration-check
+  const narrationCheck = runInstalledCli(context, ["narration-check", "."], project);
+  assert.match(narrationCheck, /PASS \[narration\]/);
+  // capture test-owned media arguments
+  captureTestOwnedMediaArguments(project, retained.request);
+  // copy retained Kokoro/Michael WAVs
+  stageRetainedKokoroAudio(project, retained);
+  // run installed transcribe with injected transcript provider
+  await runInstalledFixtureTranscription(context, project, retained);
+  // assert narration_evidence.json
+  await assertRetainedNarrationArtifacts(context, project, retained);
+  // mutate spoken text and prove planning rejects stale evidence
+  const originalRequest = mutateNarrationAndAssertPlanRejects(context, project);
+  // restore request
+  restoreRetainedNarrationRequest(project, originalRequest);
 
   if (framework === "hyperframes") {
     const gsapSrc = "assets/gsap/gsap.min.js";
@@ -1916,16 +2213,12 @@ export async function runFrameworkSmoke(
       join(project, "output.config.json"),
       `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
     );
-    for (const frameSlug of ["01-smoke", "02-smoke"]) {
-      const framePath = join(project, "compositions", "frames", `${frameSlug}.html`);
-      cpSync(join(FIXTURES, `${frameSlug}.html`), framePath);
-      writeFileSync(
-        framePath,
-        readFileSync(framePath, "utf8").replace(
-          "__MD2VID_DEFAULT_GSAP_SRC__",
-          gsapSrc,
-        ),
-      );
+    for (const [frameSlug, voice] of [
+      ["01-smoke", retained.audioMeta.voices[0]],
+      ["02-smoke", retained.audioMeta.voices[1]],
+    ] as const) {
+      if (!voice) throw new Error(`retained fixture is missing audio for ${frameSlug}`);
+      stageFixtureSmokeFrame(project, frameSlug, voice.duration_s, gsapSrc);
     }
     const previewHelp = runInstalledFromPath(
       context,
@@ -1933,6 +2226,7 @@ export async function runFrameworkSmoke(
       project,
     );
     assert.match(previewHelp, /--port\b/, "HyperFrames preview must support --port");
+    // build/check HyperFrames
     runProjectNpm(context, project, ["run", "build"]);
     runProjectNpm(context, project, ["run", "check"]);
 
@@ -2073,6 +2367,7 @@ export async function runFrameworkSmoke(
     assert.match(smokeTemplate, /BeatReveal target=\{`SmokeTitle:\$\{frame\.slug\}`\}/);
     writeFileSync(videoPath, smokeTemplate);
 
+    // build/check Remotion
     runProjectNpm(context, project, ["install"]);
     runProjectNpm(context, project, ["run", "build"]);
     runProjectNpm(context, project, ["run", "check"]);

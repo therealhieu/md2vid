@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -44,6 +45,7 @@ import {
 import { FORBIDDEN_PACKED_FILES, REQUIRED_PACKED_FILES } from "./manifest.ts";
 import { readPackageManagerMetadata } from "../../scripts/package_root.ts";
 import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
+import { captureVoiceWavSnapshot } from "../../engine/voice_assets.ts";
 import {
   currentNpmVersion,
   parseReleaseArguments,
@@ -64,6 +66,125 @@ test("release smoke status reports generated check scripts for both frameworks",
   assert.match(source, /smoke:hyperframes[^\n]*generated build\/check.*browser.*render/i);
   assert.match(source, /smoke:remotion[^\n]*generated build\/check\/still/);
   assert.doesNotMatch(source, /build\/typecheck\/still/);
+});
+
+test("packed release narration runs the retained Kokoro sequence in order", () => {
+  const harness = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  const operations = [
+    "assert scaffold audio_request.json.example",
+    "copy versioned retained fixture request",
+    "run installed narration-check",
+    "capture test-owned media arguments",
+    "copy retained Kokoro/Michael WAVs",
+    "run installed transcribe with injected transcript provider",
+    "assert narration_evidence.json",
+    "mutate spoken text and prove planning rejects stale evidence",
+    "restore request",
+    "build/check HyperFrames",
+    "build/check Remotion",
+  ];
+  let prior = -1;
+  for (const operation of operations) {
+    const index = harness.indexOf(operation);
+    assert.ok(index > prior, `release harness must sequence ${operation}`);
+    prior = index;
+  }
+
+  const status = readFileSync(join(import.meta.dirname, "run.ts"), "utf8");
+  assert.match(status, /fixture-backed Kokoro am_michael narration evidence/);
+  assert.doesNotMatch(status, /fresh Kokoro synthesis/);
+});
+
+test("retained Kokoro fixture preserves actual WAV and absolute transcript integrity", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "release", "fixtures", "kokoro-am-michael");
+  const fixture = JSON.parse(readFileSync(join(fixtureRoot, "fixture.json"), "utf8")) as {
+    version: number;
+    kind: string;
+    freshSynthesisDuringTest: boolean;
+    freshTranscriptionDuringTest: boolean;
+    provider: string;
+    voice: string;
+    requestedSpeed: number;
+    transcriptSource: string;
+    transcriptSha256: string;
+    sourceLines: Record<string, string>;
+    wavSha256: Record<string, string>;
+  };
+  assert.deepEqual({
+    version: fixture.version,
+    kind: fixture.kind,
+    freshSynthesisDuringTest: fixture.freshSynthesisDuringTest,
+    freshTranscriptionDuringTest: fixture.freshTranscriptionDuringTest,
+    provider: fixture.provider,
+    voice: fixture.voice,
+    requestedSpeed: fixture.requestedSpeed,
+    transcriptSource: fixture.transcriptSource,
+  }, {
+    version: 1,
+    kind: "retained-kokoro-fixture",
+    freshSynthesisDuringTest: false,
+    freshTranscriptionDuringTest: false,
+    provider: "kokoro",
+    voice: "am_michael",
+    requestedSpeed: 0.9,
+    transcriptSource: "retained-md2vid-transcribe",
+  });
+  assert.deepEqual(fixture.sourceLines, {
+    intro: "Introduce the topic.",
+    followup: "Recap the key idea.",
+  });
+
+  for (const [relativePath, expected] of Object.entries(fixture.wavSha256)) {
+    const actual = createHash("sha256").update(readFileSync(join(fixtureRoot, relativePath))).digest("hex");
+    assert.equal(actual, expected, `retained WAV hash ${relativePath}`);
+  }
+  const transcriptBytes = readFileSync(join(fixtureRoot, "expected_words.json"));
+  assert.equal(createHash("sha256").update(transcriptBytes).digest("hex"), fixture.transcriptSha256);
+
+  const request = JSON.parse(readFileSync(join(fixtureRoot, "audio_request.json"), "utf8"));
+  assert.deepEqual(request, {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "followup", text: "Recap the key idea." },
+    ],
+  });
+  const metadata = JSON.parse(readFileSync(join(fixtureRoot, "audio_meta.json"), "utf8")) as {
+    tts_provider: string;
+    voice_id: string;
+    voices: Array<{ id: string; path: string; duration_s: number; words: unknown[] }>;
+  };
+  assert.equal(metadata.tts_provider, "kokoro");
+  assert.equal(metadata.voice_id, "am_michael");
+  const expectedWords = JSON.parse(transcriptBytes.toString("utf8")) as Record<string, Array<{
+    id: string;
+    text: string;
+    start: number;
+    end: number;
+    [field: string]: unknown;
+  }>>;
+  assert.deepEqual(Object.keys(expectedWords), metadata.voices.map((voice) => voice.id));
+  for (const voice of metadata.voices) {
+    assert.deepEqual(voice.words, [], `${voice.id} must retain pre-transcription metadata`);
+    const snapshot = captureVoiceWavSnapshot(fixtureRoot, voice.path);
+    assert.equal(voice.duration_s, snapshot.duration_s, `${voice.id} safe WAV duration`);
+    const words = expectedWords[voice.id];
+    assert.ok(Array.isArray(words) && words.length > 0, `${voice.id} retained transcript must be non-empty`);
+    let previousEnd = 0;
+    for (const word of words) {
+      for (const proportionalField of ["startRatio", "endRatio", "ratio", "durationRatio"]) {
+        assert.equal(Object.hasOwn(word, proportionalField), false, `${voice.id} must not retain ${proportionalField}`);
+      }
+      assert.ok(Number.isFinite(word.start) && Number.isFinite(word.end), `${voice.id} word times must be finite`);
+      assert.ok(word.start >= previousEnd, `${voice.id} words must be ordered without overlap`);
+      assert.ok(word.end > word.start && word.end <= snapshot.duration_s, `${voice.id} word must fit its safe WAV duration`);
+      previousEnd = word.end;
+    }
+  }
 });
 
 test("HyperFrames smoke retries one exact zero-duration readiness failure", () => {
@@ -116,6 +237,22 @@ test("HyperFrames smoke derives each cue probe from generated binding evidence",
   assert.ok(Math.abs(checks[0].after - (1.3 + 0.2 + 1 / 30)) < 1e-9);
   assert.ok(Math.abs(checks[1].before - (4 + 0.6 - 1 / 30)) < 1e-9);
   assert.ok(Math.abs(checks[1].after - (4 + 0.6 + 0.4 + 1 / 30)) < 1e-9);
+});
+
+test("HyperFrames cue samples use the same floor-to-frame seek contract", () => {
+  const [check] = deriveSmokeRevealChecks(
+    [
+      { slug: "01-smoke", start: 0 },
+      { slug: "02-smoke", start: 1 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", revealStart: 0.13, revealDuration: 0.2 },
+      { frameSlug: "02-smoke", target: "#s02-future", revealStart: 0.1, revealDuration: 0.2 },
+    ],
+    30,
+  );
+  assert.equal(check.before, 2 / 30);
+  assert.equal(check.after, 10 / 30);
 });
 
 test("packed HyperFrames smoke starts pristine and relies on proxy self-healing", () => {
@@ -187,8 +324,10 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.match(source, /check\.after/);
   assert.match(source, /before\.every/);
   assert.match(source, /after\.every/);
+  assert.match(source, /stageFixtureSmokeFrame/);
   assert.doesNotMatch(source, /frame2HostStart\s*\+\s*2\.4/);
-  assert.match(source, /frame2HostStart\s*\+\s*2\.9/);
+  assert.doesNotMatch(source, /frame2HostStart\s*\+\s*2\.9/);
+  assert.match(source, /frame2HostStart\s*\+\s*frame2\.frameDur\s*-\s*0\.1/);
   assert.match(source, /caption-word is-active/);
   assert.match(source, /caption-word is-spoken/);
   assert.match(source, /caption-host/);
@@ -213,6 +352,36 @@ test("release smoke supplies required visual timing inputs and consumes draft re
   assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
   assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);
   assert.match(source, /md2vid-render\.json/);
+});
+
+test("retained Kokoro smoke reserves a full landing after its first transcribed word", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /cue: \{ wordIndex: 0 \}/);
+  assert.doesNotMatch(source, /cue: \{ wordIndex: 1 \}/);
+});
+
+test("HyperFrames smoke derives assertions from frame-quantized seeks", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /function frameSafeSeekTime/);
+  assert.match(source, /Math\.floor\(time \* fps\) \/ fps/);
+});
+
+test("HyperFrames smoke samples the first-frame hidden state before its generated cue", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /sampleAt\(frame1Reveal\.before\)\.frame1FutureOpacity/);
+  assert.doesNotMatch(source, /sampleAt\(0\.5\)\.frame1FutureOpacity/);
+});
+
+test("HyperFrames smoke derives post-start local time from the frame-safe global sample", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /afterFrame2 - frame2HostStart/);
+  assert.doesNotMatch(source, /frame2LocalTime - 0\.1/);
+});
+
+test("HyperFrames smoke derives caption visibility from transcribed caption expectations", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /browserExpectations\.find/);
+  assert.doesNotMatch(source, /Math\.abs\(sample\.time - beforeFrame2\)/);
 });
 
 test("release harness has no Windows command or process execution path", () => {
