@@ -1,3 +1,12 @@
+export const NARRATION_PACKED_FILES = [
+  "dist/engine/narration_request.js",
+  "dist/engine/narration_evidence.js",
+  "dist/scripts/narration_check.js",
+  "dist/docs/standards/video-generation.md",
+  "dist/docs/standards/frameworks/hyperframes.md",
+  "dist/docs/standards/frameworks/remotion.md",
+] as const;
+
 export const REQUIRED_PACKED_FILES = [
   "dist/bin/md2vid.js",
   "dist/scripts/build.js",
@@ -42,6 +51,7 @@ export const REQUIRED_PACKED_FILES = [
   "skill/md2vid/references/standards/frameworks/remotion.md",
   "README.md",
   "LICENSE",
+  ...NARRATION_PACKED_FILES,
 ] as const;
 
 export const FORBIDDEN_PACKED_PREFIXES = [

@@ -16,8 +16,23 @@ import { join, relative, resolve } from "node:path";
 import {
   FORBIDDEN_PACKED_FILES,
   FORBIDDEN_PACKED_PREFIXES,
+  NARRATION_PACKED_FILES,
   REQUIRED_PACKED_FILES,
 } from "../release/manifest.ts";
+
+function packedFiles(root: string, relativeRoot = ""): Set<string> {
+  const paths = new Set<string>();
+  const directory = join(root, relativeRoot);
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativePath = join(relativeRoot, entry.name);
+    if (entry.isDirectory()) {
+      for (const nested of packedFiles(root, relativePath)) paths.add(nested);
+    } else {
+      paths.add(relativePath);
+    }
+  }
+  return paths;
+}
 
 test("release package manifest covers executable, assets, postinstall, and all references", () => {
   assert.ok(REQUIRED_PACKED_FILES.includes("dist/bin/md2vid.js"));
@@ -39,6 +54,9 @@ test("release package manifest covers executable, assets, postinstall, and all r
     "scripts/package_root.ts",
   ]) {
     assert.ok(REQUIRED_PACKED_FILES.some((path) => path === helper), `missing packaged helper ${helper}`);
+  }
+  for (const path of NARRATION_PACKED_FILES) {
+    assert.ok(REQUIRED_PACKED_FILES.includes(path), `missing packaged narration artifact ${path}`);
   }
   assert.ok(REQUIRED_PACKED_FILES.includes("README.md"));
   assert.ok(REQUIRED_PACKED_FILES.includes("LICENSE"));
@@ -83,6 +101,15 @@ test("packed source scaffold adapters import and execute from an unrelated cwd",
     assert.equal(tarballs.length, 1, "npm pack must produce one tarball");
     execFileSync("tar", ["-xzf", join(temporary, tarballs[0]), "-C", temporary]);
     const packageRoot = join(temporary, "package");
+    const paths = packedFiles(packageRoot);
+    for (const required of NARRATION_PACKED_FILES) {
+      assert.equal(paths.has(required), true, `missing packed narration artifact ${required}`);
+    }
+    for (const forbidden of [
+      "dist/scripts/audio.js",
+      "scripts/audio.ts",
+      "scripts/audio.mjs",
+    ]) assert.equal(paths.has(forbidden), false, `forbidden packed production audio runner ${forbidden}`);
 
     assert.equal(
       existsSync(join(packageRoot, "frameworks", "hyperframes", "templates")),

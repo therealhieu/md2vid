@@ -575,3 +575,20 @@ test("public README documents the versioned Kokoro narration workflow", () => {
   );
   assert.doesNotMatch(narration, /\/hyperframes-media/);
 });
+
+test("package keeps narration validation while excluding media-use and synthesis commands", () => {
+  const dependencyNames = Object.keys({
+    ...(pkg.dependencies ?? {}),
+    ...(pkg.optionalDependencies ?? {}),
+    ...(pkg.devDependencies ?? {}),
+  });
+  assert.equal(dependencyNames.some((name) => /media-use/i.test(name)), false);
+
+  const help = spawnSync(process.execPath, [join(REPO_ROOT, "bin", "md2vid.ts"), "--help"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /^\s*narration-check\b/m);
+  assert.doesNotMatch(help.stdout, /^\s*audio(?:\s|$)/m);
+});
