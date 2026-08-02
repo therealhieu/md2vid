@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -119,6 +120,28 @@ test("HyperFrames proxy applies only the required caption-loop patch before spaw
     });
     assert.equal(code, 0);
     assert.equal(spawned, true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy consumes md2vid render policy flags after patching", () => {
+  const fixture = fakeInstallation();
+  try {
+    const code = runHyperframes([
+      "render", "--profile", "draft", "--fps", "12", "--quality", "draft",
+    ], {
+      metaUrl: fixture.metaUrl,
+      spawn(_command, args) {
+        assert.match(readFileSync(fixture.studio, "utf8"), /hfLast/);
+        assert.deepEqual(args, [
+          realpathSync(fixture.cli),
+          "render", "--fps", "12", "--quality", "draft",
+        ]);
+        return successResult();
+      },
+    });
+    assert.equal(code, 0);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
