@@ -8,13 +8,22 @@ export interface CommandSpec {
   maxPositionals: number;
 }
 
+export type CommandOptionValue =
+  | string
+  | boolean
+  | string[]
+  | boolean[]
+  | undefined;
+
+export interface ParsedCommand {
+  kind: "ok";
+  values: Record<string, CommandOptionValue>;
+  positionals: string[];
+}
+
 export type CommandParseResult =
   | { kind: "help" }
-  | {
-      kind: "ok";
-      values: Record<string, string | boolean | undefined>;
-      positionals: string[];
-    }
+  | ParsedCommand
   | { kind: "error"; message: string; usage: string };
 
 function positionalMessage(spec: CommandSpec, actual: number): string {
@@ -49,7 +58,7 @@ export function parseCommand(spec: CommandSpec, argv: string[]): CommandParseRes
     }
     return {
       kind: "ok",
-      values: { ...parsed.values } as Record<string, string | boolean | undefined>,
+      values: { ...parsed.values } as Record<string, CommandOptionValue>,
       positionals: parsed.positionals,
     };
   } catch (error: unknown) {

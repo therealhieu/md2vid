@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -646,4 +646,18 @@ test("patch-studio: run() is idempotent and returns 0 against the installed bund
   const mod = await import(join(REPO_ROOT, "frameworks", "hyperframes", "patch-studio.ts"));
   assert.equal(typeof mod.run, "function", "patch-studio must export run(argv)");
   assert.equal(await mod.run([]), 0);
+});
+
+test("narration-check: run() returns 0 for help without creating project files", async () => {
+  const run = await runOf("narration_check.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-narration-check-"));
+  try {
+    const result = await captureRun(run, ["--help"]);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /Usage: md2vid narration-check/);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(readdirSync(root), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

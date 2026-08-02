@@ -141,7 +141,7 @@ function seedVideo() {
 }
 
 function invalidCommandCase(command: string, kind: "typo" | "excess") {
-  if (["build", "regroup", "transcribe", "verify"].includes(command)) {
+  if (["build", "regroup", "transcribe", "verify", "narration-check"].includes(command)) {
     const { tmp, output } = seedVideo();
     const invalid = kind === "typo"
       ? command === "build" ? ["--caption-only"]
@@ -208,7 +208,7 @@ test("--help exits 0 and documents global and manual-local execution", () => {
     assert.match(result.stdout, /npx --yes=false md2vid/);
     assert.doesNotMatch(result.stdout, /npx --no md2vid/);
     assert.match(result.stdout, /Node\.js >=22\.18/);
-    for (const command of ["new", "plan", "build", "regroup", "transcribe", "verify", "hyperframes", "patch-studio", "install-skill", "upgrade"]) {
+    for (const command of ["new", "plan", "build", "regroup", "transcribe", "verify", "narration-check", "hyperframes", "patch-studio", "install-skill", "upgrade"]) {
       assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
     }
   } finally {
@@ -231,7 +231,7 @@ test("root help describes synchronized upgrade", () => {
   );
 });
 
-for (const command of ["new", "plan", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill", "upgrade"]) {
+for (const command of ["new", "plan", "build", "regroup", "transcribe", "verify", "narration-check", "patch-studio", "install-skill", "upgrade"]) {
   test(`${command} supports subcommand help`, () => {
     const root = mkdtempSync(join(tmpdir(), `router-${command}-help-`));
     try {
@@ -275,7 +275,7 @@ test("help flags after -- are treated as new command positionals", () => {
 });
 
 for (const kind of ["typo", "excess"] as const) {
-  for (const command of ["new", "build", "regroup", "transcribe", "verify", "patch-studio", "install-skill", "upgrade"]) {
+  for (const command of ["new", "build", "regroup", "transcribe", "verify", "narration-check", "patch-studio", "install-skill", "upgrade"]) {
     test(`${command} rejects ${kind} arguments before mutation`, () => {
       const testCase = invalidCommandCase(command, kind);
       try {

@@ -72,3 +72,16 @@ test("rejects missing string option values", () => {
   if (result.kind !== "error") return;
   assert.match(result.message, /--framework/);
 });
+
+test("parseCommand retains repeated string options", () => {
+  const parsed = parseCommand({
+    command: "narration-check",
+    usage: "usage",
+    options: { "allow-long-sentence": { type: "string", multiple: true } },
+    minPositionals: 1,
+    maxPositionals: 1,
+  }, ["project", "--allow-long-sentence", "intro:0", "--allow-long-sentence", "recap:1"]);
+  assert.equal(parsed.kind, "ok");
+  if (parsed.kind !== "ok") return;
+  assert.deepEqual(parsed.values["allow-long-sentence"], ["intro:0", "recap:1"]);
+});
