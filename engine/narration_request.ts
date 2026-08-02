@@ -241,10 +241,6 @@ function mergedProtectedSpans(text: string): Span[] {
   return merged;
 }
 
-function protectedAt(spans: readonly Span[], index: number): boolean {
-  return spans.some((span) => span.start <= index && index < span.end);
-}
-
 function paragraphBreakEnd(text: string, index: number): number | undefined {
   const match = /^(?:(?:\r\n)|\n){2,}/u.exec(text.slice(index));
   return match === null ? undefined : index + match[0].length;
@@ -252,9 +248,16 @@ function paragraphBreakEnd(text: string, index: number): number | undefined {
 
 function segmentSentences(source: string): Sentence[] {
   const view = normalizedScanView(source);
-  const spans = protectedSpans(view.text);
+  const spans = mergedProtectedSpans(view.text);
   const sentences: Sentence[] = [];
   let start = 0;
+  let spanIndex = 0;
+
+  const protectedAtCurrentIndex = (index: number): boolean => {
+    while (spanIndex < spans.length && spans[spanIndex]!.end <= index) spanIndex++;
+    const span = spans[spanIndex];
+    return span !== undefined && span.start <= index;
+  };
 
   const push = (end: number, terminated: boolean) => {
     const raw = view.text.slice(start, end);
@@ -284,7 +287,7 @@ function segmentSentences(source: string): Sentence[] {
       index = paragraphEnd - 1;
       continue;
     }
-    if (!".?!".includes(view.text[index]!) || protectedAt(spans, index)) continue;
+    if (!".?!".includes(view.text[index]!) || protectedAtCurrentIndex(index)) continue;
     let end = index + 1;
     while (end < view.text.length && /["'’”\])}]/u.test(view.text[end]!)) end++;
     if (end === view.text.length || /\s/u.test(view.text[end]!)) {

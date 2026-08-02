@@ -120,6 +120,31 @@ test("parses approval at the final colon", () => {
   }
 });
 
+test("applies repeated exact long-sentence approvals independently", () => {
+  const project = fixture({
+    ...DEFAULT_REQUEST,
+    lines: [
+      { id: "chapter:one", text: longRequest("unused").lines[0].text },
+      { id: "chapter:two", text: longRequest("unused").lines[0].text },
+    ],
+  });
+  try {
+    const before = snapshotTree(project);
+    const result = captureRun([
+      project,
+      "--allow-long-sentence", "chapter:one:0",
+      "--allow-long-sentence", "chapter:two:0",
+    ]);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /INFO \[narration\] approved line="chapter:one" sentence=0/);
+    assert.match(result.stdout, /INFO \[narration\] approved line="chapter:two" sentence=0/);
+    assert.doesNotMatch(result.stderr, /sentence-too-long/);
+    assert.deepEqual(snapshotTree(project), before);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test("prints warnings to stdout without failing validation", () => {
   const project = fixture({
     ...DEFAULT_REQUEST,

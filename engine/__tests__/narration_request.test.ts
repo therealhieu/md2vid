@@ -102,22 +102,34 @@ test("an exact approval suppresses only sentence-too-long", () => {
   assert.deepEqual(analysis.appliedApprovals, [{ lineId: "approved:line", sentenceIndex: 0 }]);
 });
 
-test("canonical hashing ignores JSON formatting and media-only extensions", () => {
-  const left = validateVersionedNarrationRequest({ ...REQUEST, bgm: { mode: "none" } }, "left.json");
-  const right = validateVersionedNarrationRequest({ sfx: [], lines: REQUEST.lines, speed: 0.9, lang: "en", voice: "am_michael", provider: "kokoro", version: 1 }, "right.json");
-  assert.equal(canonicalizeNarrationRequest(left), canonicalizeNarrationRequest(right));
-  assert.equal(narrationRequestSha256(left), narrationRequestSha256(right));
+test("canonical hashing ignores JSON formatting, media-only, and unknown extensions", () => {
+  const base = validateVersionedNarrationRequest(REQUEST, "base.json");
+  const extended = validateVersionedNarrationRequest({
+    ...REQUEST,
+    bgm: { mode: "none" },
+    sfx: [],
+    extension: { retained: true },
+  }, "extended.json");
+  assert.equal(canonicalizeNarrationRequest(base), canonicalizeNarrationRequest(extended));
+  assert.equal(narrationRequestSha256(base), narrationRequestSha256(extended));
 });
 
-test("canonical hashing changes for exact spoken text and line order", () => {
+test("canonical hashing changes for every narration-affecting field", () => {
   const base = validateVersionedNarrationRequest(REQUEST, "base.json");
-  const changedText = validateVersionedNarrationRequest({
-    ...REQUEST,
-    lines: [{ id: "intro", text: "Introduce this topic." }, REQUEST.lines[1]],
-  }, "text.json");
-  const changedOrder = validateVersionedNarrationRequest({ ...REQUEST, lines: [...REQUEST.lines].reverse() }, "order.json");
-  assert.notEqual(narrationRequestSha256(base), narrationRequestSha256(changedText));
-  assert.notEqual(narrationRequestSha256(base), narrationRequestSha256(changedOrder));
+  const changes = [
+    ["provider", { ...REQUEST, provider: "heygen" }],
+    ["voice", { ...REQUEST, voice: "af_heart" }],
+    ["language", { ...REQUEST, lang: "zh", voice: "zf_xiaobei" }],
+    ["speed", { ...REQUEST, speed: 1 }],
+    ["line ID", { ...REQUEST, lines: [{ id: "opening", text: REQUEST.lines[0].text }, REQUEST.lines[1]] }],
+    ["line order", { ...REQUEST, lines: [...REQUEST.lines].reverse() }],
+    ["exact spoken text", { ...REQUEST, lines: [{ id: "intro", text: "Introduce this topic." }, REQUEST.lines[1]] }],
+  ] as const;
+
+  for (const [name, value] of changes) {
+    const changed = validateVersionedNarrationRequest(value, `${name}.json`);
+    assert.notEqual(narrationRequestSha256(base), narrationRequestSha256(changed), name);
+  }
 });
 
 const malformed = [
@@ -150,6 +162,19 @@ test("masks protected lexical values as one word each", () => {
     analysis.findings.map(({ code, wordCount }) => ({ code, wordCount })),
     [{ code: "sentence-above-target", wordCount: 15 }],
   );
+});
+
+test("segments many protected domains within a practical preflight budget", () => {
+  const repetitions = 32_000;
+  const started = performance.now();
+  const analysis = analyzeNarrationRequest({
+    ...REQUEST,
+    lines: [{ id: "scale", text: "x.com. ".repeat(repetitions).trim() }],
+  });
+  const elapsedMs = performance.now() - started;
+  assert.equal(analysis.sentenceCount, repetitions);
+  assert.deepEqual(analysis.findings, []);
+  assert.ok(elapsedMs < 900, `expected protected-span scan under 900ms, got ${elapsedMs.toFixed(1)}ms`);
 });
 
 test("keeps URL punctuation, abbreviations, quotes, and brackets deterministic", () => {
