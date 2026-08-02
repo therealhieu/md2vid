@@ -467,6 +467,7 @@ function fullBuildProject(framework: "hyperframes" | "remotion"): FullBuildProje
     [join(project.sharedDir, "cues.json"), "ORIGINAL_CUES\n"],
     [join(project.sharedDir, "caption_groups.json"), "ORIGINAL_CAPTION_GROUPS\n"],
     [join(project.sharedDir, "build", "build_plan.json"), "ORIGINAL_NEUTRAL_PLAN\n"],
+    [join(project.sharedDir, "build", "visual_timing.json"), "ORIGINAL_VISUAL_TIMING\n"],
   ]);
   mkdirSync(join(project.sharedDir, "build"), { recursive: true });
 
@@ -776,7 +777,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
     });
   }
 
-  const promotionCount = framework === "hyperframes" ? 6 : 5;
+  const promotionCount = framework === "hyperframes" ? 7 : 6;
   for (let position = 1; position <= promotionCount; position += 1) {
     test(`full ${framework} build rolls back every managed output after promotion failure ${position}/${promotionCount}`, () => {
       const project = fullBuildProject(framework);

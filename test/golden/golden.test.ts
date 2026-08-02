@@ -28,6 +28,8 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { makeWavForSafeDuration } from "../helpers/wav.ts";
 import { DEFAULT_GSAP_SRC } from "../../scripts/dependency_versions.ts";
+import { run as buildRun } from "../../scripts/build.ts";
+import { run as planRun } from "../../scripts/plan.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -111,3 +113,36 @@ for (const slug of SLUGS) {
     }
   });
 }
+
+test("golden: visual timing plan and build artifacts are byte-identical", () => {
+  const fixture = join(FIXTURES, "visual-timing-sync");
+  const root = mkdtempSync(join(tmpdir(), "golden-visual-timing-sync-"));
+  const shared = join(root, "shared");
+  const output = join(root, "remotion");
+  try {
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    mkdirSync(output, { recursive: true });
+    for (const name of ["audio_meta.json", "video.config.json", "visual_beats.json"]) {
+      copyFileSync(join(fixture, "inputs", name), join(shared, name));
+    }
+    copyFileSync(join(fixture, "inputs", "output.config.json"), join(output, "output.config.json"));
+    const meta = JSON.parse(readFileSync(join(shared, "audio_meta.json"), "utf8"));
+    for (const voice of meta.voices) {
+      writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+    }
+
+    assert.equal(planRun([output]), 0);
+    const plannedBuild = readFileSync(join(shared, "build", "build_plan.json"), "utf8");
+    const plannedVisualTiming = readFileSync(join(shared, "build", "visual_timing.json"), "utf8");
+
+    assert.equal(buildRun([output]), 0);
+    assert.equal(readFileSync(join(shared, "build", "build_plan.json"), "utf8"), plannedBuild);
+    assert.equal(readFileSync(join(shared, "build", "visual_timing.json"), "utf8"), plannedVisualTiming);
+    assert.equal(
+      plannedVisualTiming,
+      readFileSync(join(fixture, "expected", "visual_timing.json"), "utf8"),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

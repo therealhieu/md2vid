@@ -409,7 +409,7 @@ git commit -m "fix(build): preserve visual timing during regroup"
 
 ---
 
-- [ ] **Task 7: Add transactional and golden planning coverage** `[Group: planning-workflow]` `[Tester: yes]`
+- [x] **Task 7: Add transactional and golden planning coverage** `[Group: planning-workflow]` `[Tester: yes]`
 
 **Files:**
 - Create: `test/golden/fixtures/visual-timing-sync/` fixture files
@@ -417,7 +417,7 @@ git commit -m "fix(build): preserve visual timing during regroup"
 - Modify: `test/cli/plan.test.ts`
 - Modify: `test/cli/workflows.test.ts`
 
-- [ ] **Step 1: Add a dedicated semantic timing fixture**
+- [x] **Step 1: Add a dedicated semantic timing fixture**
 
 Create a minimal project with one workflow frame whose transcript contains cues at `2.95`, `11.06`, and `14.35` seconds and authored beats resolving to those words. Keep the existing legacy fixture unchanged.
 
@@ -440,7 +440,7 @@ Expected neutral projection:
 }
 ```
 
-- [ ] **Step 2: Add failing golden and rollback assertions**
+- [x] **Step 2: Add failing golden and rollback assertions**
 
 Assert:
 
@@ -449,7 +449,7 @@ Assert:
 - a staged-write or promotion failure leaves all four previous neutral artifacts intact;
 - invalid visual beats produce no partial files.
 
-- [ ] **Step 3: Run and inspect the expected failures**
+- [x] **Step 3: Run and inspect the expected failures**
 
 Run:
 
@@ -459,11 +459,11 @@ node --test test/golden/golden.test.ts test/cli/plan.test.ts test/cli/workflows.
 
 Expected: FAIL until the fixture expectations and transaction managed-file set include `build/visual_timing.json`.
 
-- [ ] **Step 4: Complete managed-file coverage**
+- [x] **Step 4: Complete managed-file coverage**
 
 Ensure plan/build promotion treats the four neutral artifacts as one transaction. Any rollback restores all four; cleanup warnings follow existing transaction semantics.
 
-- [ ] **Step 5: Run Part 2 focused tests**
+- [x] **Step 5: Run Part 2 focused tests**
 
 Run:
 
@@ -480,7 +480,7 @@ node --test \
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add test/golden test/cli/plan.test.ts test/cli/workflows.test.ts scripts/plan_project.ts scripts/build.ts

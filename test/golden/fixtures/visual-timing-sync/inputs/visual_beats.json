@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "frames": {
+    "reserve-flow": {
+      "kind": "workflow",
+      "beats": [
+        {
+          "id": "reserve",
+          "text": "Reserve value",
+          "cue": { "wordIndex": 0 },
+          "workflowStep": 1
+        },
+        {
+          "id": "execute",
+          "text": "Execute operation",
+          "cue": { "wordIndex": 1 },
+          "workflowStep": 2
+        },
+        {
+          "id": "settle",
+          "text": "Settle result",
+          "cue": { "wordIndex": 2 },
+          "workflowStep": 3
+        }
+      ]
+    }
+  }
+}

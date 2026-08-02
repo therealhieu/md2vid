@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "frames": {
+    "reserve-flow": {
+      "duration": 18,
+      "kind": "workflow",
+      "beats": [
+        {
+          "id": "reserve",
+          "start": 2.95,
+          "workflowStep": 1
+        },
+        {
+          "id": "execute",
+          "start": 11.06,
+          "workflowStep": 2
+        },
+        {
+          "id": "settle",
+          "start": 14.35,
+          "workflowStep": 3
+        }
+      ]
+    }
+  }
+}

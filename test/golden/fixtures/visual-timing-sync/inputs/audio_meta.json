@@ -1,0 +1,14 @@
+{
+  "voices": [
+    {
+      "id": "reserve-flow",
+      "path": "assets/voice/reserve-flow.wav",
+      "duration_s": 18,
+      "words": [
+        { "text": "Reserve", "start": 2.95, "end": 3.1 },
+        { "text": "Execute", "start": 11.06, "end": 11.2 },
+        { "text": "Settle", "start": 14.35, "end": 14.5 }
+      ]
+    }
+  ]
+}
