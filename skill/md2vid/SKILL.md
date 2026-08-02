@@ -141,6 +141,71 @@ Adapters: `frameworks/hyperframes/`, `frameworks/remotion/` (`{ name, scaffoldSp
 
 Record choice early; do not start Remotion visual work unless requested (R1: rich Remotion scenes are hand-authored and costly).
 
+## Narration preflight and synthesis — GATE
+
+After storyboard approval, author the spoken `SCRIPT.md`, materialize `audio_request.json` with the effective provider, voice, language, and speed, then run:
+
+```bash
+md2vid narration-check "$NARRATION_ROOT"
+```
+
+Run synthesis only after `md2vid narration-check` has no errors. After that check, inspect every warning before synthesis: rewrite the sentence or explicitly retain it with a stated project-specific rationale. Never describe warning-bearing output as warning-free.
+
+The request is the persisted authority. The default English request is `provider=kokoro`, `voice=am_michael`, `lang=en`, and `speed=0.9`; a persisted user override replaces only its selected field. Do not use `say`, provider auto-selection, or a network fallback. Stop if readiness validation fails: report the failed capability, the exact preflight command, `md2vid hyperframes doctor` as the recovery command, and that no fallback was used.
+
+<!-- md2vid-media-contract:start -->
+```bash
+set -e
+MEDIA_USE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/media-use"
+NARRATION_ROOT="${NARRATION_ROOT:?set NARRATION_ROOT to the flat project or canonical shared root}"
+
+TTS_PROVIDER=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.provider)' "$NARRATION_ROOT/audio_request.json")
+TTS_VOICE=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.voice)' "$NARRATION_ROOT/audio_request.json")
+TTS_LANG=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.lang)' "$NARRATION_ROOT/audio_request.json")
+TTS_SPEED=$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.speed))' "$NARRATION_ROOT/audio_request.json")
+
+DOCTOR_JSON=$(md2vid hyperframes doctor --json)
+VOICES_JSON='[]'
+if [ "$TTS_PROVIDER" = kokoro ]; then
+  VOICES_JSON=$(md2vid hyperframes tts --list --json)
+fi
+node - "$DOCTOR_JSON" "$VOICES_JSON" "$TTS_PROVIDER" "$TTS_VOICE" <<'NODE'
+const [doctorJson, voicesJson, provider, voice] = process.argv.slice(2);
+const doctor = JSON.parse(doctorJson);
+const voices = JSON.parse(voicesJson);
+function failReadiness(capability) {
+  const label = provider === "kokoro" ? "Kokoro readiness failed" : "Narration readiness failed";
+  console.error(`${label}: ${capability}`);
+  console.error("Preflight command: md2vid hyperframes doctor --json");
+  console.error("Next step: md2vid hyperframes doctor");
+  console.error("No system, cloud, or automatic fallback was used.");
+  process.exit(1);
+}
+for (const name of ["FFmpeg", "FFprobe"]) {
+  const check = doctor.checks?.find((candidate) => candidate.name === name);
+  if (!check?.ok) failReadiness(name);
+}
+if (provider === "kokoro") {
+  const kokoro = doctor.checks?.find((candidate) => candidate.name === "TTS (Kokoro)");
+  if (!kokoro?.ok) failReadiness("TTS (Kokoro)");
+  if (!voices.some((candidate) => candidate.id === voice)) failReadiness(`voice ${voice}`);
+}
+NODE
+
+node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs" \
+  --request "$NARRATION_ROOT/audio_request.json" \
+  --hyperframes "$NARRATION_ROOT" \
+  --out "$NARRATION_ROOT/audio_meta.json" \
+  --only tts \
+  --provider "$TTS_PROVIDER" \
+  --voice "$TTS_VOICE" \
+  --lang "$TTS_LANG" \
+  --speed "$TTS_SPEED"
+```
+<!-- md2vid-media-contract:end -->
+
+Run `npm run transcribe` immediately after successful synthesis. Any request change invalidates generated audio, transcript timings, captions, cues, bindings, and render evidence; re-synthesize and transcribe before authoring or rebuilding downstream visuals.
+
 ## Pipeline
 
 First complete the two neutral planning gates without choosing output paths:
@@ -167,7 +232,7 @@ Use this for the default HyperFrames workflow or one explicitly requested Remoti
    - `<slug>/STORYBOARD.md` — coverage map, knowledge type → treatment, focal, coral moment, narration-cued reveals, and held landing per frame.
    - `<slug>/SCRIPT.md` — one timed narration block per frame.
    - Review `<slug>/audio_request.json.example`, then prepare `<slug>/audio_request.json`.
-   - Use `/hyperframes-media` to generate `<slug>/audio_meta.json` and `<slug>/assets/voice/*.wav`.
+   - Use the narration media contract above to generate `<slug>/audio_meta.json` and `<slug>/assets/voice/*.wav`.
    - Fill `<slug>/video.config.json` `slugs`, timing, and `visualSync`. Voice IDs may be meaningful but must be unique; frame sequence follows `voices[]` array order. New scaffolds are `required`; legacy projects without beats remain actionable `warn` mode until migration.
 
 3. Resolve semantic timing before visual authoring:

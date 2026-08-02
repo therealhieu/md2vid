@@ -62,6 +62,29 @@ test("plan command depends only on the neutral planning boundary", () => {
   assert.doesNotMatch(source, /frameworks\//);
 });
 
+test("production TypeScript contains no media-use locator, runner, or audio synthesis route", () => {
+  const portableCommand = 'node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs"';
+  const productionRoots = [ENGINE, FRAMEWORKS_DIR, join(REPO_ROOT, "scripts"), join(REPO_ROOT, "bin")];
+  const skillReferences = join(REPO_ROOT, "scripts", "skill_references.ts");
+
+  for (const file of productionRoots.flatMap(tsFiles)) {
+    if (file === skillReferences) continue;
+    const source = readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /skills\/media-use/);
+    assert.doesNotMatch(source, /audio\/scripts\/audio\.mjs/);
+    assert.doesNotMatch(source, /["']audio["']\s*:\s*audioRun/);
+  }
+
+  const source = readFileSync(skillReferences, "utf8");
+  assert.match(source, new RegExp(portableCommand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(source.split(portableCommand).length - 1, 1);
+  assert.doesNotMatch(source, /node:child_process/);
+  assert.doesNotMatch(source, /\b(?:spawn|exec|execFile)(?:Sync)?\s*\(/);
+  assert.doesNotMatch(source, /\$HOME|CLAUDE_CONFIG_DIR/);
+  assert.doesNotMatch(source, /(?:resolve|join)\([^\n]*media-use/);
+  assert.doesNotMatch(readFileSync(join(REPO_ROOT, "bin", "md2vid.ts"), "utf8"), /["']audio["']\s*:/);
+});
+
 test("frameworks/* import nothing from a sibling framework", () => {  const fwNames = readdirSync(FRAMEWORKS_DIR).filter((n) =>
     statSync(join(FRAMEWORKS_DIR, n)).isDirectory()
   );

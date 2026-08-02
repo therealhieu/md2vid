@@ -8,10 +8,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import { isPublicSnapshotRepositoryCheckout } from "../../scripts/public_snapshot_checkout.ts";
+import { findStaleSkillGuidance } from "../../scripts/skill_references.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -69,16 +71,30 @@ test("frontmatter name is md2vid (invocation /md2vid)", () => {
 });
 
 test("installed skill tree contains only portable guidance", () => {
-  const markdown = readMarkdownTree(SKILL_ROOT);
-  const allText = markdown.map((file) => file.body).join("\n");
-
-  assert.doesNotMatch(allText, /(?:\.\.\/)*scripts\/\S+\.(?:ts|mjs)/);
-  assert.doesNotMatch(allText, /\.\.\/\.\.\/scripts/);
-  assert.doesNotMatch(allText, /@\.\.\/\.\.\/docs/);
-  assert.doesNotMatch(allText, /docs\/standards\//);
-  assert.doesNotMatch(allText, /outputs\/hash-table-example\//);
-  assert.doesNotMatch(allText, /frameworks\/[^/\s]+\/templates(?:\/\S+)?/);
+  assert.deepEqual(findStaleSkillGuidance(SKILL_ROOT), []);
   assert.match(readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8"), /compatibility:.*Node\.js >=22\.18/s);
+});
+
+test("skill portability permits only the exact non-executing media-use command", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-skill-portability-"));
+  const portable = 'node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs"';
+  try {
+    const path = join(root, "SKILL.md");
+    writeFileSync(path, `${portable}\n`);
+    assert.deepEqual(findStaleSkillGuidance(root), []);
+
+    for (const nearMatch of [
+      `${portable} --request audio_request.json`,
+      'node "$OTHER_ROOT/audio/scripts/audio.mjs"',
+      'node "$MEDIA_USE_ROOT/audio/scripts/other.mjs"',
+      'node "$MEDIA_USE_ROOT/audio/scripts/audio.ts"',
+    ]) {
+      writeFileSync(path, `${nearMatch}\n`);
+      assert.deepEqual(findStaleSkillGuidance(root), ["SKILL.md"], nearMatch);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("install-skill documents the configured Claude destination", () => {
