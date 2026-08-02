@@ -10,6 +10,7 @@
 # Local agent/tool state
 .superpowers/
 .worktrees/
+.claude/worktrees/
 .logs/
 .tmp/
 .samples/
