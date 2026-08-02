@@ -43,6 +43,27 @@ test("legacy frames omit optional visual timing fields", () => {
   assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
 });
 
+test("serializes a legacy plan without visual timing keys", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "Intro", start: 1, end: 1.5 }])]),
+    CFG({ slugs: { intro: "01-intro" } }),
+  );
+  const serialized = JSON.parse(JSON.stringify(result));
+
+  assert.deepEqual(serialized.frames[0], {
+    id: "intro",
+    frameNum: 1,
+    slug: "01-intro",
+    voicePath: "assets/voice/intro.wav",
+    voiceDur: 5,
+    frameDur: 5,
+    start: 0,
+    words: [{ text: "Intro", start: 1, end: 1.5 }],
+  });
+  assert.equal(Object.hasOwn(serialized.frames[0], "visualKind"), false);
+  assert.equal(Object.hasOwn(serialized.frames[0], "visualBeats"), false);
+});
+
 test("plan attaches resolved visual beats by frame slug", () => {
   const metadata = meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]);
   const result = plan(metadata, CFG({ slugs: { intro: "intro" } }), {
@@ -58,6 +79,34 @@ test("plan attaches resolved visual beats by frame slug", () => {
   assert.equal(result.frames[0].visualKind, "workflow");
   assert.equal(result.frames[0].visualBeats?.[0].id, "first");
   assert.equal(result.frames[0].visualBeats?.[0].start, metadata.voices[0].words[0].start);
+});
+
+test("attaches beats only to frames named by the visual specification", () => {
+  const metadata = meta([
+    V("intro", 5, [{ text: "First", start: 1, end: 1.5 }]),
+    V("outro", 6, [{ text: "Last", start: 2, end: 2.5 }]),
+  ]);
+  const config = CFG({ slugs: { intro: "intro", outro: "outro" } });
+  const legacy = plan(metadata, config);
+  const result = plan(metadata, config, {
+    version: 1,
+    frames: {
+      intro: {
+        kind: "focal",
+        beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }],
+      },
+    },
+  });
+  const serialized = JSON.parse(JSON.stringify(result));
+
+  assert.equal(result.frames[0].visualKind, "focal");
+  assert.equal(result.frames[0].visualBeats?.[0].id, "first");
+  assert.equal(Object.hasOwn(result.frames[1], "visualKind"), false);
+  assert.equal(Object.hasOwn(result.frames[1], "visualBeats"), false);
+  assert.equal(Object.hasOwn(serialized.frames[1], "visualKind"), false);
+  assert.equal(Object.hasOwn(serialized.frames[1], "visualBeats"), false);
+  assert.deepEqual(result.frames[1], legacy.frames[1]);
+  assert.deepEqual(result.captionGroups, legacy.captionGroups);
 });
 
 test("plan mode off ignores supplied beat data and omits visual fields", () => {
@@ -81,6 +130,33 @@ test("resolves the legacy visual sync policy defaults", () => {
     maxLead: 0.25,
     maxLag: 0.75,
     minLanding: 1,
+  });
+});
+
+test("resolves supplied visual sync policy keys over legacy defaults", () => {
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { mode: "off" } }), {
+    mode: "off",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLead: 0 } }), {
+    mode: "warn",
+    maxLead: 0,
+    maxLag: 0.75,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLag: 1.5 } }), {
+    mode: "warn",
+    maxLead: 0.25,
+    maxLag: 1.5,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { minLanding: 0.5 } }), {
+    mode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    minLanding: 0.5,
   });
 });
 

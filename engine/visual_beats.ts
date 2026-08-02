@@ -23,6 +23,8 @@ interface PhraseMatch {
 const VISUAL_KINDS = new Set(["focal", "workflow", "comparison", "sequence"]);
 const BEAT_FIELDS = new Set(["id", "text", "cue", "sourceRefs", "workflowStep", "tolerance"]);
 const TOLERANCE_FIELDS = new Set(["maxLead", "maxLag"]);
+const DIAGNOSTIC_TRANSCRIPT_WORD_LIMIT = 12;
+const DIAGNOSTIC_CANDIDATE_LIMIT = 8;
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -167,10 +169,14 @@ function validateFrame(value: unknown, path: string): AuthoredVisualFrame {
   }
   const beats = value.beats.map((beat, index) => validateBeat(beat, `${path}.beats[${index}]`));
 
-  const ids = new Set<string>();
-  for (const beat of beats) {
-    if (ids.has(beat.id)) fail(path, `duplicate beat id "${beat.id}"`);
-    ids.add(beat.id);
+  const idPaths = new Map<string, string>();
+  for (const [index, beat] of beats.entries()) {
+    const idPath = `${path}.beats[${index}].id`;
+    const firstPath = idPaths.get(beat.id);
+    if (firstPath !== undefined) {
+      fail(idPath, `duplicate beat id "${beat.id}"; first declared at ${firstPath}`);
+    }
+    idPaths.set(beat.id, idPath);
   }
   validateWorkflowSteps(beats, path, kind);
 
@@ -230,6 +236,29 @@ function matchingPhraseLocations(tokens: readonly NormalizedToken[], phraseToken
   return matches;
 }
 
+function boundedTranscriptContext(frame: PlanFrame): string {
+  const transcript = frame.words
+    .slice(0, DIAGNOSTIC_TRANSCRIPT_WORD_LIMIT)
+    .map((word, wordIndex) => `${wordIndex}:${JSON.stringify(word.text)}`)
+    .join(" ");
+  const suffix = frame.words.length > DIAGNOSTIC_TRANSCRIPT_WORD_LIMIT ? " …" : "";
+  return `[${transcript}${suffix}]`;
+}
+
+function phraseRecoveryContext(frame: PlanFrame, matches: readonly PhraseMatch[]): string {
+  const candidates = matches
+    .slice(0, DIAGNOSTIC_CANDIDATE_LIMIT)
+    .map((match, index) => {
+      const text = frame.words
+        .slice(match.firstWordIndex, match.lastWordIndex + 1)
+        .map((word) => word.text)
+        .join(" ");
+      return `#${index + 1} words ${match.firstWordIndex}-${match.lastWordIndex} ${JSON.stringify(text)}`;
+    });
+  const suffix = matches.length > DIAGNOSTIC_CANDIDATE_LIMIT ? " …" : "";
+  return `transcript: ${boundedTranscriptContext(frame)}; candidates: ${candidates.length === 0 ? "none" : `${candidates.join(", ")}${suffix}`}`;
+}
+
 function resolvedStart(frame: PlanFrame, wordIndex: number, path: string): number {
   const word = frame.words[wordIndex];
   if (word === undefined || typeof word.start !== "number" || !Number.isFinite(word.start) || word.start < 0 || word.start > frame.voiceDur) {
@@ -257,10 +286,16 @@ function resolveBeat(
     const phraseTokens = normalizedTextTokens(beat.cue.phrase);
     if (phraseTokens.length === 0) fail(`${path}.cue.phrase`, "has no normalized tokens");
     const matches = matchingPhraseLocations(normalizedTokens(frame.words), phraseTokens);
-    if (matches.length === 0) fail(`${path}.cue.phrase`, `cue phrase "${beat.cue.phrase}" was not found`);
+    const recoveryContext = phraseRecoveryContext(frame, matches);
+    if (matches.length === 0) {
+      fail(`${path}.cue.phrase`, `cue phrase "${beat.cue.phrase}" was not found; ${recoveryContext}`);
+    }
     if (beat.cue.occurrence > matches.length) {
       const matchLabel = matches.length === 1 ? "match" : "matches";
-      fail(`${path}.cue.occurrence`, `occurrence ${beat.cue.occurrence} is invalid; only ${matches.length} ${matchLabel}`);
+      fail(
+        `${path}.cue.occurrence`,
+        `occurrence ${beat.cue.occurrence} is invalid; only ${matches.length} ${matchLabel}; ${recoveryContext}`,
+      );
     }
     ({ firstWordIndex, lastWordIndex } = matches[beat.cue.occurrence - 1]);
   }
@@ -306,7 +341,14 @@ export function resolveVisualBeats(
   const resolved = new Map<string, { visualKind?: AuthoredVisualFrame["kind"]; visualBeats: ResolvedVisualBeat[] }>();
 
   for (const [slug, authored] of Object.entries(validatedSpec.frames)) {
-    const frame = bySlug.get(slug) ?? fail(`${path}.frames.${slug}`, "unknown frame slug");
+    const frame = bySlug.get(slug);
+    if (frame === undefined) {
+      const availableSlugs = [...bySlug.keys()].sort().map((availableSlug) => JSON.stringify(availableSlug));
+      fail(
+        `${path}.frames.${slug}`,
+        `unknown frame slug ${JSON.stringify(slug)}; available frame slugs: ${availableSlugs.join(", ") || "none"}`,
+      );
+    }
     const visualBeats = authored.beats.map((beat, index) =>
       resolveBeat(beat, frame, defaults, `${path}.frames.${slug}.beats[${index}]`),
     );

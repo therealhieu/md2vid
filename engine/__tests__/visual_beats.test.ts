@@ -49,6 +49,29 @@ test("resolves word index and phrase occurrence to original word timing", () => 
   ]);
 });
 
+test("resolves a repeated normalized phrase by explicit occurrence", () => {
+  const frame: PlanFrame = {
+    ...FRAME,
+    words: [
+      { text: "Repeat—me", start: 1, end: 1.5 },
+      { text: "repeat me!", start: 6, end: 6.5 },
+    ],
+  };
+  const spec: VisualBeatSpec = {
+    version: 1,
+    frames: {
+      "reserve-flow": {
+        beats: [{ id: "second-repeat", text: "Repeat", cue: { phrase: "repeat me", occurrence: 2 } }],
+      },
+    },
+  };
+
+  const [beat] = resolveVisualBeats(spec, [frame], POLICY).get("reserve-flow")!.visualBeats;
+  assert.equal(beat.cueWordIndex, 1);
+  assert.equal(beat.start, 6);
+  assert.equal(beat.cueText, "repeat me!");
+});
+
 test("retains prototype-like frame slugs during validation", () => {
   const frame: PlanFrame = { ...FRAME, slug: "__proto__" };
   const spec: VisualBeatSpec = {
@@ -150,7 +173,11 @@ test("rejects malformed beat fields and cue union branches", () => {
   const cases: Array<[unknown, RegExp]> = [
     [{ id: "", text: "Beat", cue: { wordIndex: 0 } }, /id.*non-empty string/],
     [{ id: "beat", text: "", cue: { wordIndex: 0 } }, /text.*non-empty string/],
+    [{ id: "beat", text: "Beat", cue: null }, /cue.*must be an object/],
+    [{ id: "beat", text: "Beat", cue: [] }, /cue.*must be an object/],
     [{ id: "beat", text: "Beat", cue: {} }, /cue.*exactly one/],
+    [{ id: "beat", text: "Beat", cue: { wordIndex: 0, extra: true } }, /cue.*exactly one/],
+    [{ id: "beat", text: "Beat", cue: { phrase: "beat", occurrence: 1, extra: true } }, /cue.*exactly one/],
     [{ id: "beat", text: "Beat", cue: { wordIndex: 0, phrase: "beat", occurrence: 1 } }, /cue.*exactly one/],
     [{ id: "beat", text: "Beat", cue: { wordIndex: 1.5 } }, /wordIndex.*non-negative integer/],
     [{ id: "beat", text: "Beat", cue: { phrase: " ", occurrence: 1 } }, /phrase.*non-empty string/],
@@ -206,6 +233,70 @@ test("rejects duplicate beat IDs and invalid workflow step sequences", () => {
       expected,
     );
   }
+});
+
+test("reports actionable recovery context for cue-resolution failures", () => {
+  assert.throws(
+    () => resolveVisualBeats(
+      { version: 1, frames: { unknown: { beats: [{ id: "beat", text: "Beat", cue: { wordIndex: 0 } }] } } },
+      [{ ...FRAME, slug: "alpha" }, FRAME],
+      POLICY,
+      "visual_beats.json",
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /unknown frame slug "unknown"/);
+      assert.match(error.message, /available frame slugs: "alpha", "reserve-flow"/);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => validateVisualBeatSpec({
+      version: 1,
+      frames: {
+        "reserve-flow": {
+          beats: [
+            { id: "repeat", text: "First", cue: { wordIndex: 0 } },
+            { id: "repeat", text: "Second", cue: { wordIndex: 1 } },
+          ],
+        },
+      },
+    }, "visual_beats.json"),
+    /frames\.reserve-flow\.beats\[1\]\.id: duplicate beat id "repeat"; first declared at visual_beats\.json\.frames\.reserve-flow\.beats\[0\]\.id/,
+  );
+
+  assert.throws(
+    () => resolveVisualBeats(
+      { version: 1, frames: { "reserve-flow": { beats: [{ id: "beat", text: "Beat", cue: { phrase: "missing", occurrence: 1 } }] } } },
+      [FRAME],
+      POLICY,
+      "visual_beats.json",
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /cue phrase "missing" was not found/);
+      assert.match(error.message, /transcript: \[0:"First"/);
+      assert.match(error.message, /candidates: none/);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () => resolveVisualBeats(
+      { version: 1, frames: { "reserve-flow": { beats: [{ id: "beat", text: "Beat", cue: { phrase: "reserve", occurrence: 2 } }] } } },
+      [FRAME],
+      POLICY,
+      "visual_beats.json",
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /occurrence 2 is invalid; only 1 match/);
+      assert.match(error.message, /transcript: \[0:"First"/);
+      assert.match(error.message, /candidates: #1 words 1-1 "reserve"/);
+      return true;
+    },
+  );
 });
 
 test("rejects unknown slugs and invalid resolved cue anchors", () => {

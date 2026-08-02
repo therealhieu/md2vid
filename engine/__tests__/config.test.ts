@@ -64,6 +64,46 @@ test("render policy accepts a stricter 30 fps minimum", () => {
   assert.equal(config.render?.minimumFinalFps, 30);
 });
 
+test("accepts visual sync and render policy numeric boundaries", () => {
+  assert.deepEqual(
+    validateVideoConfig({
+      visualSync: { mode: "off", maxLead: 0, maxLag: 0, minLanding: 0.5 },
+      render: { profile: "gif", fps: 1, minimumFinalFps: 24 },
+    }, "output.config.json"),
+    {
+      visualSync: { mode: "off", maxLead: 0, maxLag: 0, minLanding: 0.5 },
+      render: { profile: "gif", fps: 1, minimumFinalFps: 24 },
+    },
+  );
+});
+
+test("rejects malformed visual sync and render policy values", () => {
+  const cases: Array<[string, unknown, string, RegExp]> = [
+    ["visualSync mode", { visualSync: { mode: "strict" } }, "video.config.json", /visualSync\.mode/],
+    ["visualSync maxLead negative", { visualSync: { maxLead: -0.01 } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLead non-finite", { visualSync: { maxLead: Number.NaN } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLead wrong type", { visualSync: { maxLead: "0" } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLag negative", { visualSync: { maxLag: -0.01 } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync maxLag non-finite", { visualSync: { maxLag: Number.POSITIVE_INFINITY } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync maxLag wrong type", { visualSync: { maxLag: "0" } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync minLanding below floor", { visualSync: { minLanding: 0.49 } }, "video.config.json", /visualSync\.minLanding/],
+    ["visualSync minLanding non-finite", { visualSync: { minLanding: Number.NaN } }, "video.config.json", /visualSync\.minLanding/],
+    ["visualSync minLanding wrong type", { visualSync: { minLanding: "1" } }, "video.config.json", /visualSync\.minLanding/],
+    ["render profile", { render: { profile: "preview" } }, "output.config.json", /render\.profile/],
+    ["render fps zero", { render: { fps: 0 } }, "output.config.json", /render\.fps/],
+    ["render fps negative", { render: { fps: -1 } }, "output.config.json", /render\.fps/],
+    ["render fps non-finite", { render: { fps: Number.POSITIVE_INFINITY } }, "output.config.json", /render\.fps/],
+    ["render fps wrong type", { render: { fps: "30" } }, "output.config.json", /render\.fps/],
+    ["render minimumFinalFps below floor", { render: { minimumFinalFps: 23 } }, "output.config.json", /render\.minimumFinalFps/],
+    ["render minimumFinalFps non-finite", { render: { minimumFinalFps: Number.NaN } }, "output.config.json", /render\.minimumFinalFps/],
+    ["render minimumFinalFps wrong type", { render: { minimumFinalFps: "24" } }, "output.config.json", /render\.minimumFinalFps/],
+  ];
+
+  for (const [name, config, path, expected] of cases) {
+    assert.throws(() => validateVideoConfig(config, path), expected, name);
+  }
+});
+
 test("accepts optional defaults and null-prototype config records", () => {
   const slugs = Object.create(null) as Record<string, string>;
   slugs.intro = "01-intro";
