@@ -31,6 +31,8 @@ import {
   parseGsapUrls,
   parseVoiceUrls,
   REPO_ROOT,
+  RETAINED_NARRATION_STAGES,
+  RetainedNarrationStageSequence,
   runInstalledCli,
   runStage,
   runWithHyperframesReadinessRetry,
@@ -38,6 +40,7 @@ import {
   stopProcessTree,
   terminateProcessTree,
   useSuppliedArtifact,
+  validateRetainedAbsoluteWords,
   waitForExit,
   withPackLock,
   type CommandRunner,
@@ -68,9 +71,8 @@ test("release smoke status reports generated check scripts for both frameworks",
   assert.doesNotMatch(source, /build\/typecheck\/still/);
 });
 
-test("packed release narration runs the retained Kokoro sequence in order", () => {
-  const harness = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
-  const operations = [
+test("packed release narration declares and enforces its semantic stage order", async () => {
+  assert.deepEqual(RETAINED_NARRATION_STAGES, [
     "assert scaffold audio_request.json.example",
     "copy versioned retained fixture request",
     "run installed narration-check",
@@ -82,13 +84,26 @@ test("packed release narration runs the retained Kokoro sequence in order", () =
     "restore request",
     "build/check HyperFrames",
     "build/check Remotion",
-  ];
-  let prior = -1;
-  for (const operation of operations) {
-    const index = harness.indexOf(operation);
-    assert.ok(index > prior, `release harness must sequence ${operation}`);
-    prior = index;
+  ]);
+  const sequence = new RetainedNarrationStageSequence();
+  await sequence.run(RETAINED_NARRATION_STAGES[0], () => undefined);
+  await assert.rejects(
+    sequence.run(RETAINED_NARRATION_STAGES[2], () => undefined),
+    /must run after copy versioned retained fixture request/,
+  );
+
+  const hyperframesSequence = new RetainedNarrationStageSequence();
+  for (const stage of RETAINED_NARRATION_STAGES.slice(0, 10)) {
+    await hyperframesSequence.run(stage, () => undefined);
   }
+  assert.doesNotThrow(() => hyperframesSequence.complete("build/check HyperFrames"));
+
+  const remotionSequence = new RetainedNarrationStageSequence();
+  for (const stage of RETAINED_NARRATION_STAGES.slice(0, 9)) {
+    await remotionSequence.run(stage, () => undefined);
+  }
+  await remotionSequence.run("build/check Remotion", () => undefined);
+  assert.doesNotThrow(() => remotionSequence.complete("build/check Remotion"));
 
   const status = readFileSync(join(import.meta.dirname, "run.ts"), "utf8");
   assert.match(status, /fixture-backed Kokoro am_michael narration evidence/);
@@ -174,17 +189,25 @@ test("retained Kokoro fixture preserves actual WAV and absolute transcript integ
     assert.equal(voice.duration_s, snapshot.duration_s, `${voice.id} safe WAV duration`);
     const words = expectedWords[voice.id];
     assert.ok(Array.isArray(words) && words.length > 0, `${voice.id} retained transcript must be non-empty`);
-    let previousEnd = 0;
-    for (const word of words) {
-      for (const proportionalField of ["startRatio", "endRatio", "ratio", "durationRatio"]) {
-        assert.equal(Object.hasOwn(word, proportionalField), false, `${voice.id} must not retain ${proportionalField}`);
-      }
-      assert.ok(Number.isFinite(word.start) && Number.isFinite(word.end), `${voice.id} word times must be finite`);
-      assert.ok(word.start >= previousEnd, `${voice.id} words must be ordered without overlap`);
-      assert.ok(word.end > word.start && word.end <= snapshot.duration_s, `${voice.id} word must fit its safe WAV duration`);
-      previousEnd = word.end;
-    }
+    assert.deepEqual(
+      validateRetainedAbsoluteWords(voice.id, words, snapshot.duration_s),
+      words,
+      `${voice.id} must retain only ordered, safe absolute word timing`,
+    );
   }
+});
+
+test("retained transcript validation rejects an alternative proportional timing field before replay", () => {
+  assert.throws(
+    () => validateRetainedAbsoluteWords("intro", [{
+      id: "w0",
+      text: "Introduce",
+      start: 0.13,
+      end: 0.7,
+      timeRatio: 0.5,
+    }], 1.792),
+    /must contain only id, text, start, and end/,
+  );
 });
 
 test("HyperFrames smoke retries one exact zero-duration readiness failure", () => {
@@ -370,6 +393,17 @@ test("HyperFrames smoke samples the first-frame hidden state before its generate
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
   assert.match(source, /sampleAt\(frame1Reveal\.before\)\.frame1FutureOpacity/);
   assert.doesNotMatch(source, /sampleAt\(0\.5\)\.frame1FutureOpacity/);
+});
+
+test("HyperFrames smoke labels true initial, pre-cue, and pre-host samples distinctly", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /const initialGlobalSample = frameSafeSeekTime\(0, fps\)/);
+  assert.match(source, /const frame2PreHostSample = frameSafeSeekTime\(frame2HostStart, fps\)/);
+  assert.match(source, /hidden at global time zero/);
+  assert.match(source, /hidden immediately before its resolved cue/);
+  assert.match(source, /frame-quantized pre-host sample/);
+  assert.doesNotMatch(source, /frame 1 future element must start hidden/);
+  assert.doesNotMatch(source, /zero at host start/);
 });
 
 test("HyperFrames smoke derives post-start local time from the frame-safe global sample", () => {

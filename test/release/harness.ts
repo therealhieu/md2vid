@@ -1114,6 +1114,53 @@ interface RetainedKokoroFixture {
   };
 }
 
+export const RETAINED_NARRATION_STAGES = [
+  "assert scaffold audio_request.json.example",
+  "copy versioned retained fixture request",
+  "run installed narration-check",
+  "capture test-owned media arguments",
+  "copy retained Kokoro/Michael WAVs",
+  "run installed transcribe with injected transcript provider",
+  "assert narration_evidence.json",
+  "mutate spoken text and prove planning rejects stale evidence",
+  "restore request",
+  "build/check HyperFrames",
+  "build/check Remotion",
+] as const;
+
+type RetainedNarrationStage = typeof RETAINED_NARRATION_STAGES[number];
+type RetainedNarrationTerminalStage =
+  | typeof RETAINED_NARRATION_STAGES[9]
+  | typeof RETAINED_NARRATION_STAGES[10];
+
+export class RetainedNarrationStageSequence {
+  #next = 0;
+  #terminalStage: RetainedNarrationTerminalStage | undefined;
+
+  async run<T>(stage: RetainedNarrationStage, operation: () => T | Promise<T>): Promise<T> {
+    const firstFrameworkStage = RETAINED_NARRATION_STAGES.indexOf("build/check HyperFrames");
+    if (this.#next < firstFrameworkStage) {
+      const expected = RETAINED_NARRATION_STAGES[this.#next];
+      assert.equal(stage, expected, `retained narration stage ${stage} must run after ${expected}`);
+    } else {
+      assert.equal(this.#terminalStage, undefined, "retained narration can execute only one framework terminal stage");
+      if (stage !== "build/check HyperFrames" && stage !== "build/check Remotion") {
+        throw new Error(`retained narration stage must finish with a framework build/check, got ${stage}`);
+      }
+      this.#terminalStage = stage;
+    }
+    const result = await operation();
+    this.#next++;
+    return result;
+  }
+
+  complete(terminalStage: RetainedNarrationTerminalStage): void {
+    const expectedCount = RETAINED_NARRATION_STAGES.indexOf("build/check HyperFrames") + 1;
+    assert.equal(this.#terminalStage, terminalStage, `retained narration stages stopped before ${terminalStage}`);
+    assert.equal(this.#next, expectedCount, `retained narration stages must end after ${terminalStage}`);
+  }
+}
+
 function assertRetainedKokoroFixture(meta: FixtureMeta): void {
   assert.equal(meta.kind, "retained-kokoro-fixture");
   assert.equal(meta.freshSynthesisDuringTest, false);
@@ -1122,6 +1169,39 @@ function assertRetainedKokoroFixture(meta: FixtureMeta): void {
   assert.equal(meta.provider, "kokoro");
   assert.equal(meta.voice, "am_michael");
   assert.equal(meta.requestedSpeed, 0.9);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function validateRetainedAbsoluteWords(
+  voiceId: string,
+  value: unknown,
+  duration_s: number,
+): RetainedTranscriptWord[] {
+  assert.ok(Number.isFinite(duration_s) && duration_s > 0, `${voiceId} must have a positive safe WAV duration`);
+  assert.ok(Array.isArray(value) && value.length > 0, `${voiceId} retained transcript must be non-empty`);
+  let previousEnd = 0;
+  return value.map((candidate, index) => {
+    assert.ok(isRecord(candidate), `${voiceId} word ${index} must be an object`);
+    assert.deepEqual(
+      Object.keys(candidate).sort(),
+      ["end", "id", "start", "text"],
+      `${voiceId} word ${index} must contain only id, text, start, and end`,
+    );
+    const { id, text, start, end } = candidate;
+    assert.ok(typeof id === "string" && id.length > 0, `${voiceId} word ${index} id must be non-empty`);
+    assert.ok(typeof text === "string" && text.length > 0, `${voiceId} word ${index} text must be non-empty`);
+    assert.ok(
+      typeof start === "number" && typeof end === "number" && Number.isFinite(start) && Number.isFinite(end),
+      `${voiceId} word ${index} times must be finite`,
+    );
+    assert.ok(start >= previousEnd, `${voiceId} words must be ordered without overlap`);
+    assert.ok(end > start && end <= duration_s, `${voiceId} word ${index} must fit its safe WAV duration`);
+    previousEnd = end;
+    return { id, text, start, end };
+  });
 }
 
 function readRetainedKokoroFixture(): RetainedKokoroFixture {
@@ -1143,8 +1223,9 @@ function readRetainedKokoroFixture(): RetainedKokoroFixture {
 
   const transcriptBytes = readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "expected_words.json"));
   assert.equal(createHash("sha256").update(transcriptBytes).digest("hex"), meta.transcriptSha256);
-  const expectedWords = JSON.parse(transcriptBytes.toString("utf8")) as Record<string, RetainedTranscriptWord[]>;
-  assert.deepEqual(Object.keys(expectedWords), request.lines.map((line) => line.id));
+  const expectedWordsJson: unknown = JSON.parse(transcriptBytes.toString("utf8"));
+  assert.ok(isRecord(expectedWordsJson), "retained transcript must be an object keyed by voice ID");
+  assert.deepEqual(Object.keys(expectedWordsJson), request.lines.map((line) => line.id));
   for (const [path, digest] of Object.entries(meta.wavSha256)) {
     assert.equal(
       createHash("sha256").update(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, path))).digest("hex"),
@@ -1158,6 +1239,12 @@ function readRetainedKokoroFixture(): RetainedKokoroFixture {
   assert.equal(audioMeta.voice_id, meta.voice);
   assert.deepEqual(audioMeta.voices.map((voice) => voice.id), request.lines.map((line) => line.id));
   assert.ok(audioMeta.voices.every((voice) => voice.words.length === 0), "retained metadata must be pre-transcription input");
+  const expectedWords: Record<string, RetainedTranscriptWord[]> = Object.fromEntries(
+    audioMeta.voices.map((voice) => [
+      voice.id,
+      validateRetainedAbsoluteWords(voice.id, expectedWordsJson[voice.id], voice.duration_s),
+    ]),
+  );
   return { meta, request, expectedWords, audioMeta };
 }
 
@@ -1581,6 +1668,7 @@ function smokeSeekPoints(
   fps: number,
 ): number[] {
   return [
+    0,
     0.5,
     frame2HostStart - 0.1,
     frame2HostStart,
@@ -1691,7 +1779,9 @@ async function assertHyperframesBrowserExecution(
   assert.ok(frame1 && frame2, "packed smoke plan must contain both frame timings");
   const frame2HostStart = frame2.start;
   assert.ok(frame2HostStart > 0, "second smoke frame must start at a nonzero global time");
-  const frame2StartSample = frameSafeSeekTime(frame2HostStart, fps);
+  const initialGlobalSample = frameSafeSeekTime(0, fps);
+  const frame2PreHostSample = frameSafeSeekTime(frame2HostStart, fps);
+  assert.ok(frame2PreHostSample < frame2HostStart, "frame 2 frame-quantized pre-host sample must precede the nominal host start");
   const revealChecks = deriveSmokeRevealChecks(expectedFrames, visualBindings, fps);
   const globalSeekPoints = smokeSeekPoints(frame2HostStart, frame2.frameDur, revealChecks, fps);
   const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
@@ -1982,8 +2072,8 @@ async function assertHyperframesBrowserExecution(
               }
               const actualClasses = Array.from(captionHost.querySelectorAll(".caption-word") as any[])
                 .map((element: any) => String(element.className));
-              const captionBoundaryIsExact = Math.abs(time - frameTimings["02-smoke"].sampleStart) < 0.001;
-              if (!captionBoundaryIsExact && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
+              const captionAtQuantizedPreHostSample = Math.abs(time - frameTimings["02-smoke"].preHostSample) < 0.001;
+              if (!captionAtQuantizedPreHostSample && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
                 throw new Error(
                   `caption classes at ${time} (player=${player.getTime()}, main=${main.time()}/${main.duration()} paused=${main.paused()}, captions=${captions.time()}/${captions.duration()} paused=${captions.paused()}): ${JSON.stringify(actualClasses)}`,
                 );
@@ -1996,7 +2086,7 @@ async function assertHyperframesBrowserExecution(
                 .filter((entry) => entry.visible)
                 .map((entry) => entry.index);
               if (
-                !captionBoundaryIsExact &&
+                !captionAtQuantizedPreHostSample &&
                 JSON.stringify(visibleGroupIndexes) !== JSON.stringify(expectedVisibleGroups)
               ) {
                 throw new Error(`visible caption groups at ${time}: ${JSON.stringify(visibleGroupIndexes)}`);
@@ -2046,7 +2136,7 @@ async function assertHyperframesBrowserExecution(
               "02-smoke": {
                 start: frame2.start,
                 frameDur: frame2.frameDur,
-                sampleStart: frame2StartSample,
+                preHostSample: frame2PreHostSample,
               },
             },
           });
@@ -2087,12 +2177,13 @@ async function assertHyperframesBrowserExecution(
     }
     const frame1Reveal = revealChecks.find((check) => check.frameSlug === "01-smoke")!;
     const frame2Reveal = revealChecks.find((check) => check.frameSlug === "02-smoke")!;
-    assert.ok(sampleAt(frame1Reveal.before).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
+    assert.ok(sampleAt(initialGlobalSample).frame1FutureOpacity < 0.01, "frame 1 future element must be hidden at global time zero");
+    assert.ok(sampleAt(frame1Reveal.before).frame1FutureOpacity < 0.01, "frame 1 future element must be hidden immediately before its resolved cue");
     assert.equal(sampleAt(frame1Reveal.after).frame1LateColor, "rgb(20, 20, 19)", "frame 1 authored handoff must coexist with the generated reveal");
-    assert.equal(sampleAt(frame2StartSample).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
+    assert.equal(sampleAt(frame2PreHostSample).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral at the frame-quantized pre-host sample");
 
     assert.equal(sampleAt(beforeFrame2).frame2LocalTime, 0, "frame 2 local time must clamp before host start");
-    assert.equal(sampleAt(frame2StartSample).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
+    assert.equal(sampleAt(frame2PreHostSample).frame2LocalTime, 0, "frame 2 local time must remain clamped at the frame-quantized pre-host sample");
     const expectedAfterFrame2Local = afterFrame2 - frame2HostStart;
     assert.ok(
       Math.abs(sampleAt(afterFrame2).frame2LocalTime - expectedAfterFrame2Local) < 0.001,
@@ -2178,29 +2269,45 @@ export async function runFrameworkSmoke(
   runInstalledCli(context, scaffoldArgs, caseRoot);
   const project = join(caseRoot, framework);
   const shared = project;
-  assertCompleteScaffold(project, framework);
-  // assert scaffold audio_request.json.example
-  assertScaffoldNarrationRequest(project);
-  assertGeneratedPackageScripts(project, framework);
-  assertNoRepoRelativePaths(project);
-  const retained = readRetainedKokoroFixture();
-  // copy versioned retained fixture request
-  copyRetainedNarrationRequest(project);
-  // run installed narration-check
-  const narrationCheck = runInstalledCli(context, ["narration-check", "."], project);
-  assert.match(narrationCheck, /PASS \[narration\]/);
-  // capture test-owned media arguments
-  captureTestOwnedMediaArguments(project, retained.request);
-  // copy retained Kokoro/Michael WAVs
-  stageRetainedKokoroAudio(project, retained);
-  // run installed transcribe with injected transcript provider
-  await runInstalledFixtureTranscription(context, project, retained);
-  // assert narration_evidence.json
-  await assertRetainedNarrationArtifacts(context, project, retained);
-  // mutate spoken text and prove planning rejects stale evidence
-  const originalRequest = mutateNarrationAndAssertPlanRejects(context, project);
-  // restore request
-  restoreRetainedNarrationRequest(project, originalRequest);
+  const narrationStages = new RetainedNarrationStageSequence();
+  await narrationStages.run("assert scaffold audio_request.json.example", () => {
+    assertCompleteScaffold(project, framework);
+    assertScaffoldNarrationRequest(project);
+    assertGeneratedPackageScripts(project, framework);
+    assertNoRepoRelativePaths(project);
+  });
+  let retained: RetainedKokoroFixture | undefined;
+  await narrationStages.run("copy versioned retained fixture request", () => {
+    retained = readRetainedKokoroFixture();
+    copyRetainedNarrationRequest(project);
+  });
+  if (!retained) throw new Error("retained Kokoro fixture was not loaded");
+  const retainedFixture = retained;
+  await narrationStages.run("run installed narration-check", () => {
+    const narrationCheck = runInstalledCli(context, ["narration-check", "."], project);
+    assert.match(narrationCheck, /PASS \[narration\]/);
+  });
+  await narrationStages.run("capture test-owned media arguments", () => {
+    captureTestOwnedMediaArguments(project, retainedFixture.request);
+  });
+  await narrationStages.run("copy retained Kokoro/Michael WAVs", () => {
+    stageRetainedKokoroAudio(project, retainedFixture);
+  });
+  await narrationStages.run("run installed transcribe with injected transcript provider", () =>
+    runInstalledFixtureTranscription(context, project, retainedFixture),
+  );
+  await narrationStages.run("assert narration_evidence.json", () =>
+    assertRetainedNarrationArtifacts(context, project, retainedFixture),
+  );
+  let originalRequest: Buffer | undefined;
+  await narrationStages.run("mutate spoken text and prove planning rejects stale evidence", () => {
+    originalRequest = mutateNarrationAndAssertPlanRejects(context, project);
+  });
+  if (!originalRequest) throw new Error("retained narration request was not captured before mutation");
+  const originalRequestBytes = originalRequest;
+  await narrationStages.run("restore request", () => {
+    restoreRetainedNarrationRequest(project, originalRequestBytes);
+  });
 
   if (framework === "hyperframes") {
     const gsapSrc = "assets/gsap/gsap.min.js";
@@ -2214,8 +2321,8 @@ export async function runFrameworkSmoke(
       `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
     );
     for (const [frameSlug, voice] of [
-      ["01-smoke", retained.audioMeta.voices[0]],
-      ["02-smoke", retained.audioMeta.voices[1]],
+      ["01-smoke", retainedFixture.audioMeta.voices[0]],
+      ["02-smoke", retainedFixture.audioMeta.voices[1]],
     ] as const) {
       if (!voice) throw new Error(`retained fixture is missing audio for ${frameSlug}`);
       stageFixtureSmokeFrame(project, frameSlug, voice.duration_s, gsapSrc);
@@ -2226,9 +2333,10 @@ export async function runFrameworkSmoke(
       project,
     );
     assert.match(previewHelp, /--port\b/, "HyperFrames preview must support --port");
-    // build/check HyperFrames
-    runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "check"]);
+    await narrationStages.run("build/check HyperFrames", () => {
+      runProjectNpm(context, project, ["run", "build"]);
+      runProjectNpm(context, project, ["run", "check"]);
+    });
 
     const generatedGsapDocuments = [
       join(project, "index.html"),
@@ -2367,11 +2475,12 @@ export async function runFrameworkSmoke(
     assert.match(smokeTemplate, /BeatReveal target=\{`SmokeTitle:\$\{frame\.slug\}`\}/);
     writeFileSync(videoPath, smokeTemplate);
 
-    // build/check Remotion
-    runProjectNpm(context, project, ["install"]);
-    runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "check"]);
-    runProjectNpm(context, project, ["run", "still"]);
+    await narrationStages.run("build/check Remotion", () => {
+      runProjectNpm(context, project, ["install"]);
+      runProjectNpm(context, project, ["run", "build"]);
+      runProjectNpm(context, project, ["run", "check"]);
+      runProjectNpm(context, project, ["run", "still"]);
+    });
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
@@ -2385,4 +2494,5 @@ export async function runFrameworkSmoke(
     assert.deepEqual(readFileSync(staged), readFileSync(sourceWav));
   }
   assertNoRepoRelativePaths(project);
+  narrationStages.complete(framework === "hyperframes" ? "build/check HyperFrames" : "build/check Remotion");
 }
