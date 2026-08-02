@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ensureRuntime } from "../scaffold.ts";
+import { ensureRuntime, scaffoldSpec } from "../scaffold.ts";
 
 function createScaffold(): string {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-scaffold-"));
@@ -37,7 +37,7 @@ test("remotion ensureRuntime writes missing project runtime into an existing dir
       "remotion.config.ts", "tsconfig.json", "render.ts", ".gitignore",
       join("src", "index.ts"), join("src", "Root.tsx"),
       join("src", "Video.tsx"), join("src", "Captions.tsx"), join("src", "types.ts"),
-      join("src", "theme.ts"), join("src", "fonts.ts"), join("src", "primitives.tsx"),
+      join("src", "VisualBeats.tsx"), join("src", "theme.ts"), join("src", "fonts.ts"), join("src", "primitives.tsx"),
     ]) {
       assert.ok(existsSync(join(tmp, rel)), `scaffold wrote ${rel}`);
     }
@@ -51,7 +51,7 @@ test("default Remotion scaffold is content-neutral", () => {
   try {
     const video = readFileSync(join(dir, "src", "Video.tsx"), "utf8");
     assert.match(video, /const SCENES: Record<string, React\.FC<SceneProps>> = \{\};/);
-    assert.match(video, /return <TitleCard/);
+    assert.match(video, /TitleCard opacity/);
 
     const tree = readTextTree(join(dir, "src"));
     for (const forbidden of [
@@ -83,6 +83,28 @@ test("remotion ensureRuntime preserves authored Video.tsx and scenes", () => {
     assert.equal(readFileSync(video, "utf8"), "// authored video\n");
     assert.equal(readFileSync(scene, "utf8"), "// authored scene\n");
     assert.ok(existsSync(join(tmp, "src", "Root.tsx")));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("Remotion scaffold ships local beat helpers and cue-first next steps", () => {
+  const tmp = createScaffold();
+  try {
+    const visualBeats = readFileSync(join(tmp, "src", "VisualBeats.tsx"), "utf8");
+    const types = readFileSync(join(tmp, "src", "types.ts"), "utf8");
+    const video = readFileSync(join(tmp, "src", "Video.tsx"), "utf8");
+    const nextSteps = scaffoldSpec("remotion").nextSteps.join("\n");
+
+    assert.match(visualBeats, /VisualBeatProvider/);
+    assert.match(visualBeats, /BeatReveal/);
+    assert.match(types, /visualBeats\?: ResolvedVisualBeat\[\]/);
+    assert.match(types, /visualBindings\?: Record<string, RemotionVisualBinding\[\]>/);
+    assert.match(video, /VisualBeatProvider/);
+    assert.match(nextSteps, /visual_beats\.json/);
+    assert.match(nextSteps, /npm run plan/);
+    assert.ok(nextSteps.indexOf("visual_beats.json") < nextSteps.indexOf("src/scenes"));
+    assert.doesNotMatch(readTextTree(join(tmp, "src")), /md2vid-public|frameworks\/remotion/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

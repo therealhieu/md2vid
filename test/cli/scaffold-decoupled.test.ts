@@ -45,6 +45,7 @@ const HYPERFRAMES_NEXT_STEPS = [
 const REMOTION_NEXT_STEPS = [
   "npm install",
   "review audio_request.json.example and generate narration",
+  "author visual_beats.json from transcript cues and run npm run plan",
   "author and register src/scenes/*.tsx",
   "fill video.config.json voice-id -> frame-slug mappings",
   "npm run build",

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "frames": {
+    "03-lookup-flow": [
+      {
+        "beat": "lookup-probe",
+        "target": "LookupFlow:probe",
+        "enter": "rise",
+        "duration": 0.4
+      },
+      {
+        "beat": "lookup-match",
+        "target": "LookupFlow:match",
+        "enter": "rise",
+        "duration": 0.4
+      },
+      {
+        "beat": "lookup-return",
+        "target": "LookupFlow:return",
+        "enter": "rise",
+        "duration": 0.4
+      }
+    ]
+  }
+}
