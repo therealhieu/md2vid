@@ -16,10 +16,75 @@ export interface VoiceAssetSnapshot {
 }
 
 // ── Neutral IR — the serialized build_plan.json contract ─────────────────────
+export type VisualSyncMode = "off" | "warn" | "required";
+export type RenderProfile = "final" | "draft" | "gif";
+
+export interface VisualBeatTolerance {
+  maxLead: number;
+  maxLag: number;
+}
+
+export type VisualCueAnchor =
+  | { wordIndex: number }
+  | { phrase: string; occurrence: number };
+
+export interface AuthoredVisualBeat {
+  id: string;
+  text: string;
+  cue: VisualCueAnchor;
+  sourceRefs?: string[];
+  workflowStep?: number;
+  tolerance?: Partial<VisualBeatTolerance>;
+}
+
+export interface AuthoredVisualFrame {
+  kind?: "focal" | "workflow" | "comparison" | "sequence";
+  beats: AuthoredVisualBeat[];
+}
+
+export interface VisualBeatSpec {
+  version: 1;
+  frames: Record<string, AuthoredVisualFrame>;
+}
+
+export interface ResolvedVisualBeat {
+  id: string;
+  text: string;
+  start: number;
+  end?: number;
+  cueWordIndex: number;
+  cueText: string;
+  sourceRefs: string[];
+  workflowStep?: number;
+  tolerance: VisualBeatTolerance;
+}
+
+export interface VisualSyncConfig {
+  mode?: VisualSyncMode;
+  maxLead?: number;
+  maxLag?: number;
+  minLanding?: number;
+}
+
+export interface ResolvedVisualSyncPolicy {
+  mode: VisualSyncMode;
+  maxLead: number;
+  maxLag: number;
+  minLanding: number;
+}
+
+export interface RenderConfig {
+  profile?: RenderProfile;
+  fps?: number;
+  minimumFinalFps?: number;
+}
+
 export interface PlanFrame {
   id: string; frameNum: number; slug: string;
   voicePath: string; voiceDur: number; frameDur: number;
   start: number; words: Word[];
+  visualKind?: AuthoredVisualFrame["kind"];
+  visualBeats?: ResolvedVisualBeat[];
 }
 
 export interface CaptionGroup {
@@ -42,6 +107,8 @@ export interface VideoConfig {
   timing?: Partial<{ tail: number; xfade: number; gap: number }>;
   canvas?: Partial<{ width: number; height: number }>;
   slugs?: Record<string, string>;
+  visualSync?: VisualSyncConfig;
+  render?: RenderConfig;
   gsapSrc?: string;
   captions?: { tokens?: Record<string, string> };
   visualContract?: {

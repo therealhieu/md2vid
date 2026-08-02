@@ -43,6 +43,8 @@ const CAPTION_TOKENS = new Set([
   ...CAPTION_LENGTH_TOKENS,
   ...CAPTION_FONT_TOKENS,
 ]);
+const VISUAL_SYNC_MODES = new Set(["off", "warn", "required"]);
+const RENDER_PROFILES = new Set(["final", "draft", "gif"]);
 
 export function validateSlugMappings(
   value: unknown,
@@ -114,6 +116,38 @@ function optionalNonEmptyString(config: ConfigRecord, field: string, path: strin
   }
 }
 
+function optionalNonNegativeNumber(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${path} must be a finite non-negative number`);
+  }
+  return value;
+}
+
+function optionalPositiveNumber(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${path} must be a finite positive number`);
+  }
+  return value;
+}
+
+function optionalLandingSeconds(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0.5) {
+    throw new Error(`${path} must be a finite number >= 0.5`);
+  }
+  return value;
+}
+
+function optionalMinimumFinalFps(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 24) {
+    throw new Error(`${path} must be a finite number >= 24`);
+  }
+  return value;
+}
+
 export function validateVideoConfig(value: unknown, path: string): VideoConfig {
   if (!isRecord(value)) throw new Error(`invalid configuration at ${path}: expected a JSON object`);
 
@@ -142,6 +176,29 @@ export function validateVideoConfig(value: unknown, path: string): VideoConfig {
         invalid(path, `canvas.${field}`, "must be a positive finite number");
       }
     }
+  }
+
+  const visualSync = optionalRecord(value, "visualSync", path);
+  if (visualSync) {
+    if (visualSync.mode !== undefined && (
+      typeof visualSync.mode !== "string" || !VISUAL_SYNC_MODES.has(visualSync.mode)
+    )) {
+      invalid(path, "visualSync.mode", 'must be one of "off", "warn", or "required"');
+    }
+    optionalNonNegativeNumber(visualSync.maxLead, `${path}.visualSync.maxLead`);
+    optionalNonNegativeNumber(visualSync.maxLag, `${path}.visualSync.maxLag`);
+    optionalLandingSeconds(visualSync.minLanding, `${path}.visualSync.minLanding`);
+  }
+
+  const render = optionalRecord(value, "render", path);
+  if (render) {
+    if (render.profile !== undefined && (
+      typeof render.profile !== "string" || !RENDER_PROFILES.has(render.profile)
+    )) {
+      invalid(path, "render.profile", 'must be one of "final", "draft", or "gif"');
+    }
+    optionalPositiveNumber(render.fps, `${path}.render.fps`);
+    optionalMinimumFinalFps(render.minimumFinalFps, `${path}.render.minimumFinalFps`);
   }
 
   optionalNonEmptyString(value, "framework", path);

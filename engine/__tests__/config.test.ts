@@ -9,6 +9,61 @@ import {
   validateVideoConfig,
 } from "../config.ts";
 
+const VALID_SYNC = {
+  mode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  minLanding: 1,
+} as const;
+
+test("visualSync accepts the required policy", () => {
+  const config = validateVideoConfig({ visualSync: VALID_SYNC }, "video.config.json");
+  assert.deepEqual(config.visualSync, VALID_SYNC);
+});
+
+for (const [field, value] of [
+  ["maxLead", -0.01],
+  ["maxLag", Number.NaN],
+  ["minLanding", Number.POSITIVE_INFINITY],
+] as const) {
+  test(`visualSync rejects ${field}=${String(value)}`, () => {
+    assert.throws(
+      () => validateVideoConfig({ visualSync: { ...VALID_SYNC, [field]: value } }, "video.config.json"),
+      new RegExp(`visualSync\\.${field}`),
+    );
+  });
+}
+
+for (const minLanding of [0, 0.49]) {
+  test(`visualSync rejects minLanding=${minLanding} below the standards floor`, () => {
+    assert.throws(
+      () => validateVideoConfig({ visualSync: { ...VALID_SYNC, minLanding } }, "video.config.json"),
+      /visualSync\.minLanding.*>= 0\.5/,
+    );
+  });
+}
+
+test("render policy accepts explicit final defaults", () => {
+  const config = validateVideoConfig({
+    render: { profile: "final", fps: 30, minimumFinalFps: 24 },
+  }, "output.config.json");
+  assert.deepEqual(config.render, { profile: "final", fps: 30, minimumFinalFps: 24 });
+});
+
+for (const minimumFinalFps of [1, 23]) {
+  test(`render policy rejects minimumFinalFps=${minimumFinalFps} below 24`, () => {
+    assert.throws(
+      () => validateVideoConfig({ render: { minimumFinalFps } }, "output.config.json"),
+      /render\.minimumFinalFps.*>= 24/,
+    );
+  });
+}
+
+test("render policy accepts a stricter 30 fps minimum", () => {
+  const config = validateVideoConfig({ render: { minimumFinalFps: 30 } }, "output.config.json");
+  assert.equal(config.render?.minimumFinalFps, 30);
+});
+
 test("accepts optional defaults and null-prototype config records", () => {
   const slugs = Object.create(null) as Record<string, string>;
   slugs.intro = "01-intro";

@@ -34,6 +34,15 @@ test("keeps meaningful IDs while deriving frame order", () => {
   assert.deepEqual(p.captionGroups.map((group) => group.frame), [1, 2, 3]);
 });
 
+test("legacy frames omit optional visual timing fields", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "Intro", start: 0, end: 1 }])]),
+    CFG({ slugs: { intro: "01-intro" } }),
+  );
+  assert.equal(Object.hasOwn(result.frames[0], "visualKind"), false);
+  assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
 test("rejects duplicate voice IDs", () => {
   assert.throws(
     () => plan(
