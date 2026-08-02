@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { readAudioMeta } from "../engine/audio_meta.ts";
 import {
@@ -18,6 +18,7 @@ import {
   type VoiceWavSnapshot,
 } from "../engine/voice_assets.ts";
 import { readVisualBeatSpec } from "../engine/visual_beats.ts";
+import { readJsonFile } from "./json_file.ts";
 import { resolveProjectLayout, type ProjectLayout } from "./project_layout.ts";
 import {
   promoteManagedFiles,
@@ -42,6 +43,13 @@ export interface SerializedNeutralArtifacts {
   visualTiming: string;
 }
 
+const NARRATION_RECOVERY = "Re-synthesize narration and rerun `md2vid transcribe`.";
+
+function narrationEvidenceError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`${message} ${NARRATION_RECOVERY}`);
+}
+
 export function validateProjectNarrationFreshness(
   sharedDir: string,
   meta: AudioMeta,
@@ -50,7 +58,7 @@ export function validateProjectNarrationFreshness(
   const requestPath = join(sharedDir, "audio_request.json");
   if (!existsSync(requestPath)) return;
 
-  const rawRequest = JSON.parse(readFileSync(requestPath, "utf8"));
+  const rawRequest = readJsonFile(requestPath);
   const request = validateNarrationRequest(rawRequest, requestPath);
   if (request.version !== 1) return;
   const versioned = validateVersionedNarrationRequest(rawRequest, requestPath);
@@ -62,10 +70,12 @@ export function validateProjectNarrationFreshness(
       + "Re-synthesize narration and rerun `md2vid transcribe`.",
     );
   }
-  const evidence = validateNarrationEvidence(
-    JSON.parse(readFileSync(evidencePath, "utf8")),
-    evidencePath,
-  );
+  let evidence: ReturnType<typeof validateNarrationEvidence>;
+  try {
+    evidence = validateNarrationEvidence(readJsonFile(evidencePath), evidencePath);
+  } catch (error) {
+    throw narrationEvidenceError(error);
+  }
   const findings = verifyNarrationEvidence({
     request: versioned,
     evidence,

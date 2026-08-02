@@ -17,6 +17,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
 import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
+import { transcribeVoices } from "../../engine/transcribe.ts";
 import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import { getAdapter } from "../../frameworks/index.ts";
 import { DEFAULT_GSAP_SRC } from "../../frameworks/hyperframes/scaffold.ts";
@@ -114,13 +115,12 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
   return { root, outputDir, sharedDir };
 }
 
-function versionedWorkflowFixture(): WorkflowProject {
+function versionedWorkflowFixture({ includeMetadataProvenance = true }: { includeMetadataProvenance?: boolean } = {}): WorkflowProject {
   const project = createWorkflowCase({ framework: "hyperframes", layout: "canonical" });
   const metadataPath = join(project.sharedDir, "audio_meta.json");
   const meta = {
     ...(JSON.parse(readFileSync(metadataPath, "utf8")) as import("../../engine/types.ts").AudioMeta),
-    tts_provider: "kokoro",
-    voice_id: "am_michael",
+    ...(includeMetadataProvenance ? { tts_provider: "kokoro", voice_id: "am_michael" } : {}),
   };
   const request = validateVersionedNarrationRequest({
     version: 1,
@@ -285,6 +285,39 @@ test("plan, build, regroup, and verify accept matching versioned narration evide
   }
 });
 
+test("evidence-backed versioned narration remains fresh when metadata omits optional provenance", () => {
+  const project = versionedWorkflowFixture({ includeMetadataProvenance: false });
+  try {
+    rmSync(join(project.sharedDir, "narration_evidence.json"));
+    assert.equal(transcribeRun([project.outputDir], {
+      transcribeVoices(meta, baseDir) {
+        return transcribeVoices(meta, baseDir, {
+          run(args) {
+            const transcriptDir = args[args.indexOf("--dir") + 1]!;
+            writeFileSync(join(transcriptDir, "transcript.json"), JSON.stringify([
+              { text: "Narration", start: 0, end: 0.5 },
+              { text: "line", start: 0.5, end: 1 },
+            ]));
+            return 0;
+          },
+        });
+      },
+    }), 0);
+    const meta = JSON.parse(readFileSync(join(project.sharedDir, "audio_meta.json"), "utf8"));
+    const evidence = JSON.parse(readFileSync(join(project.sharedDir, "narration_evidence.json"), "utf8"));
+    assert.equal(meta.tts_provider, undefined);
+    assert.equal(meta.voice_id, undefined);
+    assert.equal(evidence.provider, "kokoro");
+    assert.equal(evidence.voice, "am_michael");
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 type NarrationMutation = (project: WorkflowProject) => void;
 
 const STALE_NARRATION_MUTATIONS: Array<[string, NarrationMutation]> = [
@@ -383,6 +416,33 @@ for (const [name, mutate] of STALE_NARRATION_MUTATIONS) {
     }
   });
 }
+
+test("malformed narration evidence names the artifact, includes recovery, and preserves all outputs", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    writeFileSync(evidencePath, "{ malformed evidence");
+    const before = snapshotProjectFiles(project.root);
+    const routes: Array<[string, () => number]> = [
+      ["plan", () => planRun([project.outputDir])],
+      ["build", () => buildRun([project.outputDir])],
+      ["regroup", () => regroupRun([project.outputDir, "--max-chars", "54"])],
+      ["verify", () => verifyRun([project.outputDir])],
+    ];
+
+    for (const [route, run] of routes) {
+      const result = captureConsole(run);
+      assert.equal(result.code, 1, route);
+      assert.ok(result.stderr.includes(evidencePath), `${route}: ${result.stderr}`);
+      assert.match(result.stderr, /Re-synthesize narration and rerun `md2vid transcribe`/, route);
+      assertProjectFilesUnchanged(project.root, before);
+    }
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
 
 test("BGM and SFX-only request edits retain matching narration evidence", () => {
   const project = versionedWorkflowFixture();

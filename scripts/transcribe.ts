@@ -12,7 +12,6 @@
 import {
   existsSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -26,6 +25,7 @@ import {
 } from "../engine/narration_request.ts";
 import { transcribeVoices } from "../engine/transcribe.ts";
 import { parseCommand } from "./cli_args.ts";
+import { readJsonFile } from "./json_file.ts";
 import {
   promoteManagedFiles,
   type ManagedFileTransactionDependencies,
@@ -80,15 +80,24 @@ export function run(argv: string[], deps: TranscribeDependencies = {}): number {
     const requestPath = join(SHARED, "audio_request.json");
     let versionedRequest: VersionedNarrationRequest | undefined;
     if (existsSync(requestPath)) {
-      const rawRequest = JSON.parse(readFileSync(requestPath, "utf8"));
+      const rawRequest = readJsonFile(requestPath);
       const request = validateNarrationRequest(rawRequest, requestPath);
       if (request.version === 1) {
         versionedRequest = validateVersionedNarrationRequest(rawRequest, requestPath);
       }
     }
 
-    const raw = JSON.parse(readFileSync(metaPath, "utf8"));
+    const raw = readJsonFile(metaPath);
     const meta = validateAudioMeta(raw, metaPath, { allowInvalidWords: true });
+    if (versionedRequest) {
+      const paths = new Set<string>();
+      for (const voice of meta.voices) {
+        if (paths.has(voice.path)) {
+          throw new Error(`${metaPath}: duplicate voice WAV path ${JSON.stringify(voice.path)} is not supported for versioned narration`);
+        }
+        paths.add(voice.path);
+      }
+    }
     const result = transcribe(meta, SHARED);
     if (result.ok !== result.total) {
       console.error(`FAIL: ${result.ok}/${result.total} lines transcribed; audio_meta.json unchanged`);
@@ -128,7 +137,18 @@ export function run(argv: string[], deps: TranscribeDependencies = {}): number {
         managed.push({ target: "narration_evidence.json", staged: stagedEvidence });
       }
       const promotion = promoteManagedFiles(SHARED, transaction, managed, deps.transactionDependencies);
-      for (const warning of promotion.cleanupErrors) console.warn(`WARN [transcribe]: ${warning.message}`);
+      if (promotion.cleanupErrors.length) {
+        const retained = promotion.retainedBackups.length
+          ? `; retained backups: ${promotion.retainedBackups.join(", ")}`
+          : "";
+        const uncertain = promotion.uncertainBackups.length
+          ? `; uncertain backups: ${promotion.uncertainBackups.join(", ")}`
+          : "";
+        console.warn(
+          `WARN [transcribe]: managed file promotion committed but backup cleanup failed${retained}${uncertain}: `
+          + promotion.cleanupErrors.map((error) => error.message).join("; "),
+        );
+      }
     } finally {
       rmSync(transaction, { recursive: true, force: true });
     }

@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync, lstatSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -80,18 +80,27 @@ async function runOf(script: string): Promise<(argv: string[]) => Promise<number
 async function captureRun(
   run: (argv: string[]) => Promise<number> | number,
   argv: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
+): Promise<{ code: number; stdout: string; stderr: string; warnings: string }> {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const warnings: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
+  const originalWarn = console.warn;
   try {
     console.log = (...args: unknown[]) => stdout.push(args.join(" "));
     console.error = (...args: unknown[]) => stderr.push(args.join(" "));
-    return { code: await run(argv), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    return {
+      code: await run(argv),
+      stdout: stdout.join("\n"),
+      stderr: stderr.join("\n"),
+      warnings: warnings.join("\n"),
+    };
   } finally {
     console.log = originalLog;
     console.error = originalError;
+    console.warn = originalWarn;
   }
 }
 
@@ -450,6 +459,89 @@ test("versioned transcribe atomically writes metadata and narration evidence", a
   }
 });
 
+test("versioned transcribe reports retained and uncertain backups after committed cleanup failures", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    writeFileSync(project.evidencePath, '{"old":true}\n');
+    const retainedBackup = `${project.metaPath}.md2vid-backup-0`;
+    const uncertainBackup = `${project.evidencePath}.md2vid-backup-1`;
+    let cleanupStarted = false;
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices: transcribeWithWords,
+        transactionDependencies: {
+          remove(path: string, options: Parameters<typeof rmSync>[1]) {
+            if (path === retainedBackup) {
+              cleanupStarted = true;
+              throw new Error("forced metadata backup cleanup failure");
+            }
+            rmSync(path, options);
+          },
+          lstat(path: string) {
+            if (cleanupStarted && path === uncertainBackup) {
+              throw new Error("forced uncertain backup inspection failure");
+            }
+            return lstatSync(path);
+          },
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(readFileSync(project.metaPath, "utf8")).voices[0].duration_s, 1);
+    assert.equal(JSON.parse(readFileSync(project.evidencePath, "utf8")).provider, "kokoro");
+    assert.match(result.warnings, /forced metadata backup cleanup failure/);
+    assert.match(result.warnings, new RegExp(`retained backups: ${retainedBackup.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`));
+    assert.match(result.warnings, new RegExp(`uncertain backups: ${uncertainBackup.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`));
+    assert.equal(existsSync(retainedBackup), true);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe rejects duplicate voice WAV paths before provider execution", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const request = JSON.parse(readFileSync(project.requestPath, "utf8"));
+    request.lines.push({ id: "recap", text: "Recap the topic." });
+    writeFileSync(project.requestPath, `${JSON.stringify(request, null, 2)}\n`);
+    const meta = JSON.parse(readFileSync(project.metaPath, "utf8"));
+    meta.voices.push({
+      id: "recap",
+      path: "assets/voice/intro.wav",
+      duration_s: 999,
+      words: [],
+    });
+    writeFileSync(project.metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+    const originalMeta = readFileSync(project.metaPath);
+    const originalEvidence = Buffer.from('{"old":true}\n');
+    writeFileSync(project.evidencePath, originalEvidence);
+    let providerCalls = 0;
+
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta, baseDir: string) {
+          providerCalls += 1;
+          return transcribeWithWords(meta, baseDir);
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /duplicate voice WAV path/);
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+    assert.deepEqual(readFileSync(project.evidencePath), originalEvidence);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 for (const [name, failureAt] of [
   ["first", 1],
   ["second", 2],
@@ -491,6 +583,43 @@ for (const [name, failureAt] of [
   });
 }
 
+for (const [name, failureAt] of [
+  ["first", 1],
+  ["second", 2],
+] as const) {
+  test(`${name} versioned promotion failure with absent evidence leaves evidence absent`, async () => {
+    const module = await import(join(SCRIPTS, "transcribe.ts"));
+    const project = versionedTranscriptionProject();
+    try {
+      const originalMeta = readFileSync(project.metaPath);
+      assert.equal(existsSync(project.evidencePath), false);
+      let promotions = 0;
+      const result = await captureRun(
+        (argv) => module.run(argv, {
+          transcribeVoices: transcribeWithWords,
+          transactionDependencies: {
+            rename(from: string, to: string) {
+              if (String(from).includes(".md2vid-transcribe-") && ++promotions === failureAt) {
+                throw new Error(`forced absent-evidence ${name} promotion failure`);
+              }
+              renameSync(from, to);
+            },
+          },
+        }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, new RegExp(`forced absent-evidence ${name} promotion failure`));
+      assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+      assert.equal(existsSync(project.evidencePath), false);
+      assert.deepEqual(findTranscribeResidue(project.root), []);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("versioned transcribe leaves both artifacts unchanged after partial transcription", async () => {
   const module = await import(join(SCRIPTS, "transcribe.ts"));
   const project = versionedTranscriptionProject();
@@ -511,6 +640,34 @@ test("versioned transcribe leaves both artifacts unchanged after partial transcr
     assert.equal(result.code, 1);
     assert.deepEqual(readFileSync(project.metaPath), originalMeta);
     assert.deepEqual(readFileSync(project.evidencePath), originalEvidence);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe reports a malformed request path before provider execution", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const originalMeta = readFileSync(project.metaPath);
+    writeFileSync(project.requestPath, "{ malformed request");
+    let providerCalls = 0;
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta) {
+          providerCalls += 1;
+          return { meta, ok: 1, total: 1, voiceSnapshots: [] };
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, new RegExp(project.requestPath.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+    assert.equal(existsSync(project.evidencePath), false);
     assert.deepEqual(findTranscribeResidue(project.root), []);
   } finally {
     rmSync(project.root, { recursive: true, force: true });

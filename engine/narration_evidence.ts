@@ -177,10 +177,10 @@ export function verifyNarrationEvidence(input: {
   if (evidence.voice !== input.request.voice) {
     findings.push(error(`narration evidence voice ${JSON.stringify(evidence.voice)} does not match request voice ${JSON.stringify(input.request.voice)}`));
   }
-  if (input.meta.tts_provider !== input.request.provider) {
+  if (input.meta.tts_provider !== undefined && input.meta.tts_provider !== input.request.provider) {
     findings.push(error(`audio metadata tts_provider ${JSON.stringify(input.meta.tts_provider)} does not match request provider ${JSON.stringify(input.request.provider)}`));
   }
-  if (input.meta.voice_id !== input.request.voice) {
+  if (input.meta.voice_id !== undefined && input.meta.voice_id !== input.request.voice) {
     findings.push(error(`audio metadata voice_id ${JSON.stringify(input.meta.voice_id)} does not match request voice ${JSON.stringify(input.request.voice)}`));
   }
 
