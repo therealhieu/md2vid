@@ -41,14 +41,17 @@ The npm `postinstall` normally applies the required caption-loop patch to the pi
 
 ## First run
 
-1. Review the generated `audio_request.json.example`, then prepare `audio_meta.json` and `assets/voice/*.wav` through `/md2vid` and `/hyperframes-media` or an external TTS provider.
-2. Run `npm run transcribe` when `audio_meta.json` needs word timings. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
-3. Author `visual_beats.json` against the transcript.
-4. Run `npm run plan` to resolve those anchors before visual authoring.
-5. Author beat-bound `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
-6. Run `npm run build`.
-7. Run `npm run check` before preview or render.
-8. Run `npm run dev` for review; render only after review.
+Both framework adapters consume the same neutral narration artifacts: `audio_request.json`, source WAVs, `audio_meta.json`, and (for versioned requests) `narration_evidence.json`. The neutral narration contract owns provider and voice policy; this framework document does not select or synthesize a voice. Matching evidence freshness is required before plan, build, regroup, or verify.
+
+1. Review the generated `audio_request.json.example`, author the spoken narration script, and materialize `audio_request.json` through the neutral narration workflow.
+2. Run `md2vid narration-check .` before synthesis.
+3. Complete the neutral narration workflow to prepare fresh WAVs and `audio_meta.json`, then run `npm run transcribe` unconditionally. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
+4. Author `visual_beats.json` against the transcribed WAV words.
+5. Run `npm run plan` to resolve those anchors before visual authoring.
+6. Author beat-bound `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
+7. Run `npm run build`.
+8. Run `npm run check` before preview or render.
+9. Run `npm run dev` for listening and visual review; render only after review.
 
 The generated scripts are:
 

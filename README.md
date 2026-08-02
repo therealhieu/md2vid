@@ -38,7 +38,38 @@ Use “Remotion” or “both frameworks” explicitly when required.
 
 ## Narration
 
-New projects include `audio_request.json.example` as a narration planning example. Review its lines, then use the `/md2vid` skill workflow to generate or prepare voice WAV files and `audio_meta.json`. There is no `md2vid audio` command.
+New projects include `audio_request.json.example`. Copy it into the real request and retain the explicit English default unless the user selects a supported override:
+
+```json
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "recap", "text": "Recap the key idea." }
+  ]
+}
+```
+
+For non-English narration, supply a compatible explicit voice; do not use am_michael. Write speech, not copied display copy: target 6–14 lexical words per sentence, split at conceptual boundaries, and treat more than 18 words as a preflight failure unless the user explicitly approves that exact sentence. A comma does not count as a strong sentence boundary.
+
+Run the narration workflow in this order:
+
+```bash
+cp audio_request.json.example audio_request.json
+md2vid narration-check .
+# /md2vid then runs the documented /media-use Kokoro path with explicit am_michael values.
+npm run transcribe
+npm run plan
+npm run build
+npm run check
+# Listen at sentence transitions, then review visuals before rendering.
+```
+
+`md2vid narration-check` is required before synthesis. The `/md2vid` skill runs explicit Kokoro `am_michael` synthesis through `/media-use`, then `md2vid transcribe` immediately after it. Never use `say`, provider auto-selection, or a silent cloud fallback. There is no `md2vid audio` command. A versioned request needs fresh matching `narration_evidence.json` before plan, build, regroup, or verify; edit narration only by re-synthesizing and transcribing before downstream cues, captions, bindings, and render evidence are rebuilt.
 
 Store voice files under `assets/voice/` and reference them with paths relative to the flat project root or the canonical `shared/` root. A minimal `audio_meta.json` is:
 
@@ -73,7 +104,7 @@ Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID mus
 }
 ```
 
-The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
+The `/md2vid` skill owns narration orchestration through `/media-use`. The public CLI only validates requests and builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
 
 ## Semantic visual timing
 
@@ -103,6 +134,7 @@ The final profile is the default: **30 FPS final default / 24 FPS minimum** for 
 md2vid --help
 md2vid --version
 md2vid new <slug> [--framework hyperframes|remotion]
+md2vid narration-check <dir> [--request <path>] [--allow-long-sentence <line-id>:<sentence-index>]
 md2vid plan <dir>
 md2vid build <dir> [--captions-only]
 md2vid transcribe <dir>

@@ -83,7 +83,47 @@ transcription
 
 ### Narration input contract
 
-Every generated scaffold includes `audio_request.json.example` as an onboarding example. Review it, then use `/md2vid` with `/hyperframes-media` to prepare WAV files and `audio_meta.json`; there is no `md2vid audio` command.
+Every generated scaffold includes `audio_request.json.example` as an onboarding example. Materialize and review the versioned request before narration synthesis:
+
+```json
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "recap", "text": "Recap the key idea." }
+  ]
+}
+```
+
+- English defaults apply only when the user has not selected another supported provider or voice. Persist each effective value in `audio_request.json`.
+- For non-English narration, supply a compatible explicit voice; do not use am_michael.
+- Target 6–14 lexical words per spoken sentence; more than 18 lexical words fails `md2vid narration-check` unless the user approves that exact sentence.
+- Split one conceptual idea into each spoken sentence. A comma does not count as a strong sentence boundary; commas, dashes, colons, semicolons, and parentheses do not reset the hard count.
+- The `/md2vid` skill is the sole synthesis orchestrator. There is no `md2vid audio` command.
+- Never fall back to `say`, provider auto-selection, or a cloud provider silently.
+- Run `md2vid narration-check` before synthesis. After explicit Kokoro `am_michael` synthesis through `/media-use`, run `md2vid transcribe` before authoring visual beats.
+- A versioned request requires fresh matching `narration_evidence.json` before plan, build, regroup, or verify. If narration changes, re-synthesize and transcribe before regenerating cues, captions, bindings, and render evidence.
+
+Use this complete order:
+
+```text
+source coverage
+  → storyboard
+  → spoken narration script
+  → md2vid narration-check
+  → explicit Kokoro am_michael synthesis through /media-use
+  → md2vid transcribe
+  → visual_beats.json
+  → npm run plan
+  → cue-bound visual authoring
+  → npm run build + npm run check
+  → listening + visual review
+  → render
+```
 
 Voice WAV files live under `assets/voice/`. Their `path` values are relative to the flat project root or, in canonical multi-framework layout, the sibling `shared/` root. The minimal metadata fields are:
 

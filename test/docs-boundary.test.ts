@@ -59,6 +59,19 @@ test("canonical framework and frame-content docs preserve the cue-binding bounda
   assert.match(frameContent, /one registered parent timeline may compose generated and authored child timelines/i);
 });
 
+test("framework standards defer narration defaults to the neutral contract", () => {
+  for (const [label, body] of [
+    ["HyperFrames", readFileSync(join(FRAMEWORK_DOCS, "hyperframes.md"), "utf8")],
+    ["Remotion", readFileSync(join(FRAMEWORK_DOCS, "remotion.md"), "utf8")],
+  ] as const) {
+    assert.match(body, /neutral.*(?:WAV|audio_meta\.json).*narration_evidence\.json/is, label);
+    assert.match(body, /narration-check.*transcribe.*visual_beats.*plan.*build.*check.*review.*render/is, label);
+    assert.doesNotMatch(body, /af_heart|provider auto-selection|framework-local voice default/i, label);
+    assert.doesNotMatch(body, /(?:provider|voice|lang|speed)\s*[:=].*(?:kokoro|am_michael)/i, label);
+    assert.doesNotMatch(body, /adapter.*(?:must|should|may|can)\s+synthesiz/i, label);
+  }
+});
+
 // Every video's CLAUDE.md/AGENTS.md that imports a framework doc must resolve it to a
 // real file (a video reaches its one framework's mechanics ONLY through this import).
 test("every private-tree video framework-doc @import resolves, while public snapshots may omit outputs", () => {

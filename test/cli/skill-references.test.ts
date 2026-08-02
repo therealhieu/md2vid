@@ -85,6 +85,60 @@ test("narration timing policy is authoritative and synchronized", () => {
   }
 });
 
+test("canonical standards and the skill define one Kokoro narration workflow", () => {
+  const canonical = readFileSync(join(REPO_ROOT, "docs", "standards", "video-generation.md"), "utf8");
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+
+  for (const [label, text] of [["canonical", canonical], ["skill", skill]] as const) {
+    for (const term of [
+      "\"version\": 1",
+      "\"provider\": \"kokoro\"",
+      "\"voice\": \"am_michael\"",
+      "\"lang\": \"en\"",
+      "\"speed\": 0.9",
+      "6–14",
+      "more than 18",
+      "comma does not count as a strong sentence boundary",
+      "md2vid narration-check",
+      "/media-use",
+      "md2vid transcribe",
+      "narration_evidence.json",
+      "For non-English narration, supply a compatible explicit voice; do not use am_michael.",
+      "There is no `md2vid audio` command.",
+    ]) assert.match(text, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${label}: ${term}`);
+  }
+
+  const startMarker = "<!-- md2vid-narration-workflow:start -->";
+  const endMarker = "<!-- md2vid-narration-workflow:end -->";
+  const start = skill.indexOf(startMarker);
+  const end = skill.indexOf(endMarker);
+  assert.ok(start >= 0 && end > start, "missing marked narration workflow");
+  const workflow = skill.slice(start + startMarker.length, end);
+  const ordered = [
+    "spoken narration script",
+    "md2vid narration-check",
+    "Kokoro",
+    "md2vid transcribe",
+    "visual_beats.json",
+    "npm run plan",
+    "npm run build",
+    "npm run check",
+    "review",
+    "render",
+  ];
+  assertOrder(workflow, ordered, "narration workflow");
+  assert.ok(workflow.includes("<!-- md2vid-media-contract:start -->"), "workflow must retain media contract");
+  assert.ok(workflow.includes("<!-- md2vid-media-contract:end -->"), "workflow must retain media contract");
+
+  for (const forbidden of [
+    "/hyperframes-media",
+    "provider: \"auto\"",
+    "say -v",
+    "estimate word timings",
+    "author visuals before transcription",
+  ]) assert.equal(skill.includes(forbidden), false, `forbidden guidance remains: ${forbidden}`);
+});
+
 test("canonical and bundled standards require cue-bound visual timing", () => {
   for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
     assert.match(body, /visual_beats\.json/, label);

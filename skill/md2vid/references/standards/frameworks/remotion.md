@@ -8,19 +8,22 @@ HyperFrames, so the build/verify dispatch is unchanged: select it with
 
 ## Generated-project pipeline
 
+Both framework adapters consume the same neutral narration artifacts: `audio_request.json`, source WAVs, `audio_meta.json`, and (for versioned requests) `narration_evidence.json`. The neutral narration contract owns provider and voice policy; this adapter does not select or synthesize a voice. Matching evidence freshness is required before plan, build, regroup, or verify.
+
 ```text
 md2vid new <slug> --framework remotion
 cd <slug>
 npm install
-# Review audio_request.json.example; prepare audio_meta.json + assets/voice/*.wav.
-npm run transcribe             # when audio_meta.json needs word timings
-# Author visual_beats.json against the transcript.
-npm run plan                   # resolve beat anchors before scene authoring
+# Review audio_request.json.example and author the spoken narration script.
+md2vid narration-check .        # before the neutral narration workflow synthesizes WAVs
+npm run transcribe               # unconditionally after synthesis
+# Author visual_beats.json against the transcribed WAV words.
+npm run plan                     # resolve beat anchors before scene authoring
 # Author and explicitly register beat-bound custom src/scenes/*.tsx.
 npm run build
 npm run check
 npm run still      # fast render smoke
-npm run studio     # interactive review
+npm run studio     # listening and visual review
 npm run render     # full MP4 only after review → out/video.mp4
 ```
 

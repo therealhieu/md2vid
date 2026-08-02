@@ -548,3 +548,30 @@ test("build:dist compiles and copies distribution assets", () => {
   assert.match(pkg.scripts?.["build:dist"] ?? "", /tsconfig\.dist\.json/);
   assert.match(pkg.scripts?.["build:dist"] ?? "", /copy_dist_assets/);
 });
+
+test("public README documents the versioned Kokoro narration workflow", () => {
+  const narration = readme.slice(readme.indexOf("## Narration"), readme.indexOf("## Semantic visual timing"));
+  for (const term of [
+    "\"version\": 1",
+    "\"provider\": \"kokoro\"",
+    "\"voice\": \"am_michael\"",
+    "\"lang\": \"en\"",
+    "\"speed\": 0.9",
+    "For non-English narration, supply a compatible explicit voice; do not use am_michael.",
+    "There is no `md2vid audio` command.",
+  ]) assert.match(narration, new RegExp(escapeRegex(term)), term);
+  assertOrder(
+    narration,
+    [
+      "cp audio_request.json.example audio_request.json",
+      "md2vid narration-check .",
+      "/media-use Kokoro path",
+      "npm run transcribe",
+      "npm run plan",
+      "npm run build",
+      "npm run check",
+    ],
+    "README narration workflow",
+  );
+  assert.doesNotMatch(narration, /\/hyperframes-media/);
+});

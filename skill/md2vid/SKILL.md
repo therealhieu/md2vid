@@ -141,9 +141,30 @@ Adapters: `frameworks/hyperframes/`, `frameworks/remotion/` (`{ name, scaffoldSp
 
 Record choice early; do not start Remotion visual work unless requested (R1: rich Remotion scenes are hand-authored and costly).
 
+## Narration policy
+
+Materialize and review this exact effective English default request before synthesis unless the user explicitly overrides the corresponding field:
+
+```json
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "recap", "text": "Recap the key idea." }
+  ]
+}
+```
+
+For non-English narration, supply a compatible explicit voice; do not use am_michael. Target 6–14 spoken words per sentence. Split at one conceptual idea. A comma does not count as a strong sentence boundary; more than 18 lexical words fails `md2vid narration-check` unless the user approves that exact sentence.
+
+<!-- md2vid-narration-workflow:start -->
 ## Narration preflight and synthesis — GATE
 
-After storyboard approval, author the spoken `SCRIPT.md`, materialize `audio_request.json` with the effective provider, voice, language, and speed, then run:
+After storyboard approval, author the spoken narration script in `SCRIPT.md`, materialize `audio_request.json` with the effective provider, voice, language, and speed, then run:
 
 ```bash
 md2vid narration-check "$NARRATION_ROOT"
@@ -240,7 +261,19 @@ node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs" \
 ```
 <!-- md2vid-media-contract:end -->
 
-Run `npm run transcribe` immediately after successful synthesis. Any request change invalidates generated audio, transcript timings, captions, cues, bindings, and render evidence; re-synthesize and transcribe before authoring or rebuilding downstream visuals.
+Run `md2vid transcribe` immediately after successful synthesis (normally through `npm run transcribe`). It is unconditional: Kokoro output needs waveform-derived word timings and exact WAV duration before visual planning. Any request change invalidates generated audio, transcript timings, captions, cues, bindings, and render evidence; re-synthesize and transcribe before authoring or rebuilding downstream visuals.
+
+Complete the normative narration workflow in this order:
+
+1. Author the spoken narration script, then materialize and review the effective request.
+2. Run `md2vid narration-check` and resolve every error; inspect and explicitly account for every warning before synthesis.
+3. Verify readiness, then synthesize with the explicit Kokoro request through the marked `/media-use` contract above. Do not use `say`, automatic provider selection, or a cloud fallback.
+4. Run `md2vid transcribe` immediately after synthesis.
+5. Author `visual_beats.json` from the measured transcript, then run `npm run plan` before framework visual authoring.
+6. Run `npm run build`, then `npm run check`. Fresh `narration_evidence.json` is required before plan, build, regroup, or verify for a versioned request.
+7. Perform listening and visual review at sentence transitions; render only after review and the requested approval.
+
+<!-- md2vid-narration-workflow:end -->
 
 ## Pipeline
 
