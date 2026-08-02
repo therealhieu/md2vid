@@ -532,13 +532,21 @@ export function verifyMaterializedSnapshot(root: string, report: PublicSnapshotR
   }
 }
 
-export function writePublicSnapshotManifest(
+export function publicSnapshotReport(
   repo = process.cwd(),
   ref = "HEAD",
 ): PublicSnapshotReport {
   const gitRoot = resolveGitRoot(repo);
   const { commit, entries } = parseTree(gitRoot, ref);
-  const report = createReport(entries, scanSelectedContent(gitRoot, commit, entries));
+  return createReport(entries, scanSelectedContent(gitRoot, commit, entries));
+}
+
+export function writePublicSnapshotManifest(
+  repo = process.cwd(),
+  ref = "HEAD",
+): PublicSnapshotReport {
+  const gitRoot = resolveGitRoot(repo);
+  const report = publicSnapshotReport(gitRoot, ref);
   const target = join(gitRoot, PUBLIC_SNAPSHOT_MANIFEST);
   const existing = existingLstat(target);
   if (existing?.isSymbolicLink() || (existing !== undefined && !existing.isFile())) {

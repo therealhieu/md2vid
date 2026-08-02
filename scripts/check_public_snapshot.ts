@@ -5,9 +5,11 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { isolatedGitEnvironment } from "./git_environment.ts";
 import {
   buildPublicSnapshot,
+  publicSnapshotReport,
   PUBLIC_SNAPSHOT_MANIFEST,
   type PublicSnapshotReport,
 } from "./public_snapshot.ts";
@@ -48,6 +50,35 @@ function npm(snapshot: string, npmExecPath: string, args: string[]): void {
 
 function assertEqual(actual: string | number, expected: string | number, message: string): void {
   if (actual !== expected) fail(`${message}: expected ${expected}, got ${actual}`);
+}
+
+export function assertTrackedPublicSnapshotManifest(
+  repo = process.cwd(),
+  ref = "HEAD",
+): PublicSnapshotReport {
+  const gitRoot = git(resolve(repo), ["rev-parse", "--show-toplevel"]);
+  const manifestPath = join(gitRoot, PUBLIC_SNAPSHOT_MANIFEST);
+  let manifestStat;
+  try {
+    manifestStat = lstatSync(manifestPath);
+  } catch {
+    fail(`tracked public snapshot manifest is missing: ${manifestPath}`);
+  }
+  if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+    fail(`tracked public snapshot manifest is not a regular file: ${manifestPath}`);
+  }
+
+  let tracked: unknown;
+  try {
+    tracked = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch {
+    fail(`tracked public snapshot manifest is not valid JSON: ${manifestPath}`);
+  }
+  const expected = publicSnapshotReport(gitRoot, ref);
+  if (!isDeepStrictEqual(tracked, expected)) {
+    fail("tracked public snapshot manifest is stale; run corepack npm run public:snapshot");
+  }
+  return expected;
 }
 
 export interface SnapshotPackageMetadata {
@@ -194,6 +225,7 @@ export function checkPublicSnapshot(repo = process.cwd(), npmExecPath = process.
   const sourceRef = process.env.MD2VID_PUBLIC_SNAPSHOT_REF ?? "HEAD";
   if (!sourceRef || sourceRef.startsWith("-")) fail("source ref must name a Git commit");
   const sourceCommit = git(gitRoot, ["rev-parse", "--verify", `${sourceRef}^{commit}`]);
+  assertTrackedPublicSnapshotManifest(gitRoot, sourceCommit);
   const npmVersion = execFileSync(process.execPath, [npmExecPath, "--version"], {
     encoding: "utf8",
     env: isolatedGitEnvironment({ npm_execpath: npmExecPath }),

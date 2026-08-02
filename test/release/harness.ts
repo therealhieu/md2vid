@@ -1270,15 +1270,54 @@ const SMOKE_FRAME_PROBES: SmokeFrameProbe[] = [
   { compositionId: "01-smoke", futureId: "s01-future", lateId: "s01-late" },
   { compositionId: "02-smoke", futureId: "s02-future", lateId: "s02-late" },
 ];
-function smokeSeekPoints(frame2HostStart: number): number[] {
+
+export interface SmokeRevealCheck {
+  frameSlug: "01-smoke" | "02-smoke";
+  target: string;
+  before: number;
+  after: number;
+}
+
+export function deriveSmokeRevealChecks(
+  frames: ReadonlyArray<{ slug: string; start: number }>,
+  bindings: ReadonlyArray<{
+    frameSlug: string;
+    target: string;
+    revealStart: number;
+    revealDuration: number;
+  }>,
+  fps: number,
+): SmokeRevealCheck[] {
+  assert.ok(Number.isFinite(fps) && fps > 0, `generated root FPS must be positive, got ${fps}`);
+  const epsilon = 1 / fps;
+  return SMOKE_FRAME_PROBES.map((probe) => {
+    const frame = frames.find((candidate) => candidate.slug === probe.compositionId);
+    assert.ok(frame, `generated build plan is missing ${probe.compositionId}`);
+    const target = `#${probe.futureId}`;
+    const matches = bindings.filter((binding) =>
+      binding.frameSlug === probe.compositionId && binding.target === target
+    );
+    assert.equal(matches.length, 1, `generated binding evidence must contain exactly one ${probe.compositionId} ${target} reveal`);
+    const binding = matches[0];
+    assert.ok(Number.isFinite(binding.revealStart) && binding.revealStart > epsilon, `generated reveal start must leave one FPS-safe pre-cue sample for ${target}`);
+    assert.ok(Number.isFinite(binding.revealDuration) && binding.revealDuration >= 0, `generated reveal duration must be non-negative for ${target}`);
+    return {
+      frameSlug: probe.compositionId,
+      target,
+      before: frame.start + binding.revealStart - epsilon,
+      after: frame.start + binding.revealStart + binding.revealDuration + epsilon,
+    };
+  });
+}
+
+function smokeSeekPoints(frame2HostStart: number, revealChecks: readonly SmokeRevealCheck[]): number[] {
   return [
     0.5,
     frame2HostStart - 0.1,
     frame2HostStart,
-    frame2HostStart + 2.4,
-    2.4,
     frame2HostStart + 0.1,
     frame2HostStart + 2.9,
+    ...revealChecks.flatMap((check) => [check.before, check.after, check.before, check.after]),
     0.2,
   ];
 }
@@ -1374,6 +1413,8 @@ async function assertHyperframesBrowserExecution(
   expectedGroups: SmokeCaptionGroup[],
   duration: number,
   expectedFrames: Array<{ slug: string; start: number; frameDur: number }>,
+  visualBindings: Array<{ frameSlug: string; target: string; revealStart: number; revealDuration: number }>,
+  fps: number,
 ): Promise<void> {
   const expectedFrameBySlug = new Map(expectedFrames.map((frame) => [frame.slug, frame]));
   const frame1 = expectedFrameBySlug.get("01-smoke");
@@ -1381,7 +1422,8 @@ async function assertHyperframesBrowserExecution(
   assert.ok(frame1 && frame2, "packed smoke plan must contain both frame timings");
   const frame2HostStart = frame2.start;
   assert.ok(frame2HostStart > 0, "second smoke frame must start at a nonzero global time");
-  const globalSeekPoints = smokeSeekPoints(frame2HostStart);
+  const revealChecks = deriveSmokeRevealChecks(expectedFrames, visualBindings, fps);
+  const globalSeekPoints = smokeSeekPoints(frame2HostStart, revealChecks);
   const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
   const browser = await puppeteer.launch({
     executablePath,
@@ -1754,20 +1796,31 @@ async function assertHyperframesBrowserExecution(
       assert.ok(sample, `missing frame sample at ${time}`);
       return sample;
     };
+    const samplesAt = (time: number) => execution!.samples.filter((sample) => sample.time === time);
     const beforeFrame2 = frame2HostStart - 0.1;
     const afterFrame2 = frame2HostStart + 0.1;
-    const frame2RevealGlobal = frame2HostStart + 2.4;
     const frame2HandoffGlobal = frame2HostStart + 2.9;
+    const revealFor = (
+      sample: { frame1FutureOpacity: number; frame2FutureOpacity: number },
+      frameSlug: SmokeRevealCheck["frameSlug"],
+    ): number => frameSlug === "01-smoke" ? sample.frame1FutureOpacity : sample.frame2FutureOpacity;
+    for (const check of revealChecks) {
+      const before = samplesAt(check.before);
+      const after = samplesAt(check.after);
+      assert.ok(before.length >= 2 && after.length >= 2, `missing repeated cue samples for ${check.target}`);
+      assert.ok(before.every((sample) => revealFor(sample, check.frameSlug) < 0.01), `${check.target} must be hidden immediately before its resolved cue, including after reverse seek`);
+      assert.ok(after.every((sample) => revealFor(sample, check.frameSlug) > 0.99), `${check.target} must be visible after its resolved cue duration, including after reverse seek`);
+    }
+    const frame1Reveal = revealChecks.find((check) => check.frameSlug === "01-smoke")!;
+    const frame2Reveal = revealChecks.find((check) => check.frameSlug === "02-smoke")!;
     assert.ok(sampleAt(0.5).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
-    assert.ok(sampleAt(2.4).frame1FutureOpacity > 0.99, "frame 1 future element must reveal on its cue");
-    assert.equal(sampleAt(2.4).frame1LateColor, "rgb(20, 20, 19)", "frame 1 late handoff must remain neutral");
+    assert.equal(sampleAt(frame1Reveal.after).frame1LateColor, "rgb(20, 20, 19)", "frame 1 authored handoff must coexist with the generated reveal");
     assert.equal(sampleAt(frame2HostStart).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
 
     assert.equal(sampleAt(beforeFrame2).frame2LocalTime, 0, "frame 2 local time must clamp before host start");
     assert.equal(sampleAt(frame2HostStart).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
     assert.ok(Math.abs(sampleAt(afterFrame2).frame2LocalTime - 0.1) < 0.001, "frame 2 local time must offset after host start");
-    assert.ok(sampleAt(frame2RevealGlobal).frame2FutureOpacity > 0.99, "frame 2 future element must reveal at local 2.4");
-    assert.equal(sampleAt(frame2RevealGlobal).frame2LateColor, "rgb(31, 41, 55)", "frame 2 must remain neutral at local 2.4");
+    assert.equal(sampleAt(frame2Reveal.after).frame2LateColor, "rgb(31, 41, 55)", "frame 2 authored handoff must remain neutral through generated reveal");
     assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off at local 2.9");
     for (const sample of execution.samples) {
       assert.ok(Math.abs(sample.playerTime - sample.time) < 0.001, `player time mismatch at ${sample.time}`);
@@ -1894,6 +1947,9 @@ export async function runFrameworkSmoke(
       assert.deepEqual(sources, [gsapSrc], `local GSAP source in ${relative(project, document)}`);
     }
     const generatedIndex = readFileSync(join(project, "index.html"), "utf8");
+    const rootTag = generatedIndex.match(/<div\b(?=[^>]*\bid="root")[^>]*>/)?.[0] ?? "";
+    const fps = Number(rootTag.match(/\bdata-fps="([^"]+)"/)?.[1]);
+    assert.ok(Number.isFinite(fps) && fps > 0, "generated main root must expose a positive FPS");
     assert.equal(
       generatedIndex.match(/\.caption-host\s*\{\s*pointer-events:\s*none;\s*\}/g)?.length,
       1,
@@ -1925,6 +1981,11 @@ export async function runFrameworkSmoke(
     ) as {
       totalDuration: number;
       frames: Array<{ slug: string; start: number; frameDur: number }>;
+    };
+    const visualBindingArtifact = JSON.parse(
+      readFileSync(join(project, "build", "visual_bindings.json"), "utf8"),
+    ) as {
+      bindings: Array<{ frameSlug: string; target: string; revealStart: number; revealDuration: number }>;
     };
     assert.ok(captionArtifact.groups.length > 1, "smoke regroup must materially split captions");
 
@@ -1979,6 +2040,8 @@ export async function runFrameworkSmoke(
         captionArtifact.groups,
         buildArtifact.totalDuration,
         buildArtifact.frames,
+        visualBindingArtifact.bindings,
+        fps,
       );
     });
   } else {

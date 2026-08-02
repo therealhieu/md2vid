@@ -141,6 +141,11 @@ Remotion projects:
 ```bash
 cd <video-project>
 npm install
+# Prepare audio_meta.json + assets/voice/*.wav, then normalize word timings.
+npm run transcribe
+# Author visual_beats.json against the transcript, then resolve its anchors.
+npm run plan
+# Author and register beat-bound src/scenes/*.tsx.
 npm run build
 npm run check
 npm run still      # fast smoke

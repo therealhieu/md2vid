@@ -42,11 +42,13 @@ The npm `postinstall` normally applies the required caption-loop patch to the pi
 ## First run
 
 1. Review the generated `audio_request.json.example`, then prepare `audio_meta.json` and `assets/voice/*.wav` through `/md2vid` and `/hyperframes-media` or an external TTS provider.
-2. Use meaningful, unique voice IDs. Their `voices[]` array order controls frame sequence; map each ID to a visual slug in `video.config.json.slugs`.
-3. Author `compositions/frames/*.html` for those slugs.
-4. Run `npm run build`.
-5. Run `npm run check` before preview or render.
-6. Run `npm run dev` for review; render only after review.
+2. Run `npm run transcribe` when `audio_meta.json` needs word timings. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
+3. Author `visual_beats.json` against the transcript.
+4. Run `npm run plan` to resolve those anchors before visual authoring.
+5. Author beat-bound `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
+6. Run `npm run build`.
+7. Run `npm run check` before preview or render.
+8. Run `npm run dev` for review; render only after review.
 
 The generated scripts are:
 
@@ -54,6 +56,7 @@ The generated scripts are:
 {
   "build": "md2vid build . && md2vid regroup . --max-chars 54",
   "transcribe": "md2vid transcribe .",
+  "plan": "md2vid plan .",
   "verify": "md2vid verify .",
   "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
   "dev": "md2vid hyperframes preview --no-open",

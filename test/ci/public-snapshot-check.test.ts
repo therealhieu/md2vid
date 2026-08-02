@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test, type TestContext } from "node:test";
-import { buildPublicSnapshot } from "../../scripts/public_snapshot.ts";
+import { assertTrackedPublicSnapshotManifest } from "../../scripts/check_public_snapshot.ts";
+import { buildPublicSnapshot, writePublicSnapshotManifest } from "../../scripts/public_snapshot.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const CHECKER = join(ROOT, "scripts", "check_public_snapshot.ts");
@@ -29,6 +30,17 @@ function git(cwd: string, args: string[]): string {
       GIT_COMMITTER_EMAIL: "1+fixture@users.noreply.github.com",
     },
   }).trim();
+}
+
+function createCommittedPublicSource(t: TestContext): string {
+  const source = temporaryDirectory(t, "md2vid-checker-source-");
+  git(source, ["init", "--initial-branch=main"]);
+  mkdirSync(join(source, "engine"));
+  writeFileSync(join(source, "README.md"), "# Public\n");
+  writeFileSync(join(source, "engine", "timing.ts"), "export const timing = 1;\n");
+  git(source, ["add", "--all"]);
+  git(source, ["commit", "-m", "source"]);
+  return source;
 }
 
 async function createAuthenticSnapshot(t: TestContext): Promise<string> {
@@ -61,6 +73,32 @@ test("tracked public snapshot records visual timing delivery files", () => {
     "scripts/plan.ts",
     "scripts/plan_project.ts",
   ]) assert.ok(tracked.paths.some((entry) => entry.path === path), `missing ${path}`);
+});
+
+test("tracked manifest rejects every stale report field from committed HEAD", (t) => {
+  const source = createCommittedPublicSource(t);
+  const report = writePublicSnapshotManifest(source);
+  const manifestPath = join(source, "public-snapshot.json");
+  const clean = readFileSync(manifestPath, "utf8");
+  git(source, ["add", "public-snapshot.json"]);
+  git(source, ["commit", "-m", "snapshot"]);
+
+  assert.doesNotThrow(() => assertTrackedPublicSnapshotManifest(source));
+  for (const [label, mutate] of [
+    ["path hash", (value: typeof report) => { value.paths[0].sha256 = "0".repeat(64); }],
+    ["aggregate hash", (value: typeof report) => { value.hash = "sha256:stale"; }],
+    ["count", (value: typeof report) => { value.count += 1; }],
+    ["path entry", (value: typeof report) => { value.paths.pop(); }],
+  ] as const) {
+    const stale = JSON.parse(clean) as typeof report;
+    mutate(stale);
+    writeFileSync(manifestPath, `${JSON.stringify(stale, null, 2)}\n`);
+    assert.throws(
+      () => assertTrackedPublicSnapshotManifest(source),
+      /tracked public snapshot manifest is stale.*npm run public:snapshot/i,
+      label,
+    );
+  }
 });
 
 test("source boundary accepts deterministic regeneration of an authentic public snapshot", async (t) => {

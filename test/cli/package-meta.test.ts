@@ -51,6 +51,15 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function assertOrder(body: string, fragments: string[], label: string): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `${label}: expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
 function incrementPatchVersion(version: string): string {
   const [major, minor, patch] = version.split(".").map(Number);
   return `${major}.${minor}.${patch + 1}`;
@@ -157,6 +166,22 @@ test("public README documents semantic timing and final-render policy", () => {
     "30 FPS final default / 24 FPS minimum",
     "<output>.md2vid-render.json",
   ]) assert.match(readme, new RegExp(escapeRegex(term)), term);
+});
+
+test("public README gives both framework workflows cue-first ordering", () => {
+  const hyperframes = readme.slice(readme.indexOf("HyperFrames projects:"), readme.indexOf("New projects use the exact GSAP"));
+  assertOrder(
+    hyperframes,
+    ["npm run plan", "npm run build", "npm run check", "npm run dev", "npm run render"],
+    "HyperFrames README workflow",
+  );
+
+  const remotion = readme.slice(readme.indexOf("Remotion projects:"), readme.indexOf("`npm run dev` is long-running"));
+  assertOrder(
+    remotion,
+    ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "src/scenes", "npm run build", "npm run check", "npm run still", "npm run studio", "npm run render"],
+    "Remotion README workflow",
+  );
 });
 
 test("public README uses synchronized upgrade with manual recovery", () => {

@@ -26,6 +26,7 @@ import {
 import { isolatedGitEnvironment } from "../../scripts/git_environment.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
+const SNAPSHOT_CLI = join(ROOT, "scripts", "public_snapshot.ts");
 const NOREPLY_EMAIL = "1+snapshot-tests@users.noreply.github.com";
 const historicalMarkers = [
   ["07", "ch7", "finetuning"].join("-"),
@@ -251,6 +252,27 @@ test("manifest regeneration writes the current repository report without self-re
   assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
   assert.ok(report.paths.some((entry) => entry.path === "engine/visual_beats.ts"));
   assert.ok(report.paths.some((entry) => entry.path === "frameworks/remotion/visual_bindings.ts"));
+});
+
+test("no-argument snapshot CLI regenerates the root manifest", (t) => {
+  const repo = createRepository(t, {
+    "README.md": "# Public\n",
+    "engine/visual_beats.ts": "export {};\n",
+  });
+  const manifestPath = join(repo, PUBLIC_SNAPSHOT_MANIFEST);
+  writeFileSync(manifestPath, "{}\n");
+
+  const result = spawnSync(process.execPath, [SNAPSHOT_CLI], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(readFileSync(manifestPath, "utf8")) as PublicSnapshotReport;
+  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
+  assert.match(result.stdout, new RegExp(`${report.count} files ${report.hash}`));
+  assert.deepEqual(report, writePublicSnapshotManifest(repo));
 });
 
 test("snapshot rejects symlinks, submodules, and non-blob selected entries", (t) => {

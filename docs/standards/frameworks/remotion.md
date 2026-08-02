@@ -13,7 +13,10 @@ md2vid new <slug> --framework remotion
 cd <slug>
 npm install
 # Review audio_request.json.example; prepare audio_meta.json + assets/voice/*.wav.
-# Author and explicitly register any custom src/scenes/*.tsx.
+npm run transcribe             # when audio_meta.json needs word timings
+# Author visual_beats.json against the transcript.
+npm run plan                   # resolve beat anchors before scene authoring
+# Author and explicitly register beat-bound custom src/scenes/*.tsx.
 npm run build
 npm run check
 npm run still      # fast render smoke
@@ -21,7 +24,7 @@ npm run studio     # interactive review
 npm run render     # full MP4 only after review → out/video.mp4
 ```
 
-The scaffold creates the complete common md2vid contract and Remotion runtime before `npm install`. `npm run build` runs `md2vid build .` and caption regrouping: `engine.plan()` writes `shared/build/build_plan.json` in canonical layout, while `remotion.emit()` writes the output-local `build_plan.json` and stages shared WAV files under `public/assets/voice/`. `npm run check` runs `md2vid verify .` before strict TypeScript checking and is required before still, studio, or render. `md2vid verify .` remains available directly.
+The scaffold creates the complete common md2vid contract and Remotion runtime before `npm install`. Its generated scripts include `"plan": "md2vid plan ."`; run that command after authoring `visual_beats.json` and before scene authoring. `npm run build` runs `md2vid build .` and caption regrouping: `engine.plan()` writes `shared/build/build_plan.json` in canonical layout, while `remotion.emit()` writes the output-local `build_plan.json` and stages shared WAV files under `public/assets/voice/`. `npm run check` runs `md2vid verify .` before strict TypeScript checking and is required before still, studio, or render. `md2vid verify .` remains available directly.
 
 Run all generated-project commands from the Remotion output directory. The installed workflow does not require repository source paths.
 

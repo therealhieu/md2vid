@@ -13,6 +13,7 @@ import {
   assertPackedFiles,
   assertRegistryIntegrity,
   createReleaseContext,
+  deriveSmokeRevealChecks,
   finishReleaseContext,
   packArtifact,
   packedFileListing,
@@ -97,6 +98,26 @@ test("HyperFrames smoke does not retry unrelated or repeated failures", () => {
   }
 });
 
+test("HyperFrames smoke derives each cue probe from generated binding evidence", () => {
+  const checks = deriveSmokeRevealChecks(
+    [
+      { slug: "01-smoke", start: 0 },
+      { slug: "02-smoke", start: 4 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", revealStart: 1.3, revealDuration: 0.2 },
+      { frameSlug: "02-smoke", target: "#s02-future", revealStart: 0.6, revealDuration: 0.4 },
+    ],
+    30,
+  );
+
+  assert.equal(checks.length, 2);
+  assert.ok(Math.abs(checks[0].before - (1.3 - 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[0].after - (1.3 + 0.2 + 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[1].before - (4 + 0.6 - 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[1].after - (4 + 0.6 + 0.4 + 1 / 30)) < 1e-9);
+});
+
 test("packed HyperFrames smoke starts pristine and relies on proxy self-healing", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
   const installBody = source.slice(
@@ -159,9 +180,14 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.doesNotMatch(source, /frame1Timeline\.seek\(time\)/);
   assert.doesNotMatch(source, /frame2Timeline\.seek\(time\)/);
   assert.doesNotMatch(source, /captions\.seek\(time\)/);
-  assert.match(source, /frame2HostStart\s*-\s*0\.1/);
-  assert.match(source, /frame2HostStart\s*\+\s*0\.1/);
-  assert.match(source, /frame2HostStart\s*\+\s*2\.4/);
+  assert.match(source, /visualBindingArtifact/);
+  assert.match(source, /deriveSmokeRevealChecks/);
+  assert.match(source, /generated main root.*FPS/);
+  assert.match(source, /check\.before/);
+  assert.match(source, /check\.after/);
+  assert.match(source, /before\.every/);
+  assert.match(source, /after\.every/);
+  assert.doesNotMatch(source, /frame2HostStart\s*\+\s*2\.4/);
   assert.match(source, /frame2HostStart\s*\+\s*2\.9/);
   assert.match(source, /caption-word is-active/);
   assert.match(source, /caption-word is-spoken/);

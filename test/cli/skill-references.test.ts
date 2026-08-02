@@ -31,6 +31,14 @@ function readSourceAndCopy(sourceFromRoot: string): Array<{ label: string; body:
   ];
 }
 
+function sectionBetween(body: string, start: string, end: string, label: string): string {
+  const startIndex = body.indexOf(start);
+  const endIndex = body.indexOf(end, startIndex + start.length);
+  assert.ok(startIndex >= 0, `${label}: missing section ${JSON.stringify(start)}`);
+  assert.ok(endIndex > startIndex, `${label}: missing section boundary ${JSON.stringify(end)}`);
+  return body.slice(startIndex, endIndex);
+}
+
 test("mandatory skill references are byte-identical to authoritative standards", () => {
   assert.deepEqual(
     SKILL_REFERENCE_MAP.map((entry) => entry.destination),
@@ -110,6 +118,27 @@ test("canonical and bundled standards require cue-bound visual timing", () => {
   }
   for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
     assert.match(body, /one registered parent timeline may compose generated and authored child timelines/i, label);
+  }
+});
+
+test("framework onboarding resolves visual timing before framework authoring", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    const onboarding = sectionBetween(body, "## First run", "### Existing generated projects", label);
+    assertOrder(
+      onboarding,
+      ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "compositions/frames", "npm run build", "npm run check"],
+      label,
+    );
+    assert.match(onboarding, /"plan": "md2vid plan \."/, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    const onboarding = sectionBetween(body, "## Generated-project pipeline", "## Cue-bound visual timing", label);
+    assertOrder(
+      onboarding,
+      ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "src/scenes", "npm run build", "npm run check"],
+      label,
+    );
+    assert.match(onboarding, /"plan": "md2vid plan \."/, label);
   }
 });
 

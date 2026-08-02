@@ -22,6 +22,7 @@ import {
   type BuildDependencies,
 } from "../../scripts/build.ts";
 import { createProject } from "../../scripts/new_video.ts";
+import { run as planRun } from "../../scripts/plan.ts";
 import {
   run as regroupRun,
   type RegroupDependencies,
@@ -1501,6 +1502,35 @@ test("verify keeps argument errors at exit 2", () => {
     assert.equal(result.code, 2, argv.join(" "));
     assert.match(result.stderr, /Usage: md2vid verify/);
     assert.equal(result.stdout, "");
+  }
+});
+
+test("fresh HyperFrames captions-only build updates captions without binding evidence", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  try {
+    const captionsPath = join(project.outputDir, "compositions", "captions.html");
+    const indexPath = join(project.outputDir, "index.html");
+    const bindingPath = join(project.outputDir, "build", "visual_bindings.json");
+    assert.equal(existsSync(captionsPath), false, "fresh project must not have standalone captions");
+    assert.equal(existsSync(indexPath), false, "fresh project must not have an embedded captions host");
+    assert.equal(existsSync(bindingPath), false, "fresh project must not have binding evidence");
+    writeFileSync(
+      indexPath,
+      '<template id="captions-template"><div data-composition-id="captions"></div></template>\n',
+    );
+    const indexBefore = readFileSync(indexPath, "utf8");
+    const planned = captureConsole(() => planRun([project.outputDir]));
+    assert.equal(planned.code, 0, planned.stderr);
+
+    const result = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(existsSync(captionsPath), true, "captions-only must write standalone captions");
+    assert.match(readFileSync(indexPath, "utf8"), /id="captions-template"/, "captions-only must write embedded captions");
+    assert.notEqual(readFileSync(indexPath, "utf8"), indexBefore, "captions-only must replace the embedded caption artifact");
+    assert.equal(existsSync(bindingPath), false, "captions-only must not promote absent binding evidence");
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
   }
 });
 
