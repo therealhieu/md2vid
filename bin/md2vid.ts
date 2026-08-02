@@ -8,6 +8,7 @@
 // any cwd. Unknown/missing subcommand prints usage and exits 2.
 
 import { run as newRun } from "../scripts/new_video.ts";
+import { run as planRun } from "../scripts/plan.ts";
 import { run as buildRun } from "../scripts/build.ts";
 import { run as regroupRun } from "../scripts/regroup.ts";
 import { run as transcribeRun } from "../scripts/transcribe.ts";
@@ -25,6 +26,7 @@ type Run = (argv: string[]) => Promise<number> | number;
 
 const COMMANDS: Record<string, Run> = {
   new: newRun,
+  plan: planRun,
   build: buildRun,
   regroup: regroupRun,
   transcribe: transcribeRun,
@@ -48,6 +50,7 @@ function helpText(): string {
     "",
     "Commands:",
     "  new <slug> [--framework hyperframes|remotion]   scaffold a new video project",
+    "  plan <dir>                                      resolve and write neutral timing artifacts only",
     "  build <dir> [--captions-only]                    plan + emit framework files",
     "  regroup <dir> [--max-chars 54]                   rebalance caption lines",
     "  transcribe <dir>                                 word timings into audio_meta.json",

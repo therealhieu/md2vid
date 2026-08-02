@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { readAudioMeta } from "../engine/audio_meta.ts";
 import { loadConfigFiles } from "../engine/config.ts";
 import { plan, resolveVisualSyncPolicy } from "../engine/plan.ts";
@@ -10,7 +10,12 @@ import {
 } from "../engine/voice_assets.ts";
 import { readVisualBeatSpec } from "../engine/visual_beats.ts";
 import { resolveProjectLayout, type ProjectLayout } from "./project_layout.ts";
-import type { ManagedFile } from "./managed_file_transaction.ts";
+import {
+  promoteManagedFiles,
+  type ManagedFile,
+  type ManagedFilePromotionResult,
+  type ManagedFileTransactionDependencies,
+} from "./managed_file_transaction.ts";
 
 export interface ProjectPlanResult {
   layout: ProjectLayout;
@@ -109,4 +114,46 @@ export function stageNeutralArtifacts(planResult: BuildPlan, stagingRoot: string
     writeFileSync(staged, contents);
   }
   return files.map(([target]) => ({ target, staged: join(stagingRoot, target) }));
+}
+
+export interface NeutralPlanPromotionDependencies {
+  transactionDependencies?: ManagedFileTransactionDependencies;
+  cleanupStaging?: (path: string) => void;
+}
+
+export function promoteNeutralPlan(
+  planning: ProjectPlanResult,
+  dependencies: NeutralPlanPromotionDependencies = {},
+): ManagedFilePromotionResult {
+  const projectRoot = planning.layout.flat
+    ? planning.layout.outputDir
+    : dirname(planning.layout.outputDir);
+  const stagingRoot = mkdtempSync(join(projectRoot, ".md2vid-plan-"));
+  const cleanupStaging = dependencies.cleanupStaging
+    ?? ((path: string) => rmSync(path, { recursive: true, force: true }));
+  try {
+    const stagedArtifacts = stageNeutralArtifacts(planning.plan, join(stagingRoot, "shared"));
+    const promotion = promoteManagedFiles(
+      projectRoot,
+      stagingRoot,
+      stagedArtifacts.map(({ target, staged }) => ({
+        target: relative(projectRoot, join(planning.layout.sharedDir, target)),
+        staged,
+      })),
+      dependencies.transactionDependencies,
+    );
+    try {
+      cleanupStaging(stagingRoot);
+    } catch (error) {
+      promotion.cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+    }
+    return promotion;
+  } catch (error) {
+    try {
+      cleanupStaging(stagingRoot);
+    } catch {
+      // The primary planning or promotion error remains actionable.
+    }
+    throw error;
+  }
 }

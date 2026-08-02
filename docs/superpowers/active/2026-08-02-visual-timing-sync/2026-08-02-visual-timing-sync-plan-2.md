@@ -192,7 +192,7 @@ git commit -m "refactor(build): share neutral planning transaction"
 
 ---
 
-- [ ] **Task 5: Add the plan-only CLI command** `[Group: planning-workflow]` `[Tester: yes]`
+- [x] **Task 5: Add the plan-only CLI command** `[Group: planning-workflow]` `[Tester: yes]`
 
 **Files:**
 - Create: `scripts/plan.ts`
@@ -202,7 +202,7 @@ git commit -m "refactor(build): share neutral planning transaction"
 - Modify: `test/cli/run-exports.test.ts`
 - Modify: `test/boundaries.test.ts`
 
-- [ ] **Step 1: Write failing CLI behavior tests**
+- [x] **Step 1: Write failing CLI behavior tests**
 
 Create cases for flat and canonical layouts:
 
@@ -229,7 +229,7 @@ test("plan targets sibling shared in canonical layout", () => {
 
 Add parser tests for `--help`, missing directory, extra positional arguments, unknown options, rollback after promotion failure, and zero output mutation on invalid beat specs.
 
-- [ ] **Step 2: Run tests and confirm failure**
+- [x] **Step 2: Run tests and confirm failure**
 
 Run:
 
@@ -239,7 +239,7 @@ node --test test/cli/plan.test.ts test/cli/router.test.ts test/cli/run-exports.t
 
 Expected: FAIL because the command and export do not exist.
 
-- [ ] **Step 3: Implement `scripts/plan.ts`**
+- [x] **Step 3: Implement `scripts/plan.ts`**
 
 Follow existing command modules and `parseCommand()`:
 
@@ -271,7 +271,7 @@ export function run(argv: string[], dependencies: PlanDependencies = {}): number
 
 Use the repository's actual `parseCommand` option shape and cleanup-reporting helper names; preserve existing exit-code conventions (`0` success/help, `1` runtime failure, `2` parse failure if the parser distinguishes it).
 
-- [ ] **Step 4: Route and document the command**
+- [x] **Step 4: Route and document the command**
 
 In `bin/md2vid.ts`:
 
@@ -290,7 +290,7 @@ plan <dir>                                      resolve and write neutral timing
 
 Update export/boundary tests to require `scripts/plan.ts` and `scripts/plan_project.ts` through the intended public/internal boundaries.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 
@@ -304,7 +304,7 @@ node --test \
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add scripts/plan.ts bin/md2vid.ts test/cli/plan.test.ts test/cli/router.test.ts test/cli/run-exports.test.ts test/boundaries.test.ts

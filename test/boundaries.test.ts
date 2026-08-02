@@ -55,8 +55,14 @@ test("engine/ imports nothing from frameworks/", () => {
   }
 });
 
-test("frameworks/* import nothing from a sibling framework", () => {
-  const fwNames = readdirSync(FRAMEWORKS_DIR).filter((n) =>
+test("plan command depends only on the neutral planning boundary", () => {
+  const source = readFileSync(join(REPO_ROOT, "scripts", "plan.ts"), "utf8");
+  assert.match(source, /createProjectPlan/);
+  assert.match(source, /promoteNeutralPlan/);
+  assert.doesNotMatch(source, /frameworks\//);
+});
+
+test("frameworks/* import nothing from a sibling framework", () => {  const fwNames = readdirSync(FRAMEWORKS_DIR).filter((n) =>
     statSync(join(FRAMEWORKS_DIR, n)).isDirectory()
   );
   for (const fw of fwNames) {

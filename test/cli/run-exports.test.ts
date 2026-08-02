@@ -437,6 +437,7 @@ test("transcribe replaces invalid existing words and persists normalized provide
 
 test("project commands report neutral artifacts from the resolved shared directory", async () => {
   const build = await runOf("build.ts");
+  const plan = await runOf("plan.ts");
   const regroup = await runOf("regroup.ts");
   const transcribe = await runOf("transcribe.ts");
   const verify = await runOf("verify.ts");
@@ -467,7 +468,7 @@ test("project commands report neutral artifacts from the resolved shared directo
       assert.equal(regroupResult.code, 1);
       assert.ok(regroupResult.stderr.includes(join(shared, "caption_groups.json")), regroupResult.stderr);
 
-      writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+      writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: { intro: "01-intro" } }));
       writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
         voices: [{
           id: "intro",
@@ -483,6 +484,11 @@ test("project commands report neutral artifacts from the resolved shared directo
       }
       const verifyResult = await captureRun(verify, [output]);
       assert.ok(verifyResult.stdout.includes(join(shared, "caption_groups.json")), verifyResult.stdout);
+
+      const planResult = await captureRun(plan, [output]);
+      assert.equal(planResult.code, 0, planResult.stderr);
+      assert.ok(planResult.stdout.includes(shared), planResult.stdout);
+      assert.equal(existsSync(join(shared, "build", "visual_timing.json")), true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -529,10 +535,10 @@ test("project commands report layout stat failures instead of throwing", async (
     mkdirSync(output, { recursive: true });
     symlinkSync("shared", shared);
 
-    for (const script of ["build.ts", "regroup.ts", "transcribe.ts", "verify.ts"]) {
+    for (const script of ["build.ts", "plan.ts", "regroup.ts", "transcribe.ts", "verify.ts"]) {
       const result = await captureRun(await runOf(script), [output]);
       assert.equal(result.code, 1, script);
-      assert.match(result.stderr, /FAIL:/, script);
+      assert.match(result.stderr, script === "plan.ts" ? /FAIL \[plan\]/ : /FAIL:/, script);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
