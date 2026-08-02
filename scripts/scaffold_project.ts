@@ -16,14 +16,16 @@ import {
 import { validateGsapSrc } from "../frameworks/hyperframes/scaffold.ts";
 import { resolvePackageRoot } from "./package_root.ts";
 
+const AUDIO_REQUEST_LINES = Object.freeze([
+  Object.freeze({ id: "intro", text: "Introduce the topic." } as const),
+  Object.freeze({ id: "recap", text: "Recap the key idea." } as const),
+] as const);
+
 export const AUDIO_REQUEST_EXAMPLE = Object.freeze({
   version: 1,
   ...DEFAULT_NARRATION_POLICY,
-  lines: [
-    { id: "intro", text: "Introduce the topic." },
-    { id: "recap", text: "Recap the key idea." },
-  ],
-});
+  lines: AUDIO_REQUEST_LINES,
+} as const);
 
 const REQUIRED_VISUAL_SYNC = {
   mode: "required",

@@ -32,7 +32,11 @@ function runContract(input: {
   request: Record<string, unknown>;
   checks: readonly DoctorCheck[];
   voices?: readonly { id: string; label: string }[];
+  doctorFails?: boolean;
+  doctorJson?: string;
   catalogFails?: boolean;
+  catalogJson?: string;
+  mediaExists?: boolean;
 }) {
   const root = mkdtempSync(join(tmpdir(), "md2vid-skill-media-"));
   const config = join(root, "config");
@@ -46,6 +50,7 @@ function runContract(input: {
     `#!/bin/sh
 set -eu
 if [ "$1" = "hyperframes" ] && [ "$2" = "doctor" ]; then
+  if [ "${input.doctorFails ? "1" : "0"}" = "1" ]; then exit 90; fi
   printf '%s\\n' "$FAKE_DOCTOR_JSON"
   exit 0
 fi
@@ -58,12 +63,14 @@ exit 92
 `,
     { mode: 0o755 },
   );
-  writeFileSync(
-    join(config, "skills", "media-use", "audio", "scripts", "audio.mjs"),
-    `import { writeFileSync } from "node:fs";
+  if (input.mediaExists !== false) {
+    writeFileSync(
+      join(config, "skills", "media-use", "audio", "scripts", "audio.mjs"),
+      `import { writeFileSync } from "node:fs";
 writeFileSync(process.env.CAPTURE, JSON.stringify(process.argv.slice(2)));
 `,
-  );
+    );
+  }
 
   const result = spawnSync("bash", ["-c", mediaContract()], {
     cwd: root,
@@ -73,8 +80,8 @@ writeFileSync(process.env.CAPTURE, JSON.stringify(process.argv.slice(2)));
       CLAUDE_CONFIG_DIR: config,
       NARRATION_ROOT: root,
       CAPTURE: capture,
-      FAKE_DOCTOR_JSON: JSON.stringify({ checks: input.checks }),
-      FAKE_VOICES_JSON: JSON.stringify(input.voices ?? []),
+      FAKE_DOCTOR_JSON: input.doctorJson ?? JSON.stringify({ checks: input.checks }),
+      FAKE_VOICES_JSON: input.catalogJson ?? JSON.stringify(input.voices ?? []),
     },
     encoding: "utf8",
   });
@@ -101,6 +108,18 @@ const MICHAEL = [
   { id: "af_heart", label: "Heart" },
   { id: "am_michael", label: "Michael" },
 ];
+
+function assertKokoroReadinessFailure(
+  result: ReturnType<typeof runContract>,
+  capability: string,
+): void {
+  assert.notEqual(result.status, 0);
+  assert.equal(result.captured, undefined);
+  assert.equal(
+    result.stderr,
+    `Kokoro readiness failed: ${capability}\nPreflight command: md2vid hyperframes doctor --json\nNext step: md2vid hyperframes doctor\nNo system, cloud, or automatic fallback was used.\n`,
+  );
+}
 
 test("portable media contract forwards the resolved default request exactly", () => {
   const result = runContract({ request: DEFAULT_REQUEST, checks: ALL_READY, voices: MICHAEL });
@@ -155,6 +174,20 @@ for (const [name, checks, voices, capability] of [
     assert.notEqual(result.status, 0);
     assert.equal(result.captured, undefined);
     assert.equal(result.stderr, `Kokoro readiness failed: ${capability}\nPreflight command: md2vid hyperframes doctor --json\nNext step: md2vid hyperframes doctor\nNo system, cloud, or automatic fallback was used.\n`);
+  });
+}
+
+for (const [name, input, capability] of [
+  ["media-use runner is missing", { checks: ALL_READY, voices: MICHAEL, mediaExists: false }, "media-use audio runner"],
+  ["doctor command fails", { checks: ALL_READY, voices: MICHAEL, doctorFails: true }, "md2vid hyperframes doctor --json"],
+  ["Kokoro catalog command fails", { checks: ALL_READY, voices: MICHAEL, catalogFails: true }, "md2vid hyperframes tts --list --json"],
+  ["doctor JSON is malformed", { checks: ALL_READY, voices: MICHAEL, doctorJson: "{" }, "doctor response"],
+  ["doctor JSON has an invalid schema", { checks: ALL_READY, voices: MICHAEL, doctorJson: JSON.stringify({ checks: [{ name: "FFmpeg", ok: "yes" }] }) }, "doctor response"],
+  ["Kokoro catalog JSON is malformed", { checks: ALL_READY, voices: MICHAEL, catalogJson: "{" }, "Kokoro voice catalog"],
+  ["Kokoro catalog JSON has an invalid schema", { checks: ALL_READY, voices: MICHAEL, catalogJson: JSON.stringify([{ id: 42 }]) }, "Kokoro voice catalog"],
+] as const) {
+  test(`fails closed before synthesis when ${name}`, () => {
+    assertKokoroReadinessFailure(runContract({ request: DEFAULT_REQUEST, ...input }), capability);
   });
 }
 

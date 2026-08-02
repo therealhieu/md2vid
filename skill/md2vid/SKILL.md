@@ -164,33 +164,69 @@ TTS_VOICE=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.vo
 TTS_LANG=$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.lang)' "$NARRATION_ROOT/audio_request.json")
 TTS_SPEED=$(node -e 'const r=require(process.argv[1]); process.stdout.write(String(r.speed))' "$NARRATION_ROOT/audio_request.json")
 
-DOCTOR_JSON=$(md2vid hyperframes doctor --json)
+READINESS_LABEL="Narration readiness failed"
+if [ "$TTS_PROVIDER" = kokoro ]; then READINESS_LABEL="Kokoro readiness failed"; fi
+fail_readiness() {
+  printf '%s\n' "$READINESS_LABEL: $1" >&2
+  printf '%s\n' "Preflight command: md2vid hyperframes doctor --json" >&2
+  printf '%s\n' "Next step: md2vid hyperframes doctor" >&2
+  printf '%s\n' "No system, cloud, or automatic fallback was used." >&2
+  exit 1
+}
+
+MEDIA_AUDIO_DIR="$MEDIA_USE_ROOT/audio/scripts"
+MEDIA_RUNNER="$MEDIA_AUDIO_DIR/audio.mjs"
+if [ ! -f "$MEDIA_RUNNER" ] || [ ! -r "$MEDIA_RUNNER" ]; then
+  fail_readiness "media-use audio runner"
+fi
+if ! DOCTOR_JSON=$(md2vid hyperframes doctor --json); then
+  fail_readiness "md2vid hyperframes doctor --json"
+fi
 VOICES_JSON='[]'
 if [ "$TTS_PROVIDER" = kokoro ]; then
-  VOICES_JSON=$(md2vid hyperframes tts --list --json)
+  if ! VOICES_JSON=$(md2vid hyperframes tts --list --json); then
+    fail_readiness "md2vid hyperframes tts --list --json"
+  fi
 fi
-node - "$DOCTOR_JSON" "$VOICES_JSON" "$TTS_PROVIDER" "$TTS_VOICE" <<'NODE'
+if ! READINESS_FAILURE=$(node - "$DOCTOR_JSON" "$VOICES_JSON" "$TTS_PROVIDER" "$TTS_VOICE" <<'NODE'
 const [doctorJson, voicesJson, provider, voice] = process.argv.slice(2);
-const doctor = JSON.parse(doctorJson);
-const voices = JSON.parse(voicesJson);
-function failReadiness(capability) {
-  const label = provider === "kokoro" ? "Kokoro readiness failed" : "Narration readiness failed";
-  console.error(`${label}: ${capability}`);
-  console.error("Preflight command: md2vid hyperframes doctor --json");
-  console.error("Next step: md2vid hyperframes doctor");
-  console.error("No system, cloud, or automatic fallback was used.");
-  process.exit(1);
-}
-for (const name of ["FFmpeg", "FFprobe"]) {
-  const check = doctor.checks?.find((candidate) => candidate.name === name);
-  if (!check?.ok) failReadiness(name);
-}
-if (provider === "kokoro") {
-  const kokoro = doctor.checks?.find((candidate) => candidate.name === "TTS (Kokoro)");
-  if (!kokoro?.ok) failReadiness("TTS (Kokoro)");
-  if (!voices.some((candidate) => candidate.id === voice)) failReadiness(`voice ${voice}`);
+const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+try {
+  const doctor = JSON.parse(doctorJson);
+  if (!record(doctor) || !Array.isArray(doctor.checks) || !doctor.checks.every(
+    (check) => record(check) && typeof check.name === "string" && typeof check.ok === "boolean",
+  )) {
+    process.stdout.write("doctor response");
+  } else {
+    const check = (name) => doctor.checks.find((candidate) => candidate.name === name);
+    const missing = ["FFmpeg", "FFprobe"].find((name) => !check(name)?.ok);
+    if (missing !== undefined) {
+      process.stdout.write(missing);
+    } else if (provider === "kokoro") {
+      let voices;
+      try {
+        voices = JSON.parse(voicesJson);
+      } catch {
+        process.stdout.write("Kokoro voice catalog");
+        process.exit(0);
+      }
+      if (!Array.isArray(voices) || !voices.every((candidate) => record(candidate) && typeof candidate.id === "string")) {
+        process.stdout.write("Kokoro voice catalog");
+      } else if (!check("TTS (Kokoro)")?.ok) {
+        process.stdout.write("TTS (Kokoro)");
+      } else if (!voices.some((candidate) => candidate.id === voice)) {
+        process.stdout.write(`voice ${voice}`);
+      }
+    }
+  }
+} catch {
+  process.stdout.write("doctor response");
 }
 NODE
+); then
+  fail_readiness "readiness validation"
+fi
+if [ -n "$READINESS_FAILURE" ]; then fail_readiness "$READINESS_FAILURE"; fi
 
 node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs" \
   --request "$NARRATION_ROOT/audio_request.json" \
@@ -239,7 +275,7 @@ Use this for the default HyperFrames workflow or one explicitly requested Remoti
 
    ```bash
    cd <slug>
-   npm run transcribe   # only when audio_meta words[] timings are empty
+   npm run transcribe
    # author <slug>/visual_beats.json with beat IDs, transcript anchors, and source refs
    npm run plan
    ```
@@ -289,14 +325,14 @@ Use this only when the user requests both frameworks or a shared-neutral multi-f
    - `outputs/<slug>/shared/STORYBOARD.md`
    - `outputs/<slug>/shared/SCRIPT.md`
    - Review the example, then prepare `outputs/<slug>/shared/audio_request.json`.
-   - Generate `outputs/<slug>/shared/audio_meta.json` and `outputs/<slug>/shared/assets/voice/*.wav` with `/hyperframes-media`.
+   - Set `NARRATION_ROOT=outputs/<slug>/shared`, then run the marked narration media contract above to generate `outputs/<slug>/shared/audio_meta.json` and `outputs/<slug>/shared/assets/voice/*.wav`.
    - Fill `outputs/<slug>/shared/video.config.json`; every meaningful voice ID maps to a visual slug, `voices[]` array order controls sequence, and new scaffolds set `visualSync.mode` to `required`.
 
 4. Resolve the shared narration once, then author the shared beat specification before either framework visual:
 
    ```bash
    cd outputs/<slug>/hyperframes
-   npm run transcribe   # only when shared audio_meta words[] timings are empty
+   npm run transcribe
    # author outputs/<slug>/shared/visual_beats.json with beat IDs, anchors, and source refs
    npm run plan
    ```

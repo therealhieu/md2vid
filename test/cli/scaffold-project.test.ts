@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  AUDIO_REQUEST_EXAMPLE,
   mergePackageManifest,
   validateCommonScaffold,
   validateFrameworkRuntime,
@@ -136,6 +137,24 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
   }
 });
 
+test("narration scaffold oracle is recursively immutable", () => {
+  assert.equal(Object.isFrozen(AUDIO_REQUEST_EXAMPLE), true);
+  assert.equal(Object.isFrozen(AUDIO_REQUEST_EXAMPLE.lines), true);
+  assert.equal(Object.isFrozen(AUDIO_REQUEST_EXAMPLE.lines[0]), true);
+  assert.equal(Reflect.set(AUDIO_REQUEST_EXAMPLE.lines[0], "text", "Mutated narration."), false);
+  assert.equal(Reflect.set(AUDIO_REQUEST_EXAMPLE.lines, 0, { id: "mutated", text: "Mutated narration." }), false);
+  assert.deepEqual(AUDIO_REQUEST_EXAMPLE, EXPECTED_AUDIO_REQUEST);
+
+  const stage = mkdtempSync(join(tmpdir(), "common-scaffold-immutable-narration-"));
+  try {
+    writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+    assert.deepEqual(JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8")), EXPECTED_AUDIO_REQUEST);
+    assert.doesNotThrow(() => validateCommonScaffold(stage, "demo-video"));
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+});
+
 for (const [field, value] of [
   ["version", 2],
   ["provider", "heygen"],
@@ -154,6 +173,28 @@ for (const [field, value] of [
         () => validateCommonScaffold(stage, "demo-video"),
         /audio_request\.json\.example/,
       );
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
+}
+
+const { speed: _defaultSpeed, ...MISSING_SPEED_REQUEST } = EXPECTED_AUDIO_REQUEST;
+for (const [name, request] of [
+  ["missing required field", MISSING_SPEED_REQUEST],
+  ["extra field", { ...EXPECTED_AUDIO_REQUEST, unexpected: true }],
+  ["reordered lines", { ...EXPECTED_AUDIO_REQUEST, lines: [...EXPECTED_AUDIO_REQUEST.lines].reverse() }],
+  ["changed line text", {
+    ...EXPECTED_AUDIO_REQUEST,
+    lines: [{ ...EXPECTED_AUDIO_REQUEST.lines[0], text: "Introduce this topic." }, EXPECTED_AUDIO_REQUEST.lines[1]],
+  }],
+] as const) {
+  test(`validateCommonScaffold rejects narration request ${name}`, () => {
+    const stage = mkdtempSync(join(tmpdir(), "common-scaffold-narration-shape-"));
+    try {
+      writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+      writeFileSync(join(stage, "audio_request.json.example"), `${JSON.stringify(request, null, 2)}\n`);
+      assert.throws(() => validateCommonScaffold(stage, "demo-video"), /audio_request\.json\.example/);
     } finally {
       rmSync(stage, { recursive: true, force: true });
     }

@@ -224,6 +224,54 @@ test("multi-framework branch is a complete canonical-project workflow", () => {
   ]);
 });
 
+test("canonical workflow uses the marked media contract with its shared narration root", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+  assert.doesNotMatch(canonical, /\/hyperframes-media/);
+  assertOrder(canonical, [
+    "Set `NARRATION_ROOT=outputs/<slug>/shared`",
+    "marked narration media contract",
+    "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
+  ]);
+});
+
+test("both workflows require unconditional transcription after synthesis", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+
+  for (const branch of [flat, canonical]) {
+    assert.doesNotMatch(branch, /npm run transcribe\s+# only when/);
+    assert.doesNotMatch(branch, /only when (?:shared )?audio_meta words\[\] timings are empty/);
+  }
+  assertOrder(flat, [
+    "narration media contract above",
+    "npm run transcribe",
+    "<slug>/visual_beats.json",
+    "npm run plan",
+  ]);
+  assertOrder(canonical, [
+    "marked narration media contract",
+    "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
+  ]);
+});
+
 test("installed operational guidance never executes npx hyperframes", () => {
   const markdown = readMarkdownTree(SKILL_ROOT);
   const hits = markdown.flatMap((file) =>
