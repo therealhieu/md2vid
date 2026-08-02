@@ -22,7 +22,10 @@ import type { BuildPlan, CaptionGroup, VisualBinding, VisualBindingManifest } fr
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
-import { createProjectPlan } from "./plan_project.ts";
+import {
+  createProjectPlan,
+  validateProjectNarrationFreshness,
+} from "./plan_project.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
@@ -142,6 +145,7 @@ export function run(argv: string[]): number {
       meta.voices.map((voice) => voice.path),
     );
     validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
+    validateProjectNarrationFreshness(layout.sharedDir, meta, voiceSnapshots);
 
     const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
     const policy = resolveVisualSyncPolicy(loaded.neutral);

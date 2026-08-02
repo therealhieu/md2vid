@@ -15,6 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
+import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
+import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import { getAdapter } from "../../frameworks/index.ts";
 import { DEFAULT_GSAP_SRC } from "../../frameworks/hyperframes/scaffold.ts";
 import {
@@ -109,6 +112,48 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
   }
 
   return { root, outputDir, sharedDir };
+}
+
+function versionedWorkflowFixture(): WorkflowProject {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "canonical" });
+  const metadataPath = join(project.sharedDir, "audio_meta.json");
+  const meta = {
+    ...(JSON.parse(readFileSync(metadataPath, "utf8")) as import("../../engine/types.ts").AudioMeta),
+    tts_provider: "kokoro",
+    voice_id: "am_michael",
+  };
+  const request = validateVersionedNarrationRequest({
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: meta.voices.map((voice) => ({ id: voice.id, text: `${voice.id} narration.` })),
+  }, join(project.sharedDir, "audio_request.json"));
+  const snapshots = captureVoiceWavSnapshots(project.sharedDir, meta.voices.map((voice) => voice.path));
+  const evidence = createNarrationEvidence({
+    request,
+    meta,
+    snapshots,
+    metadataPath,
+  });
+  writeFileSync(join(project.sharedDir, "audio_meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "audio_request.json"), `${JSON.stringify(request, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "narration_evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+  return project;
+}
+
+function snapshotProjectFiles(root: string): Map<string, Buffer> {
+  const paths = readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((path) => lstatSync(join(root, path)).isFile())
+    .sort();
+  return new Map(paths.map((path) => [path, readFileSync(join(root, path))]));
+}
+
+function assertProjectFilesUnchanged(root: string, before: ReadonlyMap<string, Buffer>): void {
+  const after = snapshotProjectFiles(root);
+  assert.deepEqual([...after.keys()], [...before.keys()]);
+  for (const [path, bytes] of before) assert.deepEqual(after.get(path), bytes, path);
 }
 
 function captureConsole(run: () => number): { code: number; stdout: string; stderr: string } {
@@ -227,6 +272,158 @@ test("build and regroup emit one legacy visual-sync warning", () => {
     rmSync(project.root, { recursive: true, force: true });
   }
 });
+
+test("plan, build, regroup, and verify accept matching versioned narration evidence", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+type NarrationMutation = (project: WorkflowProject) => void;
+
+const STALE_NARRATION_MUTATIONS: Array<[string, NarrationMutation]> = [
+  ["missing evidence", (project) => rmSync(join(project.sharedDir, "narration_evidence.json"))],
+  ["provider", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.provider = "heygen";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["voice", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.voice = "alternate-voice";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["language", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lang = "en-US";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["speed", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.speed = 1;
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["spoken text", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines[0].text = "Changed narration.";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["line order", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines.reverse();
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["line ID", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines[0].id = "changed-id";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["same-duration WAV bytes", (project) => {
+    const wavPath = join(project.sharedDir, "assets", "voice", "intro.wav");
+    const bytes = Buffer.from(readFileSync(wavPath));
+    bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+    writeFileSync(wavPath, bytes);
+  }],
+  ["evidence voice path", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].path = "assets/voice/replaced.wav";
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+  ["evidence voice duration", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].duration_s = 0.5;
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+  ["evidence WAV digest", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].sha256 = "f".repeat(64);
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+];
+
+for (const [name, mutate] of STALE_NARRATION_MUTATIONS) {
+  test(`plan, build, regroup, and verify reject stale ${name} evidence before changing outputs`, () => {
+    const project = versionedWorkflowFixture();
+    try {
+      assert.equal(buildRun([project.outputDir]), 0);
+      assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+      mutate(project);
+      const before = snapshotProjectFiles(project.root);
+      const routes: Array<[string, () => number]> = [
+        ["plan", () => planRun([project.outputDir])],
+        ["build", () => buildRun([project.outputDir])],
+        ["regroup", () => regroupRun([project.outputDir, "--max-chars", "54"])],
+        ["verify", () => verifyRun([project.outputDir])],
+      ];
+
+      for (const [route, run] of routes) {
+        const result = captureConsole(run);
+        assert.equal(result.code, 1, `${name}: ${route}`);
+        assert.match(result.stderr, /Re-synthesize narration and rerun `md2vid transcribe`/, `${name}: ${route}`);
+        assertProjectFilesUnchanged(project.root, before);
+      }
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("BGM and SFX-only request edits retain matching narration evidence", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.bgm = { mode: "none" };
+    request.sfx = [{ id: "click" }];
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+for (const [name, request] of [
+  ["no request", undefined],
+  ["unversioned request", { lines: [{ id: "intro", text: "intro narration." }] }],
+] as const) {
+  test(`plan, build, regroup, and verify retain legacy behavior with ${name} and orphan evidence`, () => {
+    const project = versionedWorkflowFixture();
+    try {
+      const requestPath = join(project.sharedDir, "audio_request.json");
+      if (request === undefined) rmSync(requestPath);
+      else writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+      const orphanEvidence = readFileSync(join(project.sharedDir, "narration_evidence.json"));
+
+      assert.equal(planRun([project.outputDir]), 0);
+      assert.equal(buildRun([project.outputDir]), 0);
+      assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+      assert.equal(verifyRun([project.outputDir]), 0);
+      assert.deepEqual(readFileSync(join(project.sharedDir, "narration_evidence.json")), orphanEvidence);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("verify replans current visual-beat inputs instead of trusting emitted artifacts", () => {
   const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });

@@ -11,6 +11,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
+import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
+import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import { run } from "../../scripts/plan.ts";
 import { makePcmWav } from "../helpers/wav.ts";
 
@@ -58,6 +61,38 @@ function seedNeutralInputs(sharedDir: string): void {
   }, null, 2)}\n`);
 }
 
+function seedVersionedInputs(sharedDir: string): void {
+  seedNeutralInputs(sharedDir);
+  const request = validateVersionedNarrationRequest({
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [{ id: "intro", text: "Introduce the topic." }],
+  }, join(sharedDir, "audio_request.json"));
+  const meta = {
+    tts_provider: "kokoro",
+    voice_id: "am_michael",
+    voices: [{
+      id: "intro",
+      path: "assets/voice/intro.wav",
+      duration_s: 1,
+      words: [{ text: "Intro", start: 0, end: 1 }],
+    }],
+  };
+  const snapshots = captureVoiceWavSnapshots(sharedDir, meta.voices.map((voice) => voice.path));
+  const evidence = createNarrationEvidence({
+    request,
+    meta,
+    snapshots,
+    metadataPath: join(sharedDir, "audio_meta.json"),
+  });
+  writeFileSync(join(sharedDir, "audio_request.json"), `${JSON.stringify(request, null, 2)}\n`);
+  writeFileSync(join(sharedDir, "audio_meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(sharedDir, "narration_evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+}
+
 test("plan writes only neutral artifacts in a flat project", () => {
   const project = mkdtempSync(join(tmpdir(), "md2vid-plan-flat-"));
   try {
@@ -94,6 +129,33 @@ test("plan targets sibling shared in canonical layout", () => {
     assert.equal(existsSync(join(hyperframesOutput, "build", "visual_timing.json")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plan rejects stale versioned narration before changing neutral outputs", () => {
+  const project = mkdtempSync(join(tmpdir(), "md2vid-plan-stale-narration-"));
+  try {
+    seedVersionedInputs(project);
+    const requestPath = join(project, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.speed = 1;
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+    mkdirSync(join(project, "build"), { recursive: true });
+    const outputs = new Map([
+      [join(project, "cues.json"), "ORIGINAL_CUES\n"],
+      [join(project, "caption_groups.json"), "ORIGINAL_CAPTIONS\n"],
+      [join(project, "build", "build_plan.json"), "ORIGINAL_PLAN\n"],
+      [join(project, "build", "visual_timing.json"), "ORIGINAL_VISUAL_TIMING\n"],
+    ]);
+    for (const [path, bytes] of outputs) writeFileSync(path, bytes);
+
+    const result = captureRun([project]);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /request digest.*Re-synthesize narration and rerun `md2vid transcribe`/);
+    for (const [path, bytes] of outputs) assert.equal(readFileSync(path, "utf8"), bytes, path);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
   }
 });
 

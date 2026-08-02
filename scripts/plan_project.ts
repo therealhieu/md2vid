@@ -1,12 +1,21 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { readAudioMeta } from "../engine/audio_meta.ts";
+import {
+  validateNarrationEvidence,
+  verifyNarrationEvidence,
+} from "../engine/narration_evidence.ts";
+import {
+  validateNarrationRequest,
+  validateVersionedNarrationRequest,
+} from "../engine/narration_request.ts";
 import { loadConfigFiles } from "../engine/config.ts";
 import { plan, resolveVisualSyncPolicy } from "../engine/plan.ts";
-import type { BuildPlan, VideoConfig, VoiceAssetSnapshot } from "../engine/types.ts";
+import type { AudioMeta, BuildPlan, VideoConfig, VoiceAssetSnapshot } from "../engine/types.ts";
 import {
   captureVoiceWavSnapshots,
   validateAudioMetaVoiceSnapshots,
+  type VoiceWavSnapshot,
 } from "../engine/voice_assets.ts";
 import { readVisualBeatSpec } from "../engine/visual_beats.ts";
 import { resolveProjectLayout, type ProjectLayout } from "./project_layout.ts";
@@ -33,6 +42,40 @@ export interface SerializedNeutralArtifacts {
   visualTiming: string;
 }
 
+export function validateProjectNarrationFreshness(
+  sharedDir: string,
+  meta: AudioMeta,
+  voiceSnapshots: readonly VoiceWavSnapshot[],
+): void {
+  const requestPath = join(sharedDir, "audio_request.json");
+  if (!existsSync(requestPath)) return;
+
+  const rawRequest = JSON.parse(readFileSync(requestPath, "utf8"));
+  const request = validateNarrationRequest(rawRequest, requestPath);
+  if (request.version !== 1) return;
+  const versioned = validateVersionedNarrationRequest(rawRequest, requestPath);
+
+  const evidencePath = join(sharedDir, "narration_evidence.json");
+  if (!existsSync(evidencePath)) {
+    throw new Error(
+      `${evidencePath}: missing for versioned narration request. `
+      + "Re-synthesize narration and rerun `md2vid transcribe`.",
+    );
+  }
+  const evidence = validateNarrationEvidence(
+    JSON.parse(readFileSync(evidencePath, "utf8")),
+    evidencePath,
+  );
+  const findings = verifyNarrationEvidence({
+    request: versioned,
+    evidence,
+    meta,
+    snapshots: voiceSnapshots,
+    metadataPath: join(sharedDir, "audio_meta.json"),
+  });
+  if (findings.length) throw new Error(findings.map((finding) => finding.msg).join("\n"));
+}
+
 export function createProjectPlan(outputDir: string): ProjectPlanResult {
   const layout = resolveProjectLayout(outputDir);
   const metaPath = join(layout.sharedDir, "audio_meta.json");
@@ -42,6 +85,7 @@ export function createProjectPlan(outputDir: string): ProjectPlanResult {
     captureVoiceWavSnapshots(layout.sharedDir, meta.voices.map((voice) => voice.path)),
     metaPath,
   );
+  validateProjectNarrationFreshness(layout.sharedDir, meta, voiceSnapshots);
   const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
   const policy = resolveVisualSyncPolicy(loaded.neutral);
   const visualBeatsPath = join(layout.sharedDir, "visual_beats.json");

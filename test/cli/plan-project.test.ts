@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { BuildPlan } from "../../engine/types.ts";
+import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
+import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
+import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import {
   createProjectPlan,
   serializeNeutralArtifacts,
@@ -105,6 +108,65 @@ function planningProject(visualSync?: "off" | "warn" | "required"): string {
   }, null, 2)}\n`);
   return project;
 }
+
+function versionedFixture(): string {
+  const project = planningProject("off");
+  const request = validateVersionedNarrationRequest({
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [{ id: "intro", text: "Introduce the topic." }],
+  }, join(project, "audio_request.json"));
+  const meta = {
+    tts_provider: "kokoro",
+    voice_id: "am_michael",
+    voices: [{
+      id: "intro",
+      path: "assets/voice/intro.wav",
+      duration_s: 1,
+      words: [{ text: "Intro", start: 0, end: 1 }],
+    }],
+  };
+  const snapshots = captureVoiceWavSnapshots(project, meta.voices.map((voice) => voice.path));
+  const evidence = createNarrationEvidence({
+    request,
+    meta,
+    snapshots,
+    metadataPath: join(project, "audio_meta.json"),
+  });
+  writeFileSync(join(project, "audio_request.json"), `${JSON.stringify(request, null, 2)}\n`);
+  writeFileSync(join(project, "audio_meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(project, "narration_evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+  return project;
+}
+
+test("createProjectPlan accepts matching versioned narration evidence", () => {
+  const project = versionedFixture();
+  try {
+    assert.doesNotThrow(() => createProjectPlan(project));
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("createProjectPlan rejects changed spoken text before planning", () => {
+  const project = versionedFixture();
+  try {
+    const requestPath = join(project, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines[0].text = "Introduce this topic.";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+
+    assert.throws(
+      () => createProjectPlan(project),
+      /request digest.*Re-synthesize narration and rerun `md2vid transcribe`/,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
 
 test("planning ignores malformed visual beats when visual sync is off", () => {
   const project = planningProject("off");
