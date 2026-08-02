@@ -34,30 +34,36 @@ const DOCS_STANDARDS = join(REPO_ROOT, "docs", "standards", "frameworks");
 const REPO_RELATIVE = /\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs/;
 
 const HYPERFRAMES_NEXT_STEPS = [
-  "review audio_request.json.example and generate narration",
-  "run transcription when needed",
+  "review audio_request.json.example and author the spoken script",
+  "materialize audio_request.json with explicit effective narration settings",
+  "run md2vid narration-check .",
+  "verify Kokoro readiness and generate fresh WAVs through /media-use",
+  "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
   "author visual_beats.json",
-  "npm run plan",
+  "run npm run plan",
   "author cue-bound frames in compositions/frames/",
-  "npm run build",
-  "npm run check",
-  "npm run dev",
-  "npm run render after review",
+  "run npm run build",
+  "run npm run check",
+  "run npm run dev for review",
+  "run npm run render after review",
 ];
 
 const REMOTION_NEXT_STEPS = [
   "npm install",
-  "review audio_request.json.example and generate narration",
-  "run transcription when needed",
+  "review audio_request.json.example and author the spoken script",
+  "materialize audio_request.json with explicit effective narration settings",
+  "run md2vid narration-check .",
+  "verify Kokoro readiness and generate fresh WAVs through /media-use",
+  "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
   "author visual_beats.json",
-  "npm run plan",
+  "run npm run plan",
   "author and register cue-bound src/scenes/*.tsx",
-  "npm run build",
-  "npm run check",
-  "npm run still or npm run studio",
-  "npm run render after review",
+  "run npm run build",
+  "run npm run check",
+  "run npm run still or npm run studio for review",
+  "run npm run render after review",
 ];
 
 function scaffold(slug: string, extraArgs: string[], outputsRoot: string) {

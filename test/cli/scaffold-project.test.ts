@@ -10,11 +10,27 @@ import {
   writeCommonScaffold,
 } from "../../scripts/scaffold_project.ts";
 import type { FrameworkScaffoldSpec } from "../../engine/types.ts";
+import {
+  analyzeNarrationRequest,
+  validateVersionedNarrationRequest,
+} from "../../engine/narration_request.ts";
 import { DEFAULT_GSAP_SRC, ensureRuntime } from "../../frameworks/hyperframes/scaffold.ts";
 import {
   HYPERFRAMES_VERSION,
   TYPESCRIPT_VERSION,
 } from "../../scripts/dependency_versions.ts";
+
+const EXPECTED_AUDIO_REQUEST = {
+  version: 1,
+  provider: "kokoro",
+  voice: "am_michael",
+  lang: "en",
+  speed: 0.9,
+  lines: [
+    { id: "intro", text: "Introduce the topic." },
+    { id: "recap", text: "Recap the key idea." },
+  ],
+} as const;
 
 const spec: FrameworkScaffoldSpec = {
   outputConfig: {
@@ -74,12 +90,12 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
       slugs: {},
       visualSync: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 },
     });
-    assert.deepEqual(JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8")), {
-      lines: [
-        { id: "intro", text: "Introduce the topic." },
-        { id: "recap", text: "Recap the key idea." },
-      ],
-    });
+    const audioRequest = JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8"));
+    assert.deepEqual(audioRequest, EXPECTED_AUDIO_REQUEST);
+    const analyzed = analyzeNarrationRequest(
+      validateVersionedNarrationRequest(audioRequest, "audio_request.json.example"),
+    );
+    assert.equal(analyzed.findings.some((finding) => finding.severity === "error"), false);
     assert.equal(existsSync(join(stage, "audio_meta.json")), false);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "visual_beats.json.example"), "utf8")), {
       version: 1,
@@ -119,6 +135,30 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
     rmSync(stage, { recursive: true, force: true });
   }
 });
+
+for (const [field, value] of [
+  ["version", 2],
+  ["provider", "heygen"],
+  ["voice", "af_heart"],
+  ["lang", "en-gb"],
+  ["speed", 1],
+] as const) {
+  test(`validateCommonScaffold rejects audio request ${field} drift`, () => {
+    const stage = mkdtempSync(join(tmpdir(), `common-scaffold-narration-${field}-`));
+    try {
+      writeCommonScaffold(stage, "demo-video", "hyperframes", spec);
+      const path = join(stage, "audio_request.json.example");
+      const request = JSON.parse(readFileSync(path, "utf8"));
+      writeFileSync(path, `${JSON.stringify({ ...request, [field]: value }, null, 2)}\n`);
+      assert.throws(
+        () => validateCommonScaffold(stage, "demo-video"),
+        /audio_request\.json\.example/,
+      );
+    } finally {
+      rmSync(stage, { recursive: true, force: true });
+    }
+  });
+}
 
 test("validateCommonScaffold requires the narration request example", () => {
   const stage = mkdtempSync(join(tmpdir(), "common-scaffold-missing-audio-request-"));

@@ -101,16 +101,19 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
     assert.deepEqual(spec.outputConfig, { framework: "remotion" }, "do not add unused Remotion render config");
     assert.deepEqual(spec.nextSteps, [
       "npm install",
-      "review audio_request.json.example and generate narration",
-      "run transcription when needed",
+      "review audio_request.json.example and author the spoken script",
+      "materialize audio_request.json with explicit effective narration settings",
+      "run md2vid narration-check .",
+      "verify Kokoro readiness and generate fresh WAVs through /media-use",
+      "run npm run transcribe",
       "fill video.config.json voice-id -> frame-slug mappings",
       "author visual_beats.json",
-      "npm run plan",
+      "run npm run plan",
       "author and register cue-bound src/scenes/*.tsx",
-      "npm run build",
-      "npm run check",
-      "npm run still or npm run studio",
-      "npm run render after review",
+      "run npm run build",
+      "run npm run check",
+      "run npm run still or npm run studio for review",
+      "run npm run render after review",
     ]);
     assert.match(root, /export const FPS = 30;/);
     assert.match(root, /fps=\{FPS\}/);

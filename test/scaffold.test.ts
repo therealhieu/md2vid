@@ -74,6 +74,11 @@ test("default scaffold creates an HF project with pinned CDN config and no local
       assert.ok(existsSync(join(dir, rel)), `scaffolder wrote ${rel}`);
     }
     assert.deepEqual(JSON.parse(readFileSync(join(dir, "audio_request.json.example"), "utf8")), {
+      version: 1,
+      provider: "kokoro",
+      voice: "am_michael",
+      lang: "en",
+      speed: 0.9,
       lines: [
         { id: "intro", text: "Introduce the topic." },
         { id: "recap", text: "Recap the key idea." },

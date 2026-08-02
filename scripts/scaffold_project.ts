@@ -8,15 +8,22 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import type { FrameworkScaffoldSpec } from "../engine/types.ts";
+import {
+  DEFAULT_NARRATION_POLICY,
+  analyzeNarrationRequest,
+  validateVersionedNarrationRequest,
+} from "../engine/narration_request.ts";
 import { validateGsapSrc } from "../frameworks/hyperframes/scaffold.ts";
 import { resolvePackageRoot } from "./package_root.ts";
 
-const AUDIO_REQUEST_EXAMPLE = {
+export const AUDIO_REQUEST_EXAMPLE = Object.freeze({
+  version: 1,
+  ...DEFAULT_NARRATION_POLICY,
   lines: [
     { id: "intro", text: "Introduce the topic." },
     { id: "recap", text: "Recap the key idea." },
   ],
-};
+});
 
 const REQUIRED_VISUAL_SYNC = {
   mode: "required",
@@ -172,6 +179,18 @@ export function validateCommonScaffold(stageDir: string, slug: string): void {
   }
   if (JSON.stringify(neutral.visualSync) !== JSON.stringify(REQUIRED_VISUAL_SYNC)) {
     throw new Error("video.config.json visualSync must equal the required scaffold policy");
+  }
+
+  const audioRequestPath = join(stageDir, "audio_request.json.example");
+  const audioRequest = JSON.parse(readFileSync(audioRequestPath, "utf8"));
+  if (JSON.stringify(audioRequest) !== JSON.stringify(AUDIO_REQUEST_EXAMPLE)) {
+    throw new Error(`${audioRequestPath} does not match the canonical narration example`);
+  }
+  const validatedRequest = validateVersionedNarrationRequest(audioRequest, audioRequestPath);
+  const analysis = analyzeNarrationRequest(validatedRequest);
+  const errors = analysis.findings.filter((finding) => finding.severity === "error");
+  if (errors.length > 0) {
+    throw new Error(`${audioRequestPath} violates narration policy: ${errors.map((finding) => finding.code).join(", ")}`);
   }
 
   const visualBeats = JSON.parse(readFileSync(join(stageDir, "visual_beats.json.example"), "utf8"));
