@@ -12,12 +12,31 @@
 
 import { validateAudioMeta } from "./audio_meta.ts";
 import { validateSlugMappings } from "./config.ts";
-import type { AudioMeta, BuildPlan, PlanFrame, CaptionGroup, VideoConfig, Word } from "./types.ts";
+import { resolveVisualBeats } from "./visual_beats.ts";
+import type {
+  AudioMeta,
+  BuildPlan,
+  PlanFrame,
+  CaptionGroup,
+  ResolvedVisualSyncPolicy,
+  VideoConfig,
+  VisualBeatSpec,
+  Word,
+} from "./types.ts";
+
+export function resolveVisualSyncPolicy(config: VideoConfig): ResolvedVisualSyncPolicy {
+  return {
+    mode: config.visualSync?.mode ?? "warn",
+    maxLead: config.visualSync?.maxLead ?? 0.25,
+    maxLag: config.visualSync?.maxLag ?? 0.75,
+    minLanding: config.visualSync?.minLanding ?? 1,
+  };
+}
 
 // Compute the neutral build plan from audio meta (voices + word timings) and the
 // resolved config (timing/canvas/slugs). Throws on a missing slug or wordless
 // voices — the caller maps the throw to a CLI failure.
-export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
+export function plan(meta: AudioMeta, config: VideoConfig, visualBeats?: VisualBeatSpec): BuildPlan {
   const voices = validateAudioMeta(meta, "audio_meta.json").voices;
 
   // Voice identity is stable metadata; sequence order comes from array position.
@@ -77,6 +96,17 @@ export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
     };
   });
   const totalDuration = cursor;
+
+  const policy = resolveVisualSyncPolicy(config);
+  if (visualBeats && policy.mode !== "off") {
+    const bySlug = resolveVisualBeats(visualBeats, frames, policy);
+    for (const frame of frames) {
+      const visual = bySlug.get(frame.slug);
+      if (!visual) continue;
+      if (visual.visualKind !== undefined) frame.visualKind = visual.visualKind;
+      frame.visualBeats = visual.visualBeats;
+    }
+  }
 
   // ── Caption groups — one group per line, GLOBAL times ──────────────────────
   // The captions comp spans the whole video, so word times are offset by frame.start.

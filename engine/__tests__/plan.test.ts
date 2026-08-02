@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plan } from "../plan.ts";
+import { plan, resolveVisualSyncPolicy } from "../plan.ts";
 
 // Minimal audio meta: two voices, each with two words (local, 0-based times).
 function meta(voices: any) {
@@ -41,6 +41,47 @@ test("legacy frames omit optional visual timing fields", () => {
   );
   assert.equal(Object.hasOwn(result.frames[0], "visualKind"), false);
   assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
+test("plan attaches resolved visual beats by frame slug", () => {
+  const metadata = meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]);
+  const result = plan(metadata, CFG({ slugs: { intro: "intro" } }), {
+    version: 1,
+    frames: {
+      intro: {
+        kind: "workflow",
+        beats: [{ id: "first", text: "First", cue: { wordIndex: 0 }, workflowStep: 1 }],
+      },
+    },
+  });
+
+  assert.equal(result.frames[0].visualKind, "workflow");
+  assert.equal(result.frames[0].visualBeats?.[0].id, "first");
+  assert.equal(result.frames[0].visualBeats?.[0].start, metadata.voices[0].words[0].start);
+});
+
+test("plan mode off ignores supplied beat data and omits visual fields", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    { ...CFG({ slugs: { intro: "intro" } }), visualSync: { mode: "off" } },
+    {
+      version: 1,
+      frames: {
+        intro: { beats: [{ id: "ignored", text: "Ignored", cue: { wordIndex: 0 } }] },
+      },
+    },
+  );
+
+  assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
+test("resolves the legacy visual sync policy defaults", () => {
+  assert.deepEqual(resolveVisualSyncPolicy({}), {
+    mode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    minLanding: 1,
+  });
 });
 
 test("rejects duplicate voice IDs", () => {
