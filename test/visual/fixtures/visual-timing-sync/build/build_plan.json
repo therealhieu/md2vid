@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "canvas": { "width": 960, "height": 540 },
+  "timing": { "tail": 0.5, "xfade": 0.5, "gap": 0 },
+  "totalDuration": 18.5,
+  "frames": [
+    {
+      "id": "reserve-flow",
+      "frameNum": 1,
+      "slug": "reserve-flow",
+      "voicePath": "assets/voice/reserve-flow.wav",
+      "voiceDur": 18,
+      "frameDur": 18.5,
+      "start": 0,
+      "words": [],
+      "visualKind": "workflow",
+      "visualBeats": [
+        { "id": "reserve", "text": "Reserve", "start": 2.95, "cueWordIndex": 0, "cueText": "Reserve", "sourceRefs": [], "workflowStep": 1, "tolerance": { "maxLead": 0.25, "maxLag": 0.75 } },
+        { "id": "execute", "text": "Execute", "start": 11.06, "cueWordIndex": 1, "cueText": "Execute", "sourceRefs": [], "workflowStep": 2, "tolerance": { "maxLead": 0.25, "maxLag": 0.75 } },
+        { "id": "settle", "text": "Settle", "start": 14.35, "cueWordIndex": 2, "cueText": "Settle", "sourceRefs": [], "workflowStep": 3, "tolerance": { "maxLead": 0.25, "maxLag": 0.75 } }
+      ]
+    }
+  ],
+  "captionGroups": []
+}

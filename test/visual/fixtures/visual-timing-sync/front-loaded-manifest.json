@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "framework": "hyperframes",
+  "bindings": [
+    { "frameSlug": "reserve-flow", "beatId": "reserve", "target": "#reserve", "revealStart": 1.5, "revealDuration": 0.25, "source": "declarative", "authoredDuration": 18, "outerDuration": 18.5 },
+    { "frameSlug": "reserve-flow", "beatId": "execute", "target": "#execute", "revealStart": 3.7, "revealDuration": 0.25, "source": "custom", "authoredDuration": 18, "outerDuration": 18.5 },
+    { "frameSlug": "reserve-flow", "beatId": "settle", "target": "#settle", "revealStart": 5.9, "revealDuration": 0.25, "source": "custom", "authoredDuration": 18, "outerDuration": 18.5 }
+  ]
+}

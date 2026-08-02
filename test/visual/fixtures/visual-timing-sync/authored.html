@@ -1,0 +1,49 @@
+<div id="reserve-flow-root" data-composition-id="reserve-flow" data-duration="18">
+  <div id="reserve" data-md2vid-beat="reserve" data-md2vid-enter="rise" data-md2vid-duration="0.25"></div>
+  <div id="execute"></div>
+  <div id="settle"></div>
+  <script type="application/json" data-md2vid-custom-bindings>
+    {"bindings":[
+      {"beat":"execute","target":"#execute","method":"from","duration":0.25},
+      {"beat":"settle","target":"#settle","method":"from","duration":0.25}
+    ]}
+  </script>
+  <script>
+    (() => {
+      const actions = [];
+      const timeline = {
+        paused() { return true; },
+        from(target, vars, start) {
+          actions.push({ target, start });
+          return timeline;
+        },
+        fromTo(target, _fromVars, _toVars, start) {
+          actions.push({ target, start });
+          return timeline;
+        },
+        set(target, _vars, start) {
+          actions.push({ target, start });
+          return timeline;
+        },
+        seek(time) {
+          for (const action of actions) {
+            document.querySelector(action.target).dataset.state = time >= action.start ? "revealed" : "hidden";
+          }
+          return timeline;
+        },
+      };
+      window.gsap = { timeline() { return timeline; } };
+      window.__timelines = window.__timelines || {};
+      window.__timelines["reserve-flow"] = timeline;
+      let currentTime = 0;
+      window.__player = {
+        pause() {},
+        seek(time) { currentTime = time; timeline.seek(time); },
+        getTime() { return currentTime; },
+      };
+      window.__captureVisualState = () => ["reserve", "execute", "settle"].map((id) =>
+        document.getElementById(id).dataset.state ?? "hidden"
+      );
+    })();
+  </script>
+</div>

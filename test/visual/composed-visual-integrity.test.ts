@@ -6,6 +6,10 @@ import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, resolve } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer-core";
+import { verifyVisualSync } from "../../engine/visual_sync.ts";
+import type { BuildPlan, VisualBindingManifest } from "../../engine/types.ts";
+import { prepareFrameVisualTiming } from "../../frameworks/hyperframes/visual_timing.ts";
 import { runComposedVisualIntegrity, validatePlan } from "./composed-visual-integrity.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -491,6 +495,91 @@ test("visual seek quantization outside the intended frame window fails every rep
       row.requestedTime === 0.07 &&
       row.actualTime === 0
     ), `${filename}: ${JSON.stringify(report)}`);
+  }
+});
+
+test("cue-bound states are deterministic across direct, reverse, and sequential seeks", async () => {
+  const fixture = join(FIXTURES, "visual-timing-sync");
+  const plan = JSON.parse(readFileSync(join(fixture, "build", "build_plan.json"), "utf8")) as BuildPlan;
+  const prepared = prepareFrameVisualTiming({
+    frame: plan.frames[0],
+    authoredHtml: readFileSync(join(fixture, "authored.html"), "utf8"),
+    documentPath: "visual-timing-sync/authored.html",
+    mode: "required",
+  });
+  const aligned: VisualBindingManifest = {
+    version: 1,
+    framework: "hyperframes",
+    bindings: prepared.bindings.map((binding) => ({ ...binding, outerDuration: plan.frames[0].frameDur })),
+  };
+  const policy = { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 } as const;
+  assert.deepEqual(verifyVisualSync({ plan, manifest: aligned, policy, fps: 30 }), []);
+
+  const frontLoaded = JSON.parse(
+    readFileSync(join(fixture, "front-loaded-manifest.json"), "utf8"),
+  ) as VisualBindingManifest;
+  const frontLoadedFindings = verifyVisualSync({ plan, manifest: frontLoaded, policy, fps: 30 });
+  assert.ok(frontLoadedFindings.some((finding) =>
+    finding.msg.includes('beat "execute"') && finding.msg.includes("lead is 7.360s")
+  ), JSON.stringify(frontLoadedFindings));
+  assert.ok(frontLoadedFindings.some((finding) =>
+    finding.msg.includes('beat "settle"') && finding.msg.includes("lead is 8.450s")
+  ), JSON.stringify(frontLoadedFindings));
+
+  const browser = await puppeteer.launch({
+    executablePath: browserPath(),
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
+  try {
+    const page = await browser.newPage();
+    for (const fps of [24, 30, 60]) {
+      await page.setViewport({ width: 960, height: 540 });
+      await page.setContent(`<!doctype html><div data-composition-id="main" data-fps="${fps}">${prepared.html}</div>`);
+      const runtime = await page.evaluate(() => {
+        const pageRuntime = globalThis as any;
+        return {
+          timelineKeys: Object.keys(pageRuntime.__timelines),
+          paused: pageRuntime.__timelines["reserve-flow"].paused(),
+          fps: Number(pageRuntime.document.querySelector('[data-composition-id="main"]')?.getAttribute("data-fps")),
+        };
+      });
+      assert.deepEqual(runtime.timelineKeys, ["reserve-flow"]);
+      assert.equal(runtime.paused, true);
+      assert.equal(runtime.fps, fps);
+
+      for (const cue of [2.95, 11.06, 14.35]) {
+        const before = Math.max(0, (Math.ceil(cue * fps) - 1) / fps);
+        const after = Math.ceil(cue * fps) / fps;
+        for (const time of [before, after]) {
+          const direct = await page.evaluate((seekTime) => {
+            const pageRuntime = globalThis as any;
+            pageRuntime.__player.seek(seekTime);
+            return pageRuntime.__captureVisualState();
+          }, time);
+          const sequential = await page.evaluate(({ seekTime, activeFps }) => {
+            const pageRuntime = globalThis as any;
+            pageRuntime.__player.seek(0);
+            for (let frame = 1; frame <= Math.round(seekTime * activeFps); frame += 1) {
+              pageRuntime.__player.seek(frame / activeFps);
+            }
+            return pageRuntime.__captureVisualState();
+          }, { seekTime: time, activeFps: fps });
+          const reverseForward = await page.evaluate(({ seekTime, activeFps }) => {
+            const pageRuntime = globalThis as any;
+            pageRuntime.__player.seek(18);
+            for (let frame = Math.ceil(18 * activeFps); frame >= Math.round(seekTime * activeFps); frame -= 1) {
+              pageRuntime.__player.seek(frame / activeFps);
+            }
+            return pageRuntime.__captureVisualState();
+          }, { seekTime: time, activeFps: fps });
+          assert.deepEqual(direct, sequential, `direct state differs at ${time}s / ${fps} FPS`);
+          assert.deepEqual(reverseForward, sequential, `reverse state differs at ${time}s / ${fps} FPS`);
+        }
+      }
+    }
+  } finally {
+    await browser.close();
   }
 });
 
