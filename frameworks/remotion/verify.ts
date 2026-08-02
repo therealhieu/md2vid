@@ -6,10 +6,17 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import type { CaptionArtifactContext, Finding, VerifyOptions } from "../../engine/types.ts";
+import type {
+  AdapterVerifyContext,
+  CaptionArtifactContext,
+  Finding,
+  VerifyOptions,
+  VideoConfig,
+} from "../../engine/types.ts";
+import { verifyVisualSync } from "../../engine/visual_sync.ts";
 import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
 
-const FPS = 30; // must match templates/src/Root.tsx FPS
+export const REMOTION_COMPOSITION_FPS = 30; // must match templates/src/Root.tsx FPS
 
 export function verifyRemotionCaptionArtifact(
   context: CaptionArtifactContext,
@@ -49,7 +56,17 @@ export function verifyRemotionCaptionArtifact(
   return findings;
 }
 
-export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
+export function verify(context: AdapterVerifyContext): Finding[];
+export function verify(videoDir: string, sharedDir?: string, options?: VerifyOptions): Finding[];
+export function verify(
+  contextOrVideoDir: AdapterVerifyContext | string,
+  sharedDir?: string,
+  options: VerifyOptions = {},
+): Finding[] {
+  const context = typeof contextOrVideoDir === "string" ? undefined : contextOrVideoDir;
+  const videoDir = typeof contextOrVideoDir === "string" ? contextOrVideoDir : contextOrVideoDir.videoDir;
+  const effectiveSharedDir = context?.sharedDir ?? sharedDir ?? videoDir;
+  const voiceSnapshots = context?.voiceSnapshots ?? options.voiceSnapshots;
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
@@ -77,7 +94,7 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
 
   if (typeof plan.totalDuration !== "number" || plan.totalDuration <= 0) {
     problem(`build_plan.json totalDuration must be a positive number (got ${plan.totalDuration})`);
-  } else if (Math.ceil(plan.totalDuration * FPS) < 1) {
+  } else if (Math.ceil(plan.totalDuration * REMOTION_COMPOSITION_FPS) < 1) {
     problem("fps math yields < 1 frame — durationInFrames would be empty");
   }
   if (!plan.canvas?.width || !plan.canvas?.height) {
@@ -87,12 +104,7 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
     warn("build_plan.json has no frames — the video will be empty");
   }
 
-  const effectiveSharedDir = sharedDir ?? videoDir;
-  const captionGroupsPath = join(
-    effectiveSharedDir,
-    "caption_groups.json",
-  );
-
+  const captionGroupsPath = join(effectiveSharedDir, "caption_groups.json");
   if (existsSync(captionGroupsPath)) {
     findings.push(
       ...verifyRemotionCaptionArtifact({
@@ -102,9 +114,21 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
       }),
     );
   }
-  if (options.voiceSnapshots) {
-    findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), options.voiceSnapshots));
+  if (voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), voiceSnapshots));
+  }
+  if (context && context.policy.mode !== "off") {
+    findings.push(...verifyVisualSync({
+      plan: context.plan,
+      manifest: context.bindings,
+      policy: context.policy,
+      fps: context.fps,
+    }));
   }
 
   return findings;
+}
+
+export function resolveVerificationFps(_config: VideoConfig, _videoDir: string): number {
+  return REMOTION_COMPOSITION_FPS;
 }

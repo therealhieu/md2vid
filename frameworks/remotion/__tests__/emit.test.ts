@@ -12,6 +12,11 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { emit } from "../emit.ts";
+import {
+  readRemotionBindingSpec,
+  resolveRemotionBindings,
+  type RemotionBindingSpec,
+} from "../visual_bindings.ts";
 import type { BuildPlan, VideoConfig } from "../../../engine/types.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
 
@@ -249,6 +254,163 @@ test("captionsOnly updates build_plan.json without runtime or public voice chang
       readFileSync(join(output, "public", "assets", "voice", "sentinel.wav"), "utf8"),
       "KEEP",
     );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+function visualFixture(): { plan: BuildPlan; config: VideoConfig } {
+  return {
+    config: { framework: "remotion", visualSync: { mode: "required" } },
+    plan: {
+      version: 1,
+      canvas: { width: 1920, height: 1080 },
+      timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
+      totalDuration: 17,
+      frames: [{
+        id: "reserve-flow",
+        frameNum: 1,
+        slug: "reserve-flow",
+        voicePath: "assets/voice/01.wav",
+        voiceDur: 16,
+        frameDur: 17,
+        start: 0,
+        words: [],
+        visualKind: "workflow",
+        visualBeats: [
+          { id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+          { id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+          { id: "settle", text: "Settle", start: 14.35, cueWordIndex: 2, cueText: "settle", sourceRefs: [], workflowStep: 3, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+        ],
+      }],
+      captionGroups: [],
+    },
+  };
+}
+
+function registry(): RemotionBindingSpec {
+  return {
+    version: 1,
+    frames: {
+      "reserve-flow": [
+        { beat: "reserve", target: "WorkflowStep:reserve", enter: "rise", duration: 0.5 },
+        { beat: "execute", target: "WorkflowStep:execute", enter: "rise", duration: 0.5 },
+        { beat: "settle", target: "WorkflowStep:settle", enter: "rise", duration: 0.5 },
+      ],
+    },
+  };
+}
+
+test("Remotion reads static JSON bindings without importing authored TSX", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-"));
+  try {
+    const path = join(tmp, "visual_bindings.json");
+    writeFileSync(path, JSON.stringify(registry()));
+    writeFileSync(join(tmp, "BrokenScene.tsx"), "not valid TypeScript(");
+
+    const resolved = resolveRemotionBindings(readRemotionBindingSpec(path), visualFixture().plan);
+
+    assert.deepEqual(resolved.runtimeBindings, registry().frames);
+    assert.deepEqual(resolved.manifest, {
+      version: 1,
+      framework: "remotion",
+      bindings: [
+        { frameSlug: "reserve-flow", beatId: "reserve", target: "WorkflowStep:reserve", revealStart: 2.95, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+        { frameSlug: "reserve-flow", beatId: "execute", target: "WorkflowStep:execute", revealStart: 11.06, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+        { frameSlug: "reserve-flow", beatId: "settle", target: "WorkflowStep:settle", revealStart: 14.35, revealDuration: 0.5, source: "custom", authoredDuration: 16, outerDuration: 17 },
+      ],
+      frames: [{ frameSlug: "reserve-flow", authoredDuration: 16, outerDuration: 17 }],
+    });
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("Remotion static registry rejects duplicate targets and unknown plan references", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-invalid-"));
+  try {
+    const path = join(tmp, "visual_bindings.json");
+    writeFileSync(path, JSON.stringify({
+      ...registry(),
+      frames: {
+        "reserve-flow": [
+          { beat: "reserve", target: "WorkflowStep:shared", enter: "rise", duration: 0.5 },
+          { beat: "execute", target: "WorkflowStep:shared", enter: "rise", duration: 0.5 },
+        ],
+      },
+    }));
+    assert.throws(() => readRemotionBindingSpec(path), /duplicate target/);
+
+    assert.throws(() => resolveRemotionBindings({
+      version: 1,
+      frames: { "other-frame": registry().frames["reserve-flow"] },
+    }, visualFixture().plan), /unknown frame/);
+    assert.throws(() => resolveRemotionBindings({
+      version: 1,
+      frames: {
+        "reserve-flow": [{ beat: "unknown", target: "WorkflowStep:unknown", enter: "rise", duration: 0.5 }],
+      },
+    }, visualFixture().plan), /unknown beat/);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("Remotion emit replaces full-build evidence and preserves runtime bindings during captions-only emission", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-emit-"));
+  try {
+    const shared = join(tmp, "shared");
+    const output = join(tmp, "remotion");
+    const staged = join(tmp, "staged");
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    mkdirSync(output, { recursive: true });
+    mkdirSync(staged, { recursive: true });
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: [] }));
+    writeFileSync(join(output, "visual_bindings.json"), JSON.stringify(registry()));
+
+    const { plan, config } = visualFixture();
+    emit(plan, shared, output, config);
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(output, "build_plan.json"), "utf8")).visualBindings,
+      registry().frames,
+    );
+    assert.equal(JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8")).bindings.length, 3);
+
+    writeFileSync(join(output, "visual_bindings.json"), JSON.stringify({
+      version: 1,
+      frames: {
+        "reserve-flow": [{ beat: "reserve", target: "WorkflowStep:reserve", enter: "fade", duration: 0.25 }],
+      },
+    }));
+    emit(plan, shared, output, config);
+    const replacement = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(replacement.bindings.length, 1, "a full build replaces stale manifest evidence");
+    assert.equal(replacement.bindings[0].revealDuration, 0.25);
+
+    emit(plan, shared, staged, config, { captionsOnly: true, runtimeSourceDir: output });
+    assert.deepEqual(
+      JSON.parse(readFileSync(join(staged, "build_plan.json"), "utf8")).visualBindings,
+      { "reserve-flow": [{ beat: "reserve", target: "WorkflowStep:reserve", enter: "fade", duration: 0.25 }] },
+      "captions-only emission preserves the authored static registry in the runtime plan",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("Remotion required mode rejects planned beats without an output-local registry", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-static-bindings-required-"));
+  try {
+    const shared = join(tmp, "shared");
+    const output = join(tmp, "remotion");
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    mkdirSync(output, { recursive: true });
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: [] }));
+    const { plan, config } = visualFixture();
+
+    assert.throws(() => emit(plan, shared, output, config), /visual_bindings\.json.*required/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

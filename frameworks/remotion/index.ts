@@ -7,7 +7,7 @@
 
 import { emit, preflight } from "./emit.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
-import { verify, verifyRemotionCaptionArtifact } from "./verify.ts";
+import { resolveVerificationFps, verify, verifyRemotionCaptionArtifact } from "./verify.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
 const adapter: FrameworkAdapter = {
@@ -20,14 +20,11 @@ const adapter: FrameworkAdapter = {
   captionArtifactPath: "build_plan.json",
   managedVoiceArtifactPath: "public/assets/voice",
   verifyCaptionArtifact: verifyRemotionCaptionArtifact,
-  resolveVerificationFps() {
-    return 30;
-  },
+  bindingManifestPath: "build/visual_bindings.json",
+  resolveVerificationFps,
   verify(context, sharedDir, options) {
     if (typeof context === "string") return verify(context, sharedDir, options);
-    return verify(context.videoDir, context.sharedDir, {
-      voiceSnapshots: context.voiceSnapshots,
-    });
+    return verify(context);
   },
 };
 export default adapter;

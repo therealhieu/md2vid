@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { verify, verifyRemotionCaptionArtifact } from "../verify.ts";
+import adapter from "../index.ts";
+import { verify, verifyRemotionCaptionArtifact, resolveVerificationFps, REMOTION_COMPOSITION_FPS } from "../verify.ts";
+import type { AdapterVerifyContext, BuildPlan, VisualBindingManifest } from "../../../engine/types.ts";
 
 function goodProject(): string {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-verify-"));
@@ -136,6 +138,124 @@ test("verify flags a Root.tsx without the expected composition id", () => {
   try {
     const errs = verify(dir).filter((f) => f.level === "error");
     assert.ok(errs.some((f) => /composition id/i.test(f.msg)), "missing id is an error");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function semanticPlan(): BuildPlan {
+  return {
+    version: 1,
+    canvas: { width: 1920, height: 1080 },
+    timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
+    totalDuration: 17,
+    frames: [{
+      id: "reserve-flow",
+      frameNum: 1,
+      slug: "reserve-flow",
+      voicePath: "assets/voice/01.wav",
+      voiceDur: 16,
+      frameDur: 17,
+      start: 0,
+      words: [],
+      visualKind: "workflow",
+      visualBeats: [
+        { id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+        { id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+      ],
+    }],
+    captionGroups: [],
+  };
+}
+
+function manifest(bindings: VisualBindingManifest["bindings"]): VisualBindingManifest {
+  return {
+    version: 1,
+    framework: "remotion",
+    bindings,
+    frames: [{ frameSlug: "reserve-flow", authoredDuration: 16, outerDuration: 17 }],
+  };
+}
+
+function binding(beatId: string, revealStart: number, target = `WorkflowStep:${beatId}`) {
+  return {
+    frameSlug: "reserve-flow",
+    beatId,
+    target,
+    revealStart,
+    revealDuration: 0.5,
+    source: "custom" as const,
+    authoredDuration: 16,
+    outerDuration: 17,
+  };
+}
+
+function semanticContext(dir: string, bindings?: VisualBindingManifest): AdapterVerifyContext {
+  return {
+    plan: semanticPlan(),
+    videoDir: dir,
+    sharedDir: dir,
+    config: { framework: "remotion", visualSync: { mode: "required" } },
+    policy: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 },
+    fps: 30,
+    bindings,
+  };
+}
+
+test("Remotion verification delegates missing, early, order, and duration findings to visual sync", () => {
+  const dir = goodProject();
+  try {
+    let messages = verify(semanticContext(dir)).map((finding) => finding.msg);
+    assert.ok(messages.some((message) => message.includes("visual binding manifest is missing")), JSON.stringify(messages));
+
+    messages = verify(semanticContext(dir, manifest([
+      binding("reserve", 2.95),
+      binding("execute", 1.5),
+    ]))).map((finding) => finding.msg);
+    assert.ok(messages.some((message) => message.includes('beat "execute"') && message.includes("lead is")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("reveals out of order")), JSON.stringify(messages));
+
+    messages = verify(semanticContext(dir, {
+      ...manifest([binding("reserve", 2.95), binding("execute", 11.06)]),
+      frames: [{ frameSlug: "reserve-flow", authoredDuration: 15, outerDuration: 16 }],
+    })).map((finding) => finding.msg);
+    assert.ok(messages.some((message) => message.includes("authored duration") && message.includes("voiceDur")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("outer duration") && message.includes("frameDur")), JSON.stringify(messages));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Remotion uses its adapter-owned Root FPS constant without reading authored scenes", () => {
+  const root = readFileSync(resolve("frameworks", "remotion", "templates", "src", "Root.tsx"), "utf8");
+  assert.match(root, new RegExp(`export const FPS = ${REMOTION_COMPOSITION_FPS}`));
+  assert.equal(resolveVerificationFps({}, "/not-a-real-remotion-output"), REMOTION_COMPOSITION_FPS);
+});
+
+test("Remotion adapter manages the static binding manifest and preserves plan-aware verification", () => {
+  const dir = goodProject();
+  try {
+    assert.equal(adapter.bindingManifestPath, "build/visual_bindings.json");
+    assert.equal(adapter.resolveVerificationFps({}, dir), REMOTION_COMPOSITION_FPS);
+    const findings = adapter.verify(semanticContext(dir));
+    assert.ok(findings.some((finding) => finding.msg.includes("visual binding manifest is missing")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Remotion preserves warn, off, and legacy semantic verification behavior", () => {
+  const dir = goodProject();
+  try {
+    const warnContext = semanticContext(dir);
+    warnContext.policy = { ...warnContext.policy, mode: "warn" };
+    const warningOnly = verify(warnContext);
+    assert.equal(warningOnly.some((finding) => finding.level === "error"), false, JSON.stringify(warningOnly));
+    assert.ok(warningOnly.some((finding) => finding.level === "warn" && finding.msg.includes("visual binding manifest is missing")));
+
+    const offContext = semanticContext(dir);
+    offContext.policy = { ...offContext.policy, mode: "off" };
+    assert.deepEqual(verify(offContext).filter((finding) => finding.level === "error"), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -9,7 +9,7 @@
 // write the regrouped groups back into the plan we serialize so the composition's
 // karaoke timeline matches the regrouped lines.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   BuildPlan,
@@ -22,8 +22,10 @@ import {
   captureVoiceWavSnapshots,
   validateVoiceAssets,
 } from "../../engine/voice_assets.ts";
+import { resolveVisualSyncPolicy } from "../../engine/plan.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { ensureRuntime } from "./scaffold.ts";
+import { readRemotionBindingSpec, resolveRemotionBindings } from "./visual_bindings.ts";
 
 export function preflight(
   plan: BuildPlan,
@@ -70,8 +72,28 @@ export function emit(
     });
   }
 
+  const bindingSpecPath = join(runtimeSourceDir ?? outputDir, "visual_bindings.json");
+  const hasVisualBeats = plan.frames.some((frame) => frame.visualBeats?.length);
+  const bindingSpec = existsSync(bindingSpecPath)
+    ? readRemotionBindingSpec(bindingSpecPath)
+    : undefined;
+  if (!bindingSpec && hasVisualBeats && resolveVisualSyncPolicy(_config).mode === "required") {
+    throw new Error(`${bindingSpecPath}: required visual_bindings.json is missing for planned visual beats`);
+  }
+  const resolvedBindings = resolveRemotionBindings(
+    bindingSpec ?? { version: 1, frames: {} },
+    plan,
+  );
+
   // Publish the full neutral plan only after a full emit has staged every required
   // voice asset. Replacing caption groups must retain additive visual timing fields.
-  const inputPlan: BuildPlan = { ...plan, captionGroups: groups };
+  const inputPlan: BuildPlan & { visualBindings?: typeof resolvedBindings.runtimeBindings } = {
+    ...plan,
+    captionGroups: groups,
+    ...(bindingSpec ? { visualBindings: resolvedBindings.runtimeBindings } : {}),
+  };
   writeFileSync(join(outputDir, "build_plan.json"), JSON.stringify(inputPlan, null, 2) + "\n");
+  const bindingManifestPath = join(outputDir, "build", "visual_bindings.json");
+  mkdirSync(join(outputDir, "build"), { recursive: true });
+  writeFileSync(bindingManifestPath, JSON.stringify(resolvedBindings.manifest, null, 2) + "\n");
 }
