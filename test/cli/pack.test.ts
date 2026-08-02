@@ -34,6 +34,18 @@ function packedFiles(root: string, relativeRoot = ""): Set<string> {
   return paths;
 }
 
+const PRODUCTION_AUDIO_RUNNERS = [
+  "dist/scripts/audio.js",
+  "dist/scripts/audio.mjs",
+  "dist/scripts/audio.cjs",
+] as const;
+
+function assertNoProductionAudioRunners(paths: ReadonlySet<string>): void {
+  for (const path of PRODUCTION_AUDIO_RUNNERS) {
+    assert.equal(paths.has(path), false, `forbidden packed production audio runner ${path}`);
+  }
+}
+
 test("release package manifest covers executable, assets, postinstall, and all references", () => {
   assert.ok(REQUIRED_PACKED_FILES.includes("dist/bin/md2vid.js"));
   assert.ok(REQUIRED_PACKED_FILES.includes("postinstall.mjs"));
@@ -76,6 +88,13 @@ test("release package manifest covers executable, assets, postinstall, and all r
   ]);
 });
 
+test("production audio runner variants are rejected from packed output", () => {
+  for (const path of PRODUCTION_AUDIO_RUNNERS) {
+    assert.throws(() => assertNoProductionAudioRunners(new Set([path])), /forbidden packed production audio runner/);
+  }
+  assert.doesNotThrow(() => assertNoProductionAudioRunners(new Set(["skill/md2vid/SKILL.md"])));
+});
+
 test("packed source scaffold adapters import and execute from an unrelated cwd", () => {
   const root = resolve(import.meta.dirname, "..", "..");
   const temporary = mkdtempSync(join(tmpdir(), "md2vid-packed-source-adapters-"));
@@ -105,11 +124,8 @@ test("packed source scaffold adapters import and execute from an unrelated cwd",
     for (const required of NARRATION_PACKED_FILES) {
       assert.equal(paths.has(required), true, `missing packed narration artifact ${required}`);
     }
-    for (const forbidden of [
-      "dist/scripts/audio.js",
-      "scripts/audio.ts",
-      "scripts/audio.mjs",
-    ]) assert.equal(paths.has(forbidden), false, `forbidden packed production audio runner ${forbidden}`);
+    assertNoProductionAudioRunners(paths);
+    assert.match(readFileSync(join(packageRoot, "skill", "md2vid", "SKILL.md"), "utf8"), /\/media-use/);
 
     assert.equal(
       existsSync(join(packageRoot, "frameworks", "hyperframes", "templates")),

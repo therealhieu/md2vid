@@ -51,6 +51,20 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type DependencyGroups = {
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+
+function hasMediaUseDependency(groups: DependencyGroups): boolean {
+  return Object.entries({
+    ...(groups.dependencies ?? {}),
+    ...(groups.optionalDependencies ?? {}),
+    ...(groups.devDependencies ?? {}),
+  }).some(([name, spec]) => /media-use/i.test(`${name}\0${String(spec)}`));
+}
+
 function assertOrder(body: string, fragments: string[], label: string): void {
   let cursor = -1;
   for (const fragment of fragments) {
@@ -577,12 +591,7 @@ test("public README documents the versioned Kokoro narration workflow", () => {
 });
 
 test("package keeps narration validation while excluding media-use and synthesis commands", () => {
-  const dependencyNames = Object.keys({
-    ...(pkg.dependencies ?? {}),
-    ...(pkg.optionalDependencies ?? {}),
-    ...(pkg.devDependencies ?? {}),
-  });
-  assert.equal(dependencyNames.some((name) => /media-use/i.test(name)), false);
+  assert.equal(hasMediaUseDependency(pkg), false);
 
   const help = spawnSync(process.execPath, [join(REPO_ROOT, "bin", "md2vid.ts"), "--help"], {
     cwd: REPO_ROOT,
@@ -591,4 +600,10 @@ test("package keeps narration validation while excluding media-use and synthesis
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /^\s*narration-check\b/m);
   assert.doesNotMatch(help.stdout, /^\s*audio(?:\s|$)/m);
+});
+
+test("package dependency boundary detects media-use aliases across dependency groups", () => {
+  assert.equal(hasMediaUseDependency({ dependencies: { tts: "npm:media-use@1.0.0" } }), true);
+  assert.equal(hasMediaUseDependency({ optionalDependencies: { media: "npm:media-use@1.0.0" } }), true);
+  assert.equal(hasMediaUseDependency({ devDependencies: { "media-use": "1.0.0" } }), true);
 });

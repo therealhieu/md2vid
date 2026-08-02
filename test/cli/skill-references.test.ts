@@ -32,11 +32,61 @@ function readSourceAndCopy(sourceFromRoot: string): Array<{ label: string; body:
 }
 
 function sectionBetween(body: string, start: string, end: string, label: string): string {
+  if (
+    start === "<!-- md2vid-narration-workflow:start -->"
+    && end === "<!-- md2vid-narration-workflow:end -->"
+  ) {
+    const count = (marker: string) => body.split(marker).length - 1;
+    assert.equal(count(start), 1, "expected exactly one workflow start marker");
+    assert.equal(count(end), 1, "expected exactly one workflow end marker");
+  }
   const startIndex = body.indexOf(start);
   const endIndex = body.indexOf(end, startIndex + start.length);
   assert.ok(startIndex >= 0, `${label}: missing section ${JSON.stringify(start)}`);
   assert.ok(endIndex > startIndex, `${label}: missing section boundary ${JSON.stringify(end)}`);
   return body.slice(startIndex, endIndex);
+}
+
+const DEFAULT_NARRATION_REQUEST = {
+  version: 1,
+  provider: "kokoro",
+  voice: "am_michael",
+  lang: "en",
+  speed: 0.9,
+  lines: [
+    { id: "intro", text: "Introduce the topic." },
+    { id: "recap", text: "Recap the key idea." },
+  ],
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertExactDefaultNarrationRequest(body: string, label: string): void {
+  const defaults = [...body.matchAll(/```json\n([\s\S]*?)\n```/g)]
+    .flatMap((match) => {
+      try {
+        const value: unknown = JSON.parse(match[1]);
+        return isRecord(value)
+          && ["version", "provider", "voice", "lang", "speed", "lines"].every((key) => key in value)
+          ? [value]
+          : [];
+      } catch {
+        return [];
+      }
+    });
+
+  assert.equal(defaults.length, 1, `${label}: expected exactly one parseable default request`);
+  const request = defaults[0]!;
+  assert.deepEqual(Object.keys(request), Object.keys(DEFAULT_NARRATION_REQUEST), `${label}: default field order`);
+  assert.deepEqual(request, DEFAULT_NARRATION_REQUEST, `${label}: exact FR-1 request`);
+}
+
+function assertNarrationPolicyRules(body: string, label: string): void {
+  assert.match(body, /For non-English narration, supply a compatible explicit voice; do not use am_michael\./, label);
+  assert.match(body, /more than 18(?: lexical)? words[\s\S]{0,120}(?:fails|failure)[\s\S]{0,120}approv/i, label);
+  assert.match(body, /comma does not count as a strong sentence boundary/i, label);
 }
 
 test("mandatory skill references are byte-identical to authoritative standards", () => {
@@ -110,10 +160,7 @@ test("canonical standards and the skill define one Kokoro narration workflow", (
 
   const startMarker = "<!-- md2vid-narration-workflow:start -->";
   const endMarker = "<!-- md2vid-narration-workflow:end -->";
-  const start = skill.indexOf(startMarker);
-  const end = skill.indexOf(endMarker);
-  assert.ok(start >= 0 && end > start, "missing marked narration workflow");
-  const workflow = skill.slice(start + startMarker.length, end);
+  const workflow = sectionBetween(skill, startMarker, endMarker, "narration workflow");
   const ordered = [
     "spoken narration script",
     "md2vid narration-check",
@@ -137,6 +184,37 @@ test("canonical standards and the skill define one Kokoro narration workflow", (
     "estimate word timings",
     "author visuals before transcription",
   ]) assert.equal(skill.includes(forbidden), false, `forbidden guidance remains: ${forbidden}`);
+});
+
+test("policy-owning public surfaces serialize the exact FR-1 narration request", () => {
+  const documents = [
+    ["README", readFileSync(join(REPO_ROOT, "README.md"), "utf8")],
+    ["canonical standard", readFileSync(join(REPO_ROOT, "docs", "standards", "video-generation.md"), "utf8")],
+    ["skill", readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8")],
+  ] as const;
+
+  for (const [label, body] of documents) {
+    assertExactDefaultNarrationRequest(body, label);
+    assertNarrationPolicyRules(body, label);
+  }
+
+  const readme = documents[0][1];
+  assert.throws(
+    () => assertExactDefaultNarrationRequest(readme.replace('"speed": 0.9', '"speed": 1'), "mutated README"),
+    /exact FR-1 request/,
+  );
+});
+
+test("duplicate narration workflow marker pairs are rejected", () => {
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+  const startMarker = "<!-- md2vid-narration-workflow:start -->";
+  const endMarker = "<!-- md2vid-narration-workflow:end -->";
+  const duplicate = `${skill}\n${startMarker}\ncontradictory workflow\n${endMarker}\n`;
+
+  assert.throws(
+    () => sectionBetween(duplicate, startMarker, endMarker, "duplicated narration workflow"),
+    /expected exactly one workflow start marker/,
+  );
 });
 
 test("canonical and bundled standards require cue-bound visual timing", () => {
