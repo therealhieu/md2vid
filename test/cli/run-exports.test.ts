@@ -596,7 +596,7 @@ test("transcribe passes the resolved shared directory to its provider", async ()
 
     const transcribe: typeof import("../../engine/transcribe.ts").transcribeVoices = (meta, baseDir) => {
       receivedBase = baseDir;
-      return { meta, ok: 1, total: 1 };
+      return { meta, ok: 1, total: 1, voiceSnapshots: [] };
     };
 
     assert.equal(module.run([output], { transcribeVoices: transcribe }), 0);

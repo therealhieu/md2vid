@@ -1087,7 +1087,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
         assert.equal(transcribeRun([project.outputDir], {
           transcribeVoices(meta, baseDir) {
             transcribeBaseDir = baseDir;
-            return { meta, ok: meta.voices.length, total: meta.voices.length };
+            return { meta, ok: meta.voices.length, total: meta.voices.length, voiceSnapshots: [] };
           },
         }), 0);
         assert.equal(transcribeBaseDir, project.sharedDir);
