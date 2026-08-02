@@ -27,13 +27,14 @@ import { extractTemplateById, replaceTemplateById } from "../html.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
 import { contrastRatio, parseCssColor } from "../visual_contract.ts";
 import { DEFAULT_GSAP_SRC } from "../../../scripts/dependency_versions.ts";
+import type { BuildPlan } from "../../../engine/types.ts";
 
 const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 });
 const VOICE02 = Buffer.from(VOICE01);
 VOICE02[VOICE02.length - 1] = 1;
 
 // A minimal 2-frame plan (pre-regroup: one group per frame).
-function makePlan() {
+function makePlan(): BuildPlan {
   return {
     version: 1 as const,
     canvas: { width: 1920, height: 1080 },
@@ -48,6 +49,20 @@ function makePlan() {
       { id: "caption-group-1", frame: 2, start: 2, end: 4, text: "Second frame.", words: [{ id: "caption-word-1-0", text: "Second", start: 2, end: 3 }, { id: "caption-word-1-1", text: "frame.", start: 3, end: 4 }] },
     ],
   };
+}
+
+function visualPlan() {
+  const plan = makePlan();
+  plan.frames[0].visualBeats = [{
+    id: "execute",
+    text: "Execute",
+    start: 1,
+    cueWordIndex: 0,
+    cueText: "Execute",
+    sourceRefs: [],
+    tolerance: { maxLead: 0.25, maxLag: 0.75 },
+  }];
+  return plan;
 }
 
 function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
@@ -81,6 +96,62 @@ function transactionResidue(root: string): string[] {
   if (!existsSync(assets)) return [];
   return readdirSync(assets).filter((name) => name.includes("md2vid"));
 }
+
+test("full emit replaces the generated visual binding manifest", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute-v1" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+
+    emit(plan, shared, output, {});
+    let manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.framework, "hyperframes");
+    assert.equal(manifest.bindings[0].target, "#execute-v1");
+
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute-v2" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+    emit(plan, shared, output, {});
+    manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.bindings[0].target, "#execute-v2");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("captions-only emit retains an existing visual binding manifest", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
+    const manifestPath = join(output, "build", "visual_bindings.json");
+    writeFileSync(manifestPath, "EXISTING MANIFEST\n");
+
+    emit(plan, shared, output, {}, { captionsOnly: true });
+
+    assert.equal(readFileSync(manifestPath, "utf8"), "EXISTING MANIFEST\n");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("full emit writes the effective FPS on the main composition root", () => {
+  const index = buildIndexHtml(makePlan(), { render: { fps: 24 } });
+  assert.match(index, /data-composition-id="main"[\s\S]*?data-fps="24"/);
+});
 
 test("canonical emit stages real voice files under the HyperFrames root", () => {
   const { tmp, shared, output } = setup();

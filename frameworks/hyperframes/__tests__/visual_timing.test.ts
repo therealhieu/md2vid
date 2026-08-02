@@ -59,6 +59,16 @@ test("declarative rise binding schedules at the resolved beat", () => {
   }]);
 });
 
+test("retains authored duration evidence for active-FPS verification", () => {
+  const prepared = prepareFrameVisualTiming({
+    frame: FRAME_WITH_EXECUTE_BEAT,
+    authoredHtml: frameHtml('<div id="execute" data-md2vid-beat="execute"></div>', 17.981),
+    documentPath: DOCUMENT_PATH,
+    mode: "required",
+  });
+  assert.equal(prepared.bindings[0].authoredDuration, 17.981);
+});
+
 test("every supported declarative entrance token has deterministic timing", () => {
   for (const [token, expected] of [
     ["fade", /opacity/],
@@ -156,7 +166,6 @@ test("required mode rejects invalid declarative bindings", () => {
     [frameHtml('<div id="execute" data-md2vid-beat="execute" data-md2vid-enter="spin"></div>'), /unsupported entrance token/],
     [frameHtml('<div data-md2vid-beat="execute"></div>'), /unique non-empty id/],
     [frameHtml('<div id="execute" data-md2vid-beat="execute" data-md2vid-duration="-1"></div>'), /non-negative duration/],
-    [frameHtml('<div id="execute" data-md2vid-beat="execute"></div>', 17), /authored duration.*voiceDur/],
   ];
 
   for (const [authoredHtml, expected] of cases) {

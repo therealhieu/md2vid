@@ -260,6 +260,13 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
         staged: join(stagedOutput, adapter.captionIndexArtifactPath),
       });
     }
+    if (adapter.bindingManifestPath) {
+      excludedOutputPaths.add(adapter.bindingManifestPath);
+      managedFiles.push({
+        target: relative(projectRoot, join(OUTPUT, adapter.bindingManifestPath)),
+        staged: join(stagedOutput, adapter.bindingManifestPath),
+      });
+    }
     addMissingRuntimeFiles(
       managedFiles,
       projectRoot,

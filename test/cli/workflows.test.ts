@@ -518,6 +518,10 @@ function fullBuildProject(framework: "hyperframes" | "remotion"): FullBuildProje
       join(project.outputDir, "compositions", "captions.html"),
       "ORIGINAL_STANDALONE_CAPTIONS\n",
     );
+    managedFiles.set(
+      join(project.outputDir, "build", "visual_bindings.json"),
+      "ORIGINAL_VISUAL_BINDINGS\n",
+    );
     voiceDir = join(project.outputDir, "assets", "voice");
     authoredPath = join(project.outputDir, "compositions", "frames", "01-intro.html");
   } else {
@@ -816,7 +820,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
     });
   }
 
-  const promotionCount = framework === "hyperframes" ? 7 : 6;
+  const promotionCount = framework === "hyperframes" ? 8 : 6;
   for (let position = 1; position <= promotionCount; position += 1) {
     test(`full ${framework} build rolls back every managed output after promotion failure ${position}/${promotionCount}`, () => {
       const project = fullBuildProject(framework);

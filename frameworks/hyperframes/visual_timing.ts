@@ -89,7 +89,6 @@ function elementIds(tags: readonly HtmlTag[]): Map<string, HtmlTag> {
 
 function readDuration(
   root: HtmlTag | undefined,
-  frame: PlanFrame,
   mode: VisualSyncMode,
   documentPath: string,
 ): number | false {
@@ -97,13 +96,6 @@ function readDuration(
   const duration = raw === undefined ? Number.NaN : Number(raw);
   if (!Number.isFinite(duration) || duration < 0) {
     return fail(mode, documentPath, "composition root data-duration must be a finite non-negative number");
-  }
-  if (Math.abs(duration - frame.voiceDur) > 0.001) {
-    return fail(
-      mode,
-      documentPath,
-      `authored duration ${duration.toFixed(3)}s does not match voiceDur ${frame.voiceDur.toFixed(3)}s`,
-    );
   }
   return duration;
 }
@@ -272,7 +264,7 @@ export function prepareFrameVisualTiming(input: {
   }
   const tags = scanHtmlTags(body);
   const root = compositionRootTag(tags, frame.slug);
-  const authoredDuration = readDuration(root, frame, input.mode, input.documentPath);
+  const authoredDuration = readDuration(root, input.mode, input.documentPath);
   if (authoredDuration === false) return { html: input.authoredHtml, bindings: [] };
   const ids = elementIds(tags);
   const beats = new Map((frame.visualBeats ?? []).map((beat) => [beat.id, beat]));
@@ -331,21 +323,21 @@ export function buildHyperframesTimingRuntime(
   customDeclarations: readonly CustomDeclaration[] = [],
 ): string {
   const beats = Object.fromEntries((frame.visualBeats ?? []).map((beat) => [beat.id, { start: beat.start }]));
-  const declarationByBeat = new Map(
-    customDeclarations.map((declaration) => [declaration.beat, declaration]),
-  );
-  const declarations = Object.fromEntries(
-    bindings
-      .filter((binding) => binding.source === "custom")
-      .map((binding) => {
-        const declaration = declarationByBeat.get(binding.beatId);
-        return [binding.beatId, {
-          target: binding.target,
-          method: declaration?.method ?? "from",
-          duration: binding.revealDuration,
-        }];
-      }),
-  );
+  const declarations = bindings
+    .filter((binding) => binding.source === "custom")
+    .map((binding) => {
+      const declaration = customDeclarations.find((candidate) =>
+        candidate.beat === binding.beatId
+        && candidate.target === binding.target
+        && candidate.duration === binding.revealDuration
+      );
+      return {
+        beat: binding.beatId,
+        target: binding.target,
+        method: declaration?.method ?? "from",
+        duration: binding.revealDuration,
+      };
+    });
   return `(function () {
   var FRAME_BEATS = ${JSON.stringify({ [frame.slug]: beats })};
   var FRAME_BINDINGS = ${JSON.stringify({ [frame.slug]: declarations })};
@@ -357,9 +349,11 @@ export function buildHyperframesTimingRuntime(
     return beat;
   }
   function requireBinding(slug, beatId, target, method) {
-    var frameBindings = FRAME_BINDINGS[slug];
-    var declaration = frameBindings && frameBindings[beatId];
-    if (!declaration || declaration.target !== target || declaration.method !== method) {
+    var frameBindings = FRAME_BINDINGS[slug] || [];
+    var declaration = frameBindings.find(function (candidate) {
+      return candidate.beat === beatId && candidate.target === target && candidate.method === method;
+    });
+    if (!declaration) {
       throw new Error("custom binding has no matching declaration for " + beatId + " / " + target + " / " + method);
     }
     return declaration;

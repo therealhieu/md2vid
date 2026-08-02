@@ -16,11 +16,21 @@ import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateVideoConfig } from "../../engine/config.ts";
-import type { CaptionArtifactContext, Finding, VerifyOptions, VideoConfig } from "../../engine/types.ts";
+import type {
+  AdapterVerifyContext,
+  CaptionArtifactContext,
+  Finding,
+  VerifyOptions,
+  VideoConfig,
+  VisualBindingManifest,
+} from "../../engine/types.ts";
+import { verifyVisualSync } from "../../engine/visual_sync.ts";
 import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
 import {
   extractTemplateById,
   findElementRangeByAttribute,
+  htmlAttribute,
+  scanHtmlTags,
   scriptSources,
 } from "./html.ts";
 import { DEFAULT_GSAP_SRC, gsapSrcForDocument, validateGsapSrc } from "./scaffold.ts";
@@ -48,7 +58,19 @@ const SHARED_PROJECT_DOC = `frameworks/${PROJECT_DOC_BASENAME}`;
 // shared/ dir when reshaped, else beside index.html (flat layout-reference videos).
 // Reads caption groups off disk itself — takes no plan (mirrors verifyNeutral's shape
 // but the HF checks are all file-layout assertions).
-export function verify(videoDir: string, sharedDir?: string, options: VerifyOptions = {}): Finding[] {
+export function verify(context: AdapterVerifyContext): Finding[];
+export function verify(videoDir: string, sharedDir?: string, options?: VerifyOptions): Finding[];
+export function verify(
+  contextOrVideoDir: AdapterVerifyContext | string,
+  sharedDir?: string,
+  options: VerifyOptions = {},
+): Finding[] {
+  const context = typeof contextOrVideoDir === "string" ? undefined : contextOrVideoDir;
+  const videoDir = typeof contextOrVideoDir === "string"
+    ? contextOrVideoDir
+    : contextOrVideoDir.videoDir;
+  const effectiveSharedDir = context?.sharedDir ?? sharedDir;
+  const voiceSnapshots = context?.voiceSnapshots ?? options.voiceSnapshots;
   const findings: Finding[] = [];
   const problem = (msg: string) => findings.push({ level: "error", msg });
   const warn = (msg: string) => findings.push({ level: "warn", msg });
@@ -58,13 +80,79 @@ export function verify(videoDir: string, sharedDir?: string, options: VerifyOpti
   requireCaptionRuntimeInsideRoot(videoDir, problem);
   requireIndexMountsFrames(videoDir, problem, warn);
   requireProjectDocImport(videoDir, problem, warn);
-  requireBakedGroupsMatchJson(videoDir, problem, sharedDir);
-  requireAuthoredFrameVisualContract(videoDir, sharedDir, outputConfig, problem, warn);
-  if (options.voiceSnapshots) {
-    findings.push(...verifyEmittedVoiceSnapshots(videoDir, options.voiceSnapshots));
+  requireBakedGroupsMatchJson(videoDir, problem, effectiveSharedDir);
+  requireAuthoredFrameVisualContract(videoDir, effectiveSharedDir, outputConfig, problem, warn);
+  if (voiceSnapshots) {
+    findings.push(...verifyEmittedVoiceSnapshots(videoDir, voiceSnapshots));
+  }
+  if (context && context.policy.mode !== "off") {
+    findings.push(...verifyVisualSync({
+      plan: context.plan,
+      manifest: withObservedOuterDurations(
+        videoDir,
+        context.bindings,
+        findings,
+        context.policy.mode === "required" ? "error" : "warn",
+      ),
+      policy: context.policy,
+      fps: context.fps,
+    }));
   }
 
   return findings;
+}
+
+export function resolveVerificationFps(_config: VideoConfig, videoDir: string): number {
+  const indexPath = join(videoDir, "index.html");
+  if (!isFile(indexPath)) throw new Error(`missing index.html — ${indexPath}`);
+  const roots = scanHtmlTags(readFileSync(indexPath, "utf8"))
+    .filter((tag) => !tag.closing && htmlAttribute(tag, "data-composition-id") === "main");
+  if (roots.length !== 1) {
+    throw new Error(`index.html must contain exactly one main composition root for visual-sync FPS; found ${roots.length}`);
+  }
+  const rawFps = htmlAttribute(roots[0], "data-fps");
+  const fps = rawFps === undefined ? Number.NaN : Number(rawFps);
+  if (!Number.isFinite(fps) || fps <= 0) {
+    throw new Error(`index.html main composition data-fps must be a finite positive number (got ${JSON.stringify(rawFps)})`);
+  }
+  return fps;
+}
+
+function withObservedOuterDurations(
+  videoDir: string,
+  manifest: VisualBindingManifest | undefined,
+  findings: Finding[],
+  level: Finding["level"],
+): VisualBindingManifest | undefined {
+  if (!manifest) return undefined;
+  const indexPath = join(videoDir, "index.html");
+  if (!isFile(indexPath)) return manifest;
+  const tags = scanHtmlTags(readFileSync(indexPath, "utf8"));
+  return {
+    ...manifest,
+    bindings: manifest.bindings.map((binding) => {
+      const hosts = tags.filter((tag) =>
+        !tag.closing && htmlAttribute(tag, "id") === `el-${binding.frameSlug}`
+      );
+      if (hosts.length !== 1) {
+        findings.push({
+          level,
+          msg: `frame "${binding.frameSlug}" must have exactly one emitted host duration; found ${hosts.length}`,
+        });
+        return binding;
+      }
+      const rawDuration = htmlAttribute(hosts[0], "data-duration");
+      const outerDuration = rawDuration === undefined ? Number.NaN : Number(rawDuration);
+      if (!Number.isFinite(outerDuration) || outerDuration < 0) {
+        findings.push({
+          level,
+          msg: `frame "${binding.frameSlug}" emitted host has invalid data-duration ${JSON.stringify(rawDuration)}`,
+        });
+        return binding;
+      }
+      return { ...binding, outerDuration };
+    }),
+  };
 }
 
 interface OutputConfigState {

@@ -174,15 +174,19 @@ export function run(argv: string[]): number {
     const bindings = adapter.bindingManifestPath
       ? readBindingManifest(join(layout.outputDir, adapter.bindingManifestPath))
       : undefined;
+    const hasPlannedVisualBeats = verificationPlan.frames.some((frame) => frame.visualBeats?.length);
+    const verificationConfig = planning?.adapterConfig ?? loaded.config;
 
     // Framework-specific layout checks — dispatch off validated config.framework.
     for (const finding of adapter.verify({
       plan: verificationPlan,
       videoDir: layout.outputDir,
       sharedDir: layout.sharedDir,
-      config: planning?.adapterConfig ?? loaded.config,
+      config: verificationConfig,
       policy,
-      fps: adapter.resolveVerificationFps(planning?.adapterConfig ?? loaded.config, layout.outputDir),
+      fps: hasPlannedVisualBeats
+        ? adapter.resolveVerificationFps(verificationConfig, layout.outputDir)
+        : 30,
       bindings,
       voiceSnapshots: planning?.voiceSnapshots ?? voiceSnapshots,
     })) {
