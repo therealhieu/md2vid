@@ -6,7 +6,7 @@
 - [x] Design: `2026-08-02-visual-timing-sync-design.md`
 - [x] Plan: `2026-08-02-visual-timing-sync-plan.md` and Parts 1–5
 - [x] Goal: `2026-08-02-visual-timing-sync-goal.md`
-- [x] Canonical reviews: all 15 spec, code-quality, and tester artifacts under `reviews/`
+- [x] Canonical reviews: all 18 spec, code-quality, and tester artifacts under `reviews/`
 - [x] Public snapshot: 307 files, SHA-256 `03121d2ef1d7ac4898d046b801e3703c25aec28ea4a336c9502ad709a93670f4`
 
 ## Implementation
