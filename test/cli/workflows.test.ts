@@ -121,6 +121,24 @@ function captureConsole(run: () => number): { code: number; stdout: string; stde
   }
 }
 
+test("build emits one actionable visual-sync warning for a legacy project", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    const result = captureConsole(() => buildRun([project.outputDir]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(warnings, [
+      `WARN [build] ${join(project.sharedDir, "visual_beats.json")}: no visual beat specification; semantic checks are skipped`,
+    ]);
+  } finally {
+    console.warn = originalWarn;
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 function writeNeutralConfig(shared: string): void {
   writeFileSync(join(shared, "video.config.json"), JSON.stringify({
     timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },

@@ -2,7 +2,7 @@
 
 Depends on: Part 1. Complete this part before `2026-08-02-visual-timing-sync-plan-3.md`.
 
-- [ ] **Task 4: Extract shared project planning and neutral serialization** `[Group: planning-workflow]` `[Tester: yes]`
+- [x] **Task 4: Extract shared project planning and neutral serialization** `[Group: planning-workflow]` `[Tester: yes]`
 
 **Files:**
 - Create: `scripts/plan_project.ts`
@@ -10,7 +10,7 @@ Depends on: Part 1. Complete this part before `2026-08-02-visual-timing-sync-pla
 - Modify: `scripts/project_layout.ts` to export the existing resolved layout type for shared planning
 - Create: `test/cli/plan-project.test.ts`
 
-- [ ] **Step 1: Write failing serializer and no-adapter tests**
+- [x] **Step 1: Write failing serializer and no-adapter tests**
 
 Create `test/cli/plan-project.test.ts` with a fixture that includes `visual_beats.json` and assert deterministic artifact strings:
 
@@ -37,7 +37,7 @@ assert.deepEqual(JSON.parse(legacy.visualTiming), { version: 1, frames: {} });
 assert.equal(legacy.cues.includes("visualBeats"), false);
 ```
 
-- [ ] **Step 2: Run and confirm module failure**
+- [x] **Step 2: Run and confirm module failure**
 
 Run:
 
@@ -47,7 +47,7 @@ node --test test/cli/plan-project.test.ts
 
 Expected: FAIL because `scripts/plan_project.ts` does not exist.
 
-- [ ] **Step 3: Implement shared load/plan result and serializers**
+- [x] **Step 3: Implement shared load/plan result and serializers**
 
 Create `scripts/plan_project.ts`:
 
@@ -144,7 +144,7 @@ export function serializeNeutralArtifacts(plan: BuildPlan): SerializedNeutralArt
 }
 ```
 
-- [ ] **Step 4: Add a shared neutral staging helper**
+- [x] **Step 4: Add a shared neutral staging helper**
 
 Export a helper that writes the four strings under a caller-supplied staging root and returns explicit `ManagedFile[]` entries for:
 
@@ -157,7 +157,7 @@ build/visual_timing.json
 
 Use `managed_file_transaction.ts` for promotion; do not create a second transaction implementation.
 
-- [ ] **Step 5: Refactor build to consume the shared result**
+- [x] **Step 5: Refactor build to consume the shared result**
 
 Replace build's inline load/plan/serialization path with:
 
@@ -173,7 +173,7 @@ Add a build test proving an implicit/warn legacy project with no `visual_beats.j
 
 Retain existing adapter preflight, caption verification, voice staging, rollback, backup, and cleanup semantics. Do not change emitted output in the legacy fixture.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -183,7 +183,7 @@ node --test test/cli/plan-project.test.ts test/cli/workflows.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/plan_project.ts scripts/build.ts test/cli/plan-project.test.ts test/cli/workflows.test.ts
