@@ -157,6 +157,27 @@ test("build and regroup emit one legacy visual-sync warning", () => {
   }
 });
 
+test("verify replans current visual-beat inputs instead of trusting emitted artifacts", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "unknown-frame": {
+          beats: [{ id: "unknown", text: "Unknown", cue: { wordIndex: 0 } }],
+        },
+      },
+    }, null, 2)}\n`);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /unknown frame slug "unknown-frame"/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 function enableIntroVisualBeat(project: WorkflowProject): void {
   const configPath = join(project.sharedDir, "video.config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8"));

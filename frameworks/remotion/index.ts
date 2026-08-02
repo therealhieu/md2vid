@@ -20,6 +20,14 @@ const adapter: FrameworkAdapter = {
   captionArtifactPath: "build_plan.json",
   managedVoiceArtifactPath: "public/assets/voice",
   verifyCaptionArtifact: verifyRemotionCaptionArtifact,
-  verify,
+  resolveVerificationFps() {
+    return 30;
+  },
+  verify(context, sharedDir, options) {
+    if (typeof context === "string") return verify(context, sharedDir, options);
+    return verify(context.videoDir, context.sharedDir, {
+      voiceSnapshots: context.voiceSnapshots,
+    });
+  },
 };
 export default adapter;

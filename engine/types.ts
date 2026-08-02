@@ -101,6 +101,23 @@ export interface BuildPlan {
   captionGroups: CaptionGroup[];
 }
 
+export interface VisualBinding {
+  frameSlug: string;
+  beatId: string;
+  target: string;
+  revealStart: number;
+  revealDuration: number;
+  source: "declarative" | "custom";
+  authoredDuration?: number;
+  outerDuration?: number;
+}
+
+export interface VisualBindingManifest {
+  version: 1;
+  framework: string;
+  bindings: VisualBinding[];
+}
+
 // ── Config (merged neutral video.config.json + local output.config.json) ─────
 export interface VideoConfig {
   framework?: string;
@@ -137,6 +154,7 @@ export interface FrameworkPreparation {
   embeddedFrameTemplates?: string[];
   captionsHtml?: string;
   captionIndexHtml?: string;
+  bindingManifest?: VisualBindingManifest;
   voiceSnapshots?: VoiceAssetSnapshot[];
 }
 
@@ -154,6 +172,18 @@ export interface CaptionArtifactContext {
   captionGroupsPath: string;
 }
 
+export interface AdapterVerifyContext {
+  plan: BuildPlan;
+  videoDir: string;
+  sharedDir: string;
+  config: VideoConfig;
+  policy: ResolvedVisualSyncPolicy;
+  fps: number;
+  bindings?: VisualBindingManifest;
+  voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
+}
+
+/** @deprecated Use AdapterVerifyContext through FrameworkAdapter.verify(). */
 export interface VerifyOptions {
   voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
 }
@@ -173,7 +203,9 @@ export interface FrameworkAdapter {
   ): void;
   captionArtifactPath: string;
   captionIndexArtifactPath?: string;
+  bindingManifestPath?: string;
   managedVoiceArtifactPath: string;
   verifyCaptionArtifact(context: CaptionArtifactContext): Finding[];
-  verify(videoDir: string, sharedDir?: string, options?: VerifyOptions): Finding[];
+  resolveVerificationFps(config: VideoConfig, videoDir: string): number;
+  verify(context: AdapterVerifyContext | string, sharedDir?: string, options?: VerifyOptions): Finding[];
 }

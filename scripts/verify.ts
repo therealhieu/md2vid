@@ -17,10 +17,12 @@ import {
   validateAudioMetaVoiceSnapshots,
 } from "../engine/voice_assets.ts";
 import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
-import type { CaptionGroup } from "../engine/types.ts";
+import { resolveVisualSyncPolicy } from "../engine/plan.ts";
+import type { BuildPlan, CaptionGroup, VisualBinding, VisualBindingManifest } from "../engine/types.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import { createProjectPlan } from "./plan_project.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
@@ -64,6 +66,40 @@ function readCaptionGroups(path: string): CaptionGroup[] {
   }
 }
 
+function isVisualBinding(value: unknown): value is VisualBinding {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const binding = value as Record<string, unknown>;
+  return typeof binding.frameSlug === "string"
+    && typeof binding.beatId === "string"
+    && typeof binding.target === "string"
+    && typeof binding.revealStart === "number"
+    && typeof binding.revealDuration === "number"
+    && (binding.source === "declarative" || binding.source === "custom")
+    && (binding.authoredDuration === undefined || typeof binding.authoredDuration === "number")
+    && (binding.outerDuration === undefined || typeof binding.outerDuration === "number");
+}
+
+export function readBindingManifest(path: string): VisualBindingManifest | undefined {
+  if (!isFile(path)) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error: unknown) {
+    throw new Error(`invalid visual binding manifest at ${path}: ${(error as Error).message}`);
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`invalid visual binding manifest at ${path}: expected an object`);
+  }
+  const manifest = value as Record<string, unknown>;
+  if (manifest.version !== 1 || typeof manifest.framework !== "string" || !Array.isArray(manifest.bindings)) {
+    throw new Error(`invalid visual binding manifest at ${path}: expected version 1, framework, and bindings`);
+  }
+  if (!manifest.bindings.every(isVisualBinding)) {
+    throw new Error(`invalid visual binding manifest at ${path}: bindings must use the normalized visual-binding shape`);
+  }
+  return manifest as unknown as VisualBindingManifest;
+}
+
 export function run(argv: string[]): number {
   const parsed = parseVerifyArgs(argv);
   if (parsed.kind === "help") {
@@ -97,9 +133,26 @@ export function run(argv: string[]): number {
     validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
 
     const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
+    const policy = resolveVisualSyncPolicy(loaded.neutral);
+    const visualBeatsPath = join(layout.sharedDir, "visual_beats.json");
+    const requiresCurrentVisualPlanning = policy.mode !== "off"
+      && (policy.mode === "required" || isFile(visualBeatsPath));
+    const planning = requiresCurrentVisualPlanning ? createProjectPlan(layout.outputDir) : undefined;
     const adapter = getAdapter(configuredFramework(loaded, layout.flat, layout.outputDir));
     const problems: string[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = planning?.warnings ?? (
+      policy.mode === "warn"
+        ? [`${visualBeatsPath}: no visual beat specification; semantic checks are skipped`]
+        : []
+    );
+    const verificationPlan: BuildPlan = planning?.plan ?? {
+      version: 1,
+      canvas: { width: 1, height: 1 },
+      timing: { tail: 0, xfade: 0, gap: 0 },
+      totalDuration: 0,
+      frames: [],
+      captionGroups: [],
+    };
     const problem = (msg: string) => problems.push(msg);
     const warn = (msg: string) => warnings.push(msg);
 
@@ -118,8 +171,21 @@ export function run(argv: string[]): number {
       }
     }
 
+    const bindings = adapter.bindingManifestPath
+      ? readBindingManifest(join(layout.outputDir, adapter.bindingManifestPath))
+      : undefined;
+
     // Framework-specific layout checks — dispatch off validated config.framework.
-    for (const finding of adapter.verify(layout.outputDir, layout.sharedDir, { voiceSnapshots })) {
+    for (const finding of adapter.verify({
+      plan: verificationPlan,
+      videoDir: layout.outputDir,
+      sharedDir: layout.sharedDir,
+      config: planning?.adapterConfig ?? loaded.config,
+      policy,
+      fps: adapter.resolveVerificationFps(planning?.adapterConfig ?? loaded.config, layout.outputDir),
+      bindings,
+      voiceSnapshots: planning?.voiceSnapshots ?? voiceSnapshots,
+    })) {
       if (finding.level === "error") problem(finding.msg);
       else warn(finding.msg);
     }

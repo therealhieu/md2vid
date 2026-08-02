@@ -19,6 +19,14 @@ const adapter: FrameworkAdapter = {
   captionIndexArtifactPath: "index.html",
   managedVoiceArtifactPath: "assets/voice",
   verifyCaptionArtifact: verifyHyperframesCaptionArtifact,
-  verify,
+  resolveVerificationFps(config) {
+    return config.render?.fps ?? 30;
+  },
+  verify(context, sharedDir, options) {
+    if (typeof context === "string") return verify(context, sharedDir, options);
+    return verify(context.videoDir, context.sharedDir, {
+      voiceSnapshots: context.voiceSnapshots,
+    });
+  },
 };
 export default adapter;
