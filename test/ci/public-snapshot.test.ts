@@ -791,6 +791,33 @@ test("actual repository HEAD snapshot contains required public code and excludes
     ref: process.env.MD2VID_PUBLIC_SNAPSHOT_REF ?? "HEAD",
   });
   const paths = snapshotPaths(output);
+  const narrationDeliveryPaths = [
+    "engine/narration_request.ts",
+    "engine/narration_evidence.ts",
+    "scripts/narration_check.ts",
+    "bin/md2vid.ts",
+    "test/cli/narration-check.test.ts",
+    "README.md",
+    "docs/standards/video-generation.md",
+    "docs/standards/frameworks/hyperframes.md",
+    "docs/standards/frameworks/remotion.md",
+    "skill/md2vid/SKILL.md",
+    "skill/md2vid/references/standards/video-generation.md",
+    "skill/md2vid/references/standards/frameworks/hyperframes.md",
+    "skill/md2vid/references/standards/frameworks/remotion.md",
+    "test/release/manifest.ts",
+    "test/cli/pack.test.ts",
+    "test/cli/package-meta.test.ts",
+    "test/release/harness.ts",
+    "test/release/harness.test.ts",
+    "test/release/run.ts",
+    "test/release/fixtures/kokoro-am-michael/audio_request.json",
+    "test/release/fixtures/kokoro-am-michael/audio_meta.json",
+    "test/release/fixtures/kokoro-am-michael/expected_words.json",
+    "test/release/fixtures/kokoro-am-michael/fixture.json",
+    "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav",
+    "test/release/fixtures/kokoro-am-michael/assets/voice/followup.wav",
+  ] as const;
 
   for (const required of [
     ".github/workflows/ci.yml",
@@ -809,6 +836,9 @@ test("actual repository HEAD snapshot contains required public code and excludes
     "test/golden/fixtures/hash-table-example/expected/index.html",
   ]) {
     assert.ok(paths.includes(required), `missing actual HEAD content: ${required}`);
+  }
+  for (const required of narrationDeliveryPaths) {
+    assert.ok(paths.includes(required), `missing actual HEAD narration content: ${required}`);
   }
   for (const forbiddenRoot of [".git/", ".claude/", "docs/superpowers/", "inputs/", "outputs/", "node_modules/", "dist/"]) {
     assert.equal(paths.some((path) => path.startsWith(forbiddenRoot)), false, `included ${forbiddenRoot}`);

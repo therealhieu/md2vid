@@ -10,6 +10,33 @@ import { buildPublicSnapshot, writePublicSnapshotManifest } from "../../scripts/
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const CHECKER = join(ROOT, "scripts", "check_public_snapshot.ts");
+const narrationDeliveryPaths = [
+  "engine/narration_request.ts",
+  "engine/narration_evidence.ts",
+  "scripts/narration_check.ts",
+  "bin/md2vid.ts",
+  "test/cli/narration-check.test.ts",
+  "README.md",
+  "docs/standards/video-generation.md",
+  "docs/standards/frameworks/hyperframes.md",
+  "docs/standards/frameworks/remotion.md",
+  "skill/md2vid/SKILL.md",
+  "skill/md2vid/references/standards/video-generation.md",
+  "skill/md2vid/references/standards/frameworks/hyperframes.md",
+  "skill/md2vid/references/standards/frameworks/remotion.md",
+  "test/release/manifest.ts",
+  "test/cli/pack.test.ts",
+  "test/cli/package-meta.test.ts",
+  "test/release/harness.ts",
+  "test/release/harness.test.ts",
+  "test/release/run.ts",
+  "test/release/fixtures/kokoro-am-michael/audio_request.json",
+  "test/release/fixtures/kokoro-am-michael/audio_meta.json",
+  "test/release/fixtures/kokoro-am-michael/expected_words.json",
+  "test/release/fixtures/kokoro-am-michael/fixture.json",
+  "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav",
+  "test/release/fixtures/kokoro-am-michael/assets/voice/followup.wav",
+] as const;
 
 function temporaryDirectory(t: TestContext, prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
@@ -73,6 +100,15 @@ test("tracked public snapshot records visual timing delivery files", () => {
     "scripts/plan.ts",
     "scripts/plan_project.ts",
   ]) assert.ok(tracked.paths.some((entry) => entry.path === path), `missing ${path}`);
+});
+
+test("tracked public snapshot records narration delivery files", () => {
+  const tracked = JSON.parse(readFileSync(join(ROOT, "public-snapshot.json"), "utf8")) as {
+    paths: Array<{ path: string }>;
+  };
+  for (const required of narrationDeliveryPaths) {
+    assert.ok(tracked.paths.some((entry) => entry.path === required), `missing ${required}`);
+  }
 });
 
 test("tracked manifest rejects every stale report field from committed HEAD", (t) => {
