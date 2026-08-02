@@ -183,7 +183,7 @@ export function validateVisualBeatSpec(value: unknown, path: string): VisualBeat
   if (value.version !== 1) fail(`${path}.version`, "expected 1");
   if (!isRecord(value.frames)) fail(`${path}.frames`, "expected an object");
 
-  const frames: Record<string, AuthoredVisualFrame> = {};
+  const frames: Record<string, AuthoredVisualFrame> = Object.create(null);
   for (const [slug, frameValue] of Object.entries(value.frames)) {
     frames[slug] = validateFrame(frameValue, `${path}.frames.${slug}`);
   }

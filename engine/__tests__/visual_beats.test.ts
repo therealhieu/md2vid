@@ -49,6 +49,18 @@ test("resolves word index and phrase occurrence to original word timing", () => 
   ]);
 });
 
+test("retains prototype-like frame slugs during validation", () => {
+  const frame: PlanFrame = { ...FRAME, slug: "__proto__" };
+  const spec: VisualBeatSpec = {
+    version: 1,
+    frames: {
+      ["__proto__"]: { beats: [{ id: "beat", text: "Beat", cue: { wordIndex: 0 } }] },
+    },
+  };
+
+  assert.equal(resolveVisualBeats(spec, [frame], POLICY).get("__proto__")?.visualBeats[0].id, "beat");
+});
+
 test("normalizes NFKC punctuation while preserving original cue word index", () => {
   const frame: PlanFrame = {
     ...FRAME,
