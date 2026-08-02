@@ -188,6 +188,74 @@ test("preflight rejects invalid profile, FPS, and a minimum final FPS below the 
   }
 });
 
+test("invalid output render policy fails through runHyperframes before child spawn", () => {
+  const project = writeProject({ outputConfig: { render: { minimumFinalFps: 1 } } });
+  const installation = fakeInstallation();
+  try {
+    let spawned = false;
+    const result = captureErrors(() => runHyperframes([
+      "render", "--output", "renders/invalid-policy.mp4", "--fps", "12",
+    ], {
+      cwd: project,
+      metaUrl: installation.metaUrl,
+      spawn() {
+        spawned = true;
+        return spawnResult();
+      },
+    }));
+    assert.equal(result.status, 1);
+    assert.equal(spawned, false);
+    assert.match(result.errors.join("\n"), /render\.minimumFinalFps.*>= 24/);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(installation.root, { recursive: true, force: true });
+  }
+});
+
+test("preflight preserves all HyperFrames FPS spellings and normalizes rational values", () => {
+  const project = writeProject();
+  try {
+    const shortForm = preflightHyperframesRender([
+      "render", "-f=30000/1001", "--output", "renders/rational.mp4",
+    ], project);
+    assert.equal(shortForm.policy.fps, 30000 / 1001);
+    assert.deepEqual(shortForm.forwardedArgs, [
+      "render", "-f=30000/1001", "--output", "renders/rational.mp4",
+    ]);
+
+    assert.throws(
+      () => preflightHyperframesRender([
+        "render", "--fps=24000/1001", "--output", "renders/low-rational.mp4",
+      ], project),
+      /effective final-render FPS is .*; minimum is 24/,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("rational FPS success records the normalized numeric policy value", () => {
+  const project = writeProject();
+  const installation = fakeInstallation();
+  try {
+    const output = "renders/rational.mp4";
+    assert.equal(runHyperframes([
+      "render", "--fps=30000/1001", "--output", output,
+    ], {
+      cwd: project,
+      metaUrl: installation.metaUrl,
+      spawn: () => spawnResult(),
+    }), 0);
+    assert.equal(
+      JSON.parse(readFileSync(`${expectedOutput(project, output)}.md2vid-render.json`, "utf8")).fps,
+      30000 / 1001,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(installation.root, { recursive: true, force: true });
+  }
+});
+
 test("final MP4 and MOV reject low FPS before child spawn but draft and GIF allow it", () => {
   const project = writeProject();
   const installation = fakeInstallation();
@@ -225,6 +293,92 @@ test("final MP4 and MOV reject low FPS before child spawn but draft and GIF allo
       );
       assert.equal(status, 0);
       assert.equal(spawned, true);
+    }
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(installation.root, { recursive: true, force: true });
+  }
+});
+
+test("short FPS flags enforce the final floor before spawn and preserve accepted literals", () => {
+  const project = writeProject();
+  const installation = fakeInstallation();
+  try {
+    let spawned = false;
+    const rejected = captureErrors(() => runHyperframes([
+      "render", "-f", "12", "--output", "renders/short.mp4",
+    ], {
+      cwd: project,
+      metaUrl: installation.metaUrl,
+      spawn() {
+        spawned = true;
+        return spawnResult();
+      },
+    }));
+    assert.equal(rejected.status, 1);
+    assert.equal(spawned, false);
+    assert.match(rejected.errors.join("\n"), /effective final-render FPS is 12; minimum is 24/);
+
+    let forwarded: readonly string[] | undefined;
+    assert.equal(runHyperframes([
+      "render", "-f", "24", "--output", "renders/short-ok.mp4",
+    ], {
+      cwd: project,
+      metaUrl: installation.metaUrl,
+      spawn(_command, args) {
+        forwarded = args;
+        return spawnResult();
+      },
+    }), 0);
+    assert.deepEqual(forwarded, [installation.cliEntry, "render", "-f", "24", "--output", "renders/short-ok.mp4"]);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(installation.root, { recursive: true, force: true });
+  }
+});
+
+test("effective render format, not the output suffix, decides final FPS enforcement", () => {
+  const project = writeProject();
+  const installation = fakeInstallation();
+  try {
+    for (const formatArgs of [
+      ["--format", "mov"],
+      ["--format=mov"],
+      [],
+    ]) {
+      let spawned = false;
+      const result = captureErrors(() => runHyperframes([
+        "render", ...formatArgs, "--output", "renders/misleading.gif", "--fps", "12",
+      ], {
+        cwd: project,
+        metaUrl: installation.metaUrl,
+        spawn() {
+          spawned = true;
+          return spawnResult();
+        },
+      }));
+      assert.equal(result.status, 1, `format ${formatArgs.join(" ") || "mp4 default"}`);
+      assert.equal(spawned, false, `format ${formatArgs.join(" ") || "mp4 default"}`);
+    }
+
+    for (const formatArgs of [
+      ["--format", "gif"],
+      ["--format=png-sequence"],
+    ]) {
+      let forwarded: readonly string[] | undefined;
+      assert.equal(runHyperframes([
+        "render", ...formatArgs, "--output", "renders/misleading.mp4", "--fps", "12",
+      ], {
+        cwd: project,
+        metaUrl: installation.metaUrl,
+        spawn(_command, args) {
+          forwarded = args;
+          return spawnResult();
+        },
+      }), 0);
+      assert.deepEqual(forwarded, [
+        installation.cliEntry, "render", ...formatArgs, "--output", "renders/misleading.mp4", "--fps", "12",
+      ]);
     }
   } finally {
     rmSync(project, { recursive: true, force: true });
@@ -305,6 +459,33 @@ test("successful known-output renders write an atomic policy manifest and failur
     });
     assert.equal(
       readdirSync(join(project, "renders")).some((name) => name.includes("md2vid-render") && name !== "final.mp4.md2vid-render.json"),
+      false,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(installation.root, { recursive: true, force: true });
+  }
+});
+
+test("manifest promotion failure preserves the destination and cleans its staging directory", () => {
+  const project = writeProject();
+  const installation = fakeInstallation();
+  try {
+    const output = "renders/blocked.mp4";
+    const manifestPath = `${expectedOutput(project, output)}.md2vid-render.json`;
+    mkdirSync(manifestPath, { recursive: true });
+
+    const result = captureErrors(() => runHyperframes(["render", "--output", output, "--fps", "30"], {
+      cwd: project,
+      metaUrl: installation.metaUrl,
+      spawn: () => spawnResult(),
+    }));
+
+    assert.equal(result.status, 1);
+    assert.match(result.errors.join("\n"), /failed to write render manifest/);
+    assert.deepEqual(readdirSync(manifestPath), []);
+    assert.equal(
+      readdirSync(join(project, "renders")).some((name) => name.includes(".md2vid-render.json.stage-")),
       false,
     );
   } finally {

@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { validateVideoConfig } from "../engine/config.ts";
 import { htmlAttribute, scanHtmlTags } from "../frameworks/hyperframes/html.ts";
 import type { RenderProfile } from "../engine/types.ts";
@@ -145,9 +145,12 @@ const RENDER_PROFILES = new Set<RenderProfile>(["final", "draft", "gif"]);
 const FINAL_FPS_FLOOR = 24;
 
 function parsePositiveFps(value: string, source: string): number {
-  const fps = Number(value);
+  const rational = /^(\d+)\/(\d+)$/.exec(value);
+  const fps = rational
+    ? Number(rational[1]) / Number(rational[2])
+    : /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value) ? Number(value) : Number.NaN;
   if (!Number.isFinite(fps) || fps <= 0) {
-    throw new Error(`${source} must be a finite positive number (got ${JSON.stringify(value)})`);
+    throw new Error(`${source} must be a finite positive integer, decimal, or rational FPS (got ${JSON.stringify(value)})`);
   }
   return fps;
 }
@@ -211,14 +214,14 @@ function outputPathFrom(args: readonly string[], cwd: string): string | undefine
   return undefined;
 }
 
-function isFinalVideoOutput(path: string | undefined): boolean {
-  return path === undefined || [".mp4", ".mov"].includes(extname(path).toLowerCase());
+function isFinalVideoFormat(format: string): boolean {
+  return format === "mp4" || format === "mov";
 }
 
-function assertFinalFps(policy: EffectiveRenderPolicy): void {
+function assertFinalFps(policy: EffectiveRenderPolicy, format: string): void {
   if (
     policy.profile === "final" &&
-    isFinalVideoOutput(policy.outputPath) &&
+    isFinalVideoFormat(format) &&
     policy.fps < policy.minimumFinalFps &&
     !policy.lowFpsOverride
   ) {
@@ -247,6 +250,7 @@ export function preflightHyperframesRender(
 
   let cliProfile: EffectiveRenderPolicy["profile"] | undefined;
   let cliFps: number | undefined;
+  let renderFormat = "mp4";
   let lowFpsOverride = false;
   const forwardedArgs: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -265,16 +269,24 @@ export function preflightHyperframesRender(
       lowFpsOverride = true;
       continue;
     }
-    if (arg === "--fps") {
+    if (arg === "--fps" || arg === "-f") {
       const value = args[index + 1];
-      if (value === undefined) throw new Error("--fps requires a finite positive number");
-      cliFps = parsePositiveFps(value, "--fps");
+      if (value === undefined) throw new Error(`${arg} requires a finite positive FPS`);
+      cliFps = parsePositiveFps(value, arg);
       forwardedArgs.push(arg, value);
       index += 1;
       continue;
     }
-    if (arg.startsWith("--fps=")) {
-      cliFps = parsePositiveFps(arg.slice("--fps=".length), "--fps");
+    if (arg.startsWith("--fps=") || arg.startsWith("-f=")) {
+      const source = arg.startsWith("--fps=") ? "--fps" : "-f";
+      const value = arg.slice(source.length + 1);
+      cliFps = parsePositiveFps(value, source);
+    }
+    if (arg === "--format") {
+      const value = args[index + 1];
+      if (value !== undefined && !value.startsWith("-")) renderFormat = value.toLowerCase();
+    } else if (arg.startsWith("--format=")) {
+      renderFormat = arg.slice("--format=".length).toLowerCase();
     }
     forwardedArgs.push(arg);
   }
@@ -287,7 +299,7 @@ export function preflightHyperframesRender(
     lowFpsOverride,
     outputPath: outputPathFrom(args, cwd),
   };
-  assertFinalFps(policy);
+  assertFinalFps(policy, renderFormat);
   return { forwardedArgs, policy };
 }
 
