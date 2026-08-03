@@ -175,6 +175,38 @@ test("flat and canonical projects serialize identical v2 coverage timing", () =>
   }
 });
 
+test("plan writes a v2 zero-state frame for warn-mode omitted coverage", () => {
+  const project = mkdtempSync(join(tmpdir(), "md2vid-plan-v2-omitted-"));
+  try {
+    seedNeutralInputs(project);
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "warn" },
+    }, null, 2)}\n`);
+    writeFileSync(join(project, "visual_beats.json"), `${JSON.stringify({
+      version: 2,
+      frames: {},
+    }, null, 2)}\n`);
+
+    assert.equal(run([project]), 0);
+    assert.deepEqual(JSON.parse(readFileSync(join(project, "build", "visual_timing.json"), "utf8")), {
+      version: 2,
+      frames: {
+        "01-intro": {
+          visualSpecVersion: 2,
+          voiceDuration: 1,
+          frameDuration: 1,
+          requiredCoverage: { start: 0, end: 1 },
+          beats: [],
+          coverageExemptions: [],
+        },
+      },
+    });
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test("plan rejects stale versioned narration before changing neutral outputs", () => {
   const project = mkdtempSync(join(tmpdir(), "md2vid-plan-stale-narration-"));
   try {

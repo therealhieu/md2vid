@@ -76,6 +76,7 @@ test("plan attaches resolved visual beats by frame slug", () => {
     },
   });
 
+  assert.equal(result.frames[0].visualSpecVersion, 1);
   assert.equal(result.frames[0].visualKind, "workflow");
   assert.equal(result.frames[0].visualBeats?.[0].id, "first");
   assert.equal(result.frames[0].visualBeats?.[0].start, metadata.voices[0].words[0].start);
@@ -141,6 +142,22 @@ test("required v2 coverage rejects missing narrated frames", () => {
   );
 });
 
+for (const slug of ["constructor", "toString"]) {
+  test(`required v2 coverage rejects omitted prototype-like frame ${slug}`, () => {
+    assert.throws(
+      () => plan(
+        meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+        {
+          ...CFG({ slugs: { intro: slug } }),
+          visualSync: { mode: "off", coverageMode: "required" },
+        },
+        { version: 2, frames: {} },
+      ),
+      new RegExp(`missing narrated frame "${slug}".*coverageMode=required`),
+    );
+  });
+}
+
 test("required v2 coverage rejects supporting-only narrated frames", () => {
   assert.throws(
     () => plan(
@@ -167,6 +184,41 @@ test("required v2 coverage rejects supporting-only narrated frames", () => {
   );
 });
 
+test("coverage-required planning rejects a v1 visual specification with migration guidance", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      {
+        version: 1,
+        frames: {
+          intro: { beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }] },
+        },
+      },
+    ),
+    /coverageMode=required requires visual_beats\.json version 2.*migrate.*version 2/i,
+  );
+});
+
+test("v1 visual specifications remain compatible in coverage warn mode", () => {
+  assert.doesNotThrow(() => plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    {
+      version: 1,
+      frames: {
+        intro: { beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }] },
+      },
+    },
+  ));
+});
+
 test("warn-mode v2 frames retain authored version without focal beats", () => {
   const result = plan(
     meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
@@ -175,6 +227,19 @@ test("warn-mode v2 frames retain authored version without focal beats", () => {
       visualSync: { mode: "off", coverageMode: "warn" },
     },
     { version: 2, frames: { intro: { beats: [] } } },
+  );
+  assert.equal(result.frames[0].visualSpecVersion, 2);
+  assert.deepEqual(result.frames[0].visualBeats, []);
+});
+
+test("warn-mode omitted v2 narrated frames retain v2 provenance and zero beats", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    { version: 2, frames: {} },
   );
   assert.equal(result.frames[0].visualSpecVersion, 2);
   assert.deepEqual(result.frames[0].visualBeats, []);

@@ -333,9 +333,18 @@ function validateFrameV2(value: unknown, path: string): AuthoredVisualFrameV2 {
     if (!Array.isArray(value.coverageExemptions)) {
       fail(`${path}.coverageExemptions`, "must be an array");
     }
-    coverageExemptions = value.coverageExemptions.map((exemption, index) =>
-      validateCoverageExemption(exemption, `${path}.coverageExemptions[${index}]`),
-    );
+    const exemptionIdPaths = new Map<string, string>();
+    coverageExemptions = value.coverageExemptions.map((exemption, index) => {
+      const exemptionPath = `${path}.coverageExemptions[${index}]`;
+      const parsed = validateCoverageExemption(exemption, exemptionPath);
+      const idPath = `${exemptionPath}.id`;
+      const firstPath = exemptionIdPaths.get(parsed.id);
+      if (firstPath !== undefined) {
+        fail(idPath, `duplicate coverage exemption id "${parsed.id}"; first declared at ${firstPath}`);
+      }
+      exemptionIdPaths.set(parsed.id, idPath);
+      return parsed;
+    });
   }
 
   return {

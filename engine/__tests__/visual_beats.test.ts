@@ -276,6 +276,96 @@ for (const [name, mutate, pattern] of [
   });
 }
 
+for (const [name, mutate, pattern] of [
+  [
+    "top-level field",
+    () => ({ ...V2_SPEC, unexpected: true }),
+    /visual_beats\.json\.unexpected.*not supported/,
+  ],
+  [
+    "frame field",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": { ...V2_SPEC.frames["reserve-flow"], unexpected: true },
+      },
+    }),
+    /frames\.reserve-flow\.unexpected.*not supported/,
+  ],
+  [
+    "beat field",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{ ...V2_SPEC.frames["reserve-flow"].beats[0], unexpected: true }],
+        },
+      },
+    }),
+    /beats\[0\]\.unexpected.*not supported/,
+  ],
+  [
+    "coverage field",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{
+            ...V2_SPEC.frames["reserve-flow"].beats[0],
+            coverage: { until: "frame-end", unexpected: true },
+          }],
+        },
+      },
+    }),
+    /coverage\.unexpected.*not supported/,
+  ],
+  [
+    "coverage endpoint field",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{
+            ...V2_SPEC.frames["reserve-flow"].beats[0],
+            coverage: { until: { cue: { wordIndex: 0 }, unexpected: true } },
+          }],
+        },
+      },
+    }),
+    /coverage\.until\.unexpected.*not supported/,
+  ],
+  [
+    "exemption field",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          coverageExemptions: [{
+            id: "pause",
+            from: { wordIndex: 1 },
+            until: "voice-end",
+            reason: "Intentional audio-only pause",
+            approvedBy: "storyboard-review:42",
+            unexpected: true,
+          }],
+        },
+      },
+    }),
+    /coverageExemptions\[0\]\.unexpected.*not supported/,
+  ],
+] as const) {
+  test(`rejects unknown v2 ${name}`, () => {
+    assert.throws(
+      () => validateVisualBeatSpec(mutate(), "visual_beats.json"),
+      pattern,
+    );
+  });
+}
+
 test("rejects an exemption without review metadata", () => {
   const value = structuredClone(V2_SPEC) as Record<string, unknown>;
   const frame = (value.frames as Record<string, Record<string, unknown>>)["reserve-flow"];
@@ -288,6 +378,32 @@ test("rejects an exemption without review metadata", () => {
   assert.throws(
     () => validateVisualBeatSpec(value, "visual_beats.json"),
     /coverageExemptions\[0\]\.approvedBy/,
+  );
+});
+
+test("rejects duplicate per-frame v2 coverage exemption IDs", () => {
+  const value = structuredClone(V2_SPEC) as Record<string, unknown>;
+  const frame = (value.frames as Record<string, Record<string, unknown>>)["reserve-flow"];
+  frame.coverageExemptions = [
+    {
+      id: "pause",
+      from: { wordIndex: 1 },
+      until: "voice-end",
+      reason: "Intentional audio-only pause",
+      approvedBy: "storyboard-review:42",
+    },
+    {
+      id: "pause",
+      from: { wordIndex: 2 },
+      until: "frame-end",
+      reason: "Intentional landing pause",
+      approvedBy: "storyboard-review:43",
+    },
+  ];
+
+  assert.throws(
+    () => validateVisualBeatSpec(value, "visual_beats.json"),
+    /coverageExemptions\[1\]\.id: duplicate coverage exemption id "pause"; first declared at visual_beats\.json\.frames\.reserve-flow\.coverageExemptions\[0\]\.id/,
   );
 });
 

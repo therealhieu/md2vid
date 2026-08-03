@@ -102,10 +102,23 @@ export function plan(meta: AudioMeta, config: VideoConfig, visualBeats?: VisualB
   const policy = resolveVisualSyncPolicy(config);
   const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
   if (visualBeats && visualPlanningEnabled) {
+    if (visualBeats.version === 2) {
+      for (const frame of frames) {
+        frame.visualSpecVersion = 2;
+        frame.visualBeats = [];
+      }
+    }
+    if (visualBeats.version === 1 && policy.coverageMode === "required") {
+      throw new Error(
+        "visualSync.coverageMode=required requires visual_beats.json version 2; migrate the v1 specification to version 2 before enabling required coverage",
+      );
+    }
     if (visualBeats.version === 2 && policy.coverageMode === "required") {
       for (const frame of frames) {
         if (frame.words.length === 0) continue;
-        const authoredFrame = visualBeats.frames[frame.slug];
+        const authoredFrame = Object.hasOwn(visualBeats.frames, frame.slug)
+          ? visualBeats.frames[frame.slug]
+          : undefined;
         if (!authoredFrame) {
           throw new Error(
             `visual_beats.json.frames is missing narrated frame "${frame.slug}" required by visualSync.coverageMode=required`,

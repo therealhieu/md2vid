@@ -211,6 +211,63 @@ test("planning resolves v2 coverage when reveal timing is off", () => {
   }
 });
 
+test("warn-mode omitted v2 frames serialize as deterministic zero-state coverage", () => {
+  const project = planningProject("off");
+  try {
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "warn" },
+    }, null, 2)}\n`);
+    writeFileSync(join(project, "visual_beats.json"), `${JSON.stringify({
+      version: 2,
+      frames: {},
+    }, null, 2)}\n`);
+
+    const result = createProjectPlan(project);
+    assert.equal(result.plan.frames[0].visualSpecVersion, 2);
+    assert.deepEqual(JSON.parse(serializeNeutralArtifacts(result.plan).visualTiming), {
+      version: 2,
+      frames: {
+        "01-intro": {
+          visualSpecVersion: 2,
+          voiceDuration: 1,
+          frameDuration: 1,
+          requiredCoverage: { start: 0, end: 1 },
+          beats: [],
+          coverageExemptions: [],
+        },
+      },
+    });
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("coverage-required project planning rejects a v1 visual specification with migration guidance", () => {
+  const project = planningProject("off");
+  try {
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "required" },
+    }, null, 2)}\n`);
+    writeFileSync(join(project, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-intro": {
+          beats: [{ id: "opening", text: "Intro", cue: { wordIndex: 0 } }],
+        },
+      },
+    }, null, 2)}\n`);
+
+    assert.throws(
+      () => createProjectPlan(project),
+      /coverageMode=required requires visual_beats\.json version 2.*migrate.*version 2/i,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
 test("coverage-required planning requires visual beats even when reveal timing is off", () => {
   const project = planningProject("off");
   try {
