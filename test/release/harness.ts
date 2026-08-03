@@ -1301,14 +1301,16 @@ function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixtu
   writeFileSync(
     join(project, "visual_beats.json"),
     `${JSON.stringify({
-      version: 1,
+      version: 2,
       frames: {
         "01-smoke": {
           kind: "focal",
           beats: [{
             id: "reveal",
             text: "Staged reveal",
+            role: "focal",
             cue: { wordIndex: 0 },
+            coverage: { until: "frame-end" },
             sourceRefs: ["smoke.md:1-1"],
           }],
         },
@@ -1317,7 +1319,9 @@ function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixtu
           beats: [{
             id: "reveal",
             text: "Second staged reveal",
+            role: "focal",
             cue: { wordIndex: 0 },
+            coverage: { until: "frame-end" },
             sourceRefs: ["smoke.md:2-2"],
           }],
         },
@@ -1439,6 +1443,7 @@ function stageFixtureSmokeFrame(
   const source = readFileSync(join(FIXTURES, `${frameSlug}.html`), "utf8");
   const authored = source
     .replaceAll('data-duration="3"', `data-duration="${duration}"`)
+    .replace('data-md2vid-duration="0.2"', 'data-md2vid-duration="0.2" data-md2vid-coverage="planned"')
     .replace("}, 2.7);", `}, ${duration - 0.3});`)
     .replace("duration: 3, ease: \"none\"", `duration: ${duration}, ease: \"none\"`)
     .replace("__MD2VID_DEFAULT_GSAP_SRC__", gsapSrc);
@@ -1623,6 +1628,21 @@ export interface SmokeRevealCheck {
   after: number;
 }
 
+export interface SmokeCoverageSample {
+  phase: "before" | "start" | "inside" | "before-end" | "end";
+  localTime: number;
+  globalTime: number;
+  expectedVisible: boolean;
+}
+
+export interface SmokeCoverageCheck {
+  frameSlug: "01-smoke" | "02-smoke";
+  target: string;
+  coverageStart: number;
+  coverageEnd: number;
+  samples: SmokeCoverageSample[];
+}
+
 export function deriveSmokeRevealChecks(
   frames: ReadonlyArray<{ slug: string; start: number }>,
   bindings: ReadonlyArray<{
@@ -1655,6 +1675,59 @@ export function deriveSmokeRevealChecks(
   });
 }
 
+export function deriveSmokeCoverageChecks(
+  frames: ReadonlyArray<{ slug: string; start: number; frameDur: number }>,
+  bindings: ReadonlyArray<{
+    frameSlug: string;
+    target: string;
+    coverageStart?: number;
+    coverageEnd?: number;
+  }>,
+  fps: number,
+): SmokeCoverageCheck[] {
+  assert.ok(Number.isFinite(fps) && fps > 0, `generated root FPS must be positive, got ${fps}`);
+  const epsilon = 0.001;
+  return SMOKE_FRAME_PROBES.map((probe) => {
+    const frame = frames.find((candidate) => candidate.slug === probe.compositionId);
+    assert.ok(frame, `generated build plan is missing ${probe.compositionId}`);
+    const target = `#${probe.futureId}`;
+    const matches = bindings.filter((binding) =>
+      binding.frameSlug === probe.compositionId &&
+      binding.target === target &&
+      Number.isFinite(binding.coverageStart) &&
+      Number.isFinite(binding.coverageEnd)
+    );
+    assert.equal(matches.length, 1, `generated manifest-v2 evidence must contain exactly one ${probe.compositionId} ${target} coverage interval`);
+    const binding = matches[0] as typeof matches[number] & { coverageStart: number; coverageEnd: number };
+    assert.ok(binding.coverageStart >= 0, `generated coverage start must be non-negative for ${target}`);
+    assert.ok(binding.coverageEnd > binding.coverageStart, `generated coverage end must be after start for ${target}`);
+    assert.ok(binding.coverageEnd <= frame.frameDur + epsilon, `generated coverage end must fit ${probe.compositionId}`);
+    const intervalSamples = [
+      { phase: "before" as const, localTime: Math.max(0, binding.coverageStart - 0.01) },
+      { phase: "start" as const, localTime: binding.coverageStart },
+      { phase: "inside" as const, localTime: Math.min(binding.coverageEnd, binding.coverageStart + 0.1) },
+      { phase: "before-end" as const, localTime: Math.max(binding.coverageStart, binding.coverageEnd - 0.01) },
+      { phase: "end" as const, localTime: binding.coverageEnd },
+    ];
+    return {
+      frameSlug: probe.compositionId,
+      target,
+      coverageStart: binding.coverageStart,
+      coverageEnd: binding.coverageEnd,
+      samples: intervalSamples.map((sample) => {
+        const isFinalFrameEnd = Math.abs(binding.coverageEnd - frame.frameDur) < epsilon;
+        const expectedVisible = sample.localTime >= binding.coverageStart - epsilon &&
+          (sample.localTime < binding.coverageEnd - epsilon || isFinalFrameEnd);
+        return {
+          ...sample,
+          globalTime: frameSafeSeekTime(frame.start + sample.localTime, fps),
+          expectedVisible,
+        };
+      }),
+    };
+  });
+}
+
 function frameSafeSeekTime(time: number, fps: number): number {
   assert.ok(Number.isFinite(time) && time >= 0, `seek time must be non-negative and finite, got ${time}`);
   assert.ok(Number.isFinite(fps) && fps > 0, `seek FPS must be positive and finite, got ${fps}`);
@@ -1665,6 +1738,7 @@ function smokeSeekPoints(
   frame2HostStart: number,
   frame2Duration: number,
   revealChecks: readonly SmokeRevealCheck[],
+  coverageChecks: readonly SmokeCoverageCheck[],
   fps: number,
 ): number[] {
   return [
@@ -1675,6 +1749,7 @@ function smokeSeekPoints(
     frame2HostStart + 0.1,
     frame2HostStart + frame2Duration - 0.1,
     ...revealChecks.flatMap((check) => [check.before, check.after, check.before, check.after]),
+    ...coverageChecks.flatMap((check) => check.samples.map((sample) => sample.globalTime)),
     0.2,
   ].map((time) => frameSafeSeekTime(time, fps));
 }
@@ -1769,8 +1844,15 @@ async function assertHyperframesBrowserExecution(
   baseUrl: string,
   expectedGroups: SmokeCaptionGroup[],
   duration: number,
-  expectedFrames: Array<{ slug: string; start: number; frameDur: number }>,
-  visualBindings: Array<{ frameSlug: string; target: string; revealStart: number; revealDuration: number }>,
+  expectedFrames: Array<{ slug: string; start: number; frameDur: number; voiceDur?: number }>,
+  visualBindings: Array<{
+    frameSlug: string;
+    target: string;
+    revealStart: number;
+    revealDuration: number;
+    coverageStart?: number;
+    coverageEnd?: number;
+  }>,
   fps: number,
 ): Promise<void> {
   const expectedFrameBySlug = new Map(expectedFrames.map((frame) => [frame.slug, frame]));
@@ -1783,7 +1865,23 @@ async function assertHyperframesBrowserExecution(
   const frame2PreHostSample = frameSafeSeekTime(frame2HostStart, fps);
   assert.ok(frame2PreHostSample < frame2HostStart, "frame 2 frame-quantized pre-host sample must precede the nominal host start");
   const revealChecks = deriveSmokeRevealChecks(expectedFrames, visualBindings, fps);
-  const globalSeekPoints = smokeSeekPoints(frame2HostStart, frame2.frameDur, revealChecks, fps);
+  const coverageChecks = deriveSmokeCoverageChecks(expectedFrames, visualBindings, fps);
+  const finalLandingChecks = coverageChecks.flatMap((check) => {
+    const frame = expectedFrameBySlug.get(check.frameSlug)!;
+    const voiceDur = Number(frame.voiceDur);
+    const frameDur = frame.frameDur;
+    if (!Number.isFinite(voiceDur) || voiceDur >= frameDur - 0.01) return [];
+    if (Math.abs(check.coverageEnd - frameDur) >= 0.001) return [];
+    return [{
+      frameSlug: check.frameSlug,
+      target: check.target,
+      voiceDur,
+      frameDur,
+      globalTime: frameSafeSeekTime(frame.start + frameDur - 0.01, fps),
+    }];
+  });
+  assert.ok(finalLandingChecks.length > 0, "manifest-v2 smoke must include a final focal state held between voiceDur and frameDur");
+  const globalSeekPoints = smokeSeekPoints(frame2HostStart, frame2.frameDur, revealChecks, coverageChecks, fps);
   const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
   const browser = await puppeteer.launch({
     executablePath,
@@ -1842,6 +1940,27 @@ async function assertHyperframesBrowserExecution(
         visibleGroups: number;
         classes: string[];
       }>;
+      coverageSamples: Array<{
+        frameSlug: string;
+        target: string;
+        phase: string;
+        time: number;
+        expectedVisible: boolean;
+        direct: { opacity: string; visibility: string; display: string; visible: boolean };
+        sequential: { opacity: string; visibility: string; display: string; visible: boolean };
+        reverse: { opacity: string; visibility: string; display: string; visible: boolean };
+      }>;
+      finalLandingSamples: Array<{
+        frameSlug: string;
+        target: string;
+        time: number;
+        voiceDur: number;
+        frameDur: number;
+        opacity: string;
+        visibility: string;
+        display: string;
+        visible: boolean;
+      }>;
       wallClockElapsed: number;
       playerDrift: number;
       mainDrift: number;
@@ -1856,6 +1975,10 @@ async function assertHyperframesBrowserExecution(
             const expectations = input.captionExpectations;
             const standaloneStates = input.standaloneFrameStates;
             const frameTimings = input.frameTimings;
+            const coverageChecks = input.coverageChecks;
+            const finalLandingChecks = input.finalLandingChecks;
+            const activeFps = input.fps;
+            const totalDuration = input.totalDuration;
             interface Timeline {
               pause(): Timeline;
               seek(time: number): Timeline;
@@ -2013,6 +2136,40 @@ async function assertHyperframesBrowserExecution(
             if (!frame1Future || !frame1Late || !frame2Future || !frame2Late) {
               throw new Error("composed frame state probe is missing visual elements");
             }
+            const targetState = (selector: string) => {
+              const element = pageDocument.querySelector(selector) as any;
+              if (!element) throw new Error(`missing semantic coverage target ${selector}`);
+              const style = pageGetComputedStyle(element);
+              const visible = typeof element.checkVisibility === "function"
+                ? element.checkVisibility()
+                : style.display !== "none" && style.visibility !== "hidden";
+              return {
+                opacity: style.opacity,
+                visibility: style.visibility,
+                display: style.display,
+                visible,
+              };
+            };
+            const directCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(time);
+              return targetState(selector);
+            };
+            const sequentialCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(0);
+              for (let frameIndex = 1; frameIndex <= Math.round(time * activeFps); frameIndex += 1) {
+                player.seek(frameIndex / activeFps);
+              }
+              return targetState(selector);
+            };
+            const reverseCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(totalDuration);
+              player.seek(Math.max(0, time - 1 / activeFps));
+              player.seek(time);
+              return targetState(selector);
+            };
             player.pause();
             player.seek(expectations[0]?.time ?? 0);
             const hitStack = pageDocument.elementsFromPoint(viewportWidth / 2, viewportHeight / 2);
@@ -2108,6 +2265,36 @@ async function assertHyperframesBrowserExecution(
               };
             });
 
+            const coverageSamples = coverageChecks.flatMap((check: any) =>
+              check.samples.map((sample: any) => {
+                const direct = directCoverageState(sample.globalTime, check.target);
+                const sequential = sequentialCoverageState(sample.globalTime, check.target);
+                const reverse = reverseCoverageState(sample.globalTime, check.target);
+                return {
+                  frameSlug: check.frameSlug,
+                  target: check.target,
+                  phase: sample.phase,
+                  time: sample.globalTime,
+                  expectedVisible: sample.expectedVisible,
+                  direct,
+                  sequential,
+                  reverse,
+                };
+              })
+            );
+            const finalLandingSamples = finalLandingChecks.map((check: any) => {
+              player.pause();
+              player.seek(check.globalTime);
+              return {
+                frameSlug: check.frameSlug,
+                target: check.target,
+                time: check.globalTime,
+                voiceDur: check.voiceDur,
+                frameDur: check.frameDur,
+                ...targetState(check.target),
+              };
+            });
+
             player.seek(frameTimings["02-smoke"].start + 0.1);
             const playerBefore = player.getTime();
             const mainBefore = main.time();
@@ -2121,6 +2308,8 @@ async function assertHyperframesBrowserExecution(
               gsapVersion: runtime.gsap.version,
               frameTimelineIds: [frame1TimelineMatch.id, frame2TimelineMatch.id] as [string, string],
               samples,
+              coverageSamples,
+              finalLandingSamples,
               wallClockElapsed,
               playerDrift: Math.abs(player.getTime() - playerBefore),
               mainDrift: Math.abs(main.time() - mainBefore),
@@ -2139,6 +2328,10 @@ async function assertHyperframesBrowserExecution(
                 preHostSample: frame2PreHostSample,
               },
             },
+            coverageChecks,
+            finalLandingChecks,
+            fps,
+            totalDuration: duration,
           });
           if (candidate) {
             execution = candidate;
@@ -2174,6 +2367,18 @@ async function assertHyperframesBrowserExecution(
       assert.ok(before.length >= 2 && after.length >= 2, `missing repeated cue samples for ${check.target}`);
       assert.ok(before.every((sample) => revealFor(sample, check.frameSlug) < 0.01), `${check.target} must be hidden immediately before its resolved cue, including after reverse seek`);
       assert.ok(after.every((sample) => revealFor(sample, check.frameSlug) > 0.99), `${check.target} must be visible after its resolved cue duration, including after reverse seek`);
+    }
+    for (const sample of execution.coverageSamples) {
+      assert.deepEqual(sample.direct, sample.sequential, `${sample.target} direct/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
+      assert.deepEqual(sample.reverse, sample.sequential, `${sample.target} reverse/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
+      assert.equal(sample.direct.visible, sample.expectedVisible, `${sample.target} semantic visibility must match manifest evidence at ${sample.phase} ${sample.time}s`);
+    }
+    for (const sample of execution.finalLandingSamples) {
+      const frame = expectedFrameBySlug.get(sample.frameSlug)!;
+      assert.ok(sample.time > frame.start + sample.voiceDur, `${sample.target} final landing sample must be after voiceDur`);
+      assert.ok(sample.time < frame.start + sample.frameDur, `${sample.target} final landing sample must be before frameDur`);
+      assert.equal(sample.visible, true, `${sample.target} final landing must remain visible through composed player seek`);
+      assert.notEqual(sample.opacity, "0", `${sample.target} final landing opacity must be retained`);
     }
     const frame1Reveal = revealChecks.find((check) => check.frameSlug === "01-smoke")!;
     const frame2Reveal = revealChecks.find((check) => check.frameSlug === "02-smoke")!;

@@ -14,6 +14,7 @@ import {
   assertPackedFiles,
   assertRegistryIntegrity,
   createReleaseContext,
+  deriveSmokeCoverageChecks,
   deriveSmokeRevealChecks,
   finishReleaseContext,
   packArtifact,
@@ -240,6 +241,45 @@ test("HyperFrames smoke does not retry unrelated or repeated failures", () => {
     }));
     assert.equal(attempts, expectedAttempts);
   }
+});
+
+test("HyperFrames smoke derives semantic coverage seek samples from manifest intervals", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /coverageStart/);
+  assert.match(source, /coverageEnd/);
+  assert.match(source, /binding\.coverageStart - 0\.01/);
+  assert.match(source, /binding\.coverageEnd - 0\.01/);
+  assert.match(source, /direct.*sequential.*reverse/s);
+  assert.match(source, /voiceDur.*frameDur|frameDur.*voiceDur/s);
+});
+
+test("HyperFrames smoke coverage probes include before start inside before-end and end", () => {
+  const checks = deriveSmokeCoverageChecks(
+    [
+      { slug: "01-smoke", start: 0, frameDur: 4 },
+      { slug: "02-smoke", start: 5, frameDur: 4 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", coverageStart: 1, coverageEnd: 4 },
+      { frameSlug: "02-smoke", target: "#s02-future", coverageStart: 1.5, coverageEnd: 3 },
+    ],
+    100,
+  );
+
+  assert.deepEqual(checks[0].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
+    ["before", 0.99, 0.99, false],
+    ["start", 1, 1, true],
+    ["inside", 1.1, 1.1, true],
+    ["before-end", 3.99, 3.99, true],
+    ["end", 4, 4, true],
+  ]);
+  assert.deepEqual(checks[1].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
+    ["before", 1.49, 6.49, false],
+    ["start", 1.5, 6.5, true],
+    ["inside", 1.6, 6.6, true],
+    ["before-end", 2.99, 7.99, true],
+    ["end", 3, 8, false],
+  ]);
 });
 
 test("HyperFrames smoke derives each cue probe from generated binding evidence", () => {

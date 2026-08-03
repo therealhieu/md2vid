@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import type { PlanFrame } from "../../../engine/types.ts";
@@ -140,6 +141,19 @@ function activeAt(calls: readonly TimelineCall[], target: string, time: number):
   }
   return active;
 }
+
+test("frame template teaches opening body and landing coverage states", () => {
+  const template = readFileSync(new URL("../templates/frame-template.html", import.meta.url), "utf8");
+  for (const expected of [
+    'data-md2vid-beat="opening-context"',
+    'data-md2vid-enter="none"',
+    'data-md2vid-coverage="planned"',
+    'data-md2vid-beat="body-detail"',
+    'data-md2vid-beat="final-landing"',
+  ]) {
+    assert.match(template, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+});
 
 test("emits v2 coverage evidence for static and animated targets", () => {
   const result = prepareFrameVisualTiming({
