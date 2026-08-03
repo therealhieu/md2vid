@@ -26,9 +26,11 @@ import { resolveVisualSyncPolicy } from "../../engine/plan.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { ensureRuntime } from "./scaffold.ts";
 import {
+  collectRemotionVisualBindingInputs,
   emptyRemotionBindingManifest,
   readRemotionBindingSpec,
   resolveRemotionBindings,
+  type RemotionBindingSpec,
 } from "./visual_bindings.ts";
 
 type EmittedRemotionPlan = BuildPlan & { visualBindings?: Record<string, unknown> };
@@ -43,11 +45,55 @@ function readExistingOutputPlan(outputDir: string): EmittedRemotionPlan | undefi
   return value as EmittedRemotionPlan;
 }
 
+function hasVisualStates(plan: BuildPlan): boolean {
+  return plan.frames.some((frame) => frame.visualBeats?.length);
+}
+
+function resolveBindingSpecForPlan(
+  plan: BuildPlan,
+  outputDir: string,
+  config: VideoConfig,
+): RemotionBindingSpec | undefined {
+  const policy = resolveVisualSyncPolicy(config);
+  const visualBindingEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+  const hasBeats = hasVisualStates(plan);
+  const bindingSpecPath = join(outputDir, "visual_bindings.json");
+  if (!visualBindingEnabled || !hasBeats) return undefined;
+  if (!existsSync(bindingSpecPath)) {
+    if (policy.mode === "required" || policy.coverageMode === "required") {
+      throw new Error(`${bindingSpecPath}: required visual_bindings.json is missing for planned visual beats`);
+    }
+    return undefined;
+  }
+  return readRemotionBindingSpec(bindingSpecPath);
+}
+
+function prepareRemotionBindings(
+  plan: BuildPlan,
+  outputDir: string,
+  config: VideoConfig,
+) {
+  const bindingSpec = resolveBindingSpecForPlan(plan, outputDir, config);
+  if (!bindingSpec) {
+    return {
+      bindingSpec,
+      resolvedBindings: { runtimeBindings: undefined, manifest: emptyRemotionBindingManifest() },
+    };
+  }
+  const authoredInputs = bindingSpec.version === 2
+    ? collectRemotionVisualBindingInputs(outputDir)
+    : [];
+  return {
+    bindingSpec,
+    resolvedBindings: resolveRemotionBindings(bindingSpec, plan, undefined, authoredInputs),
+  };
+}
+
 export function preflight(
   plan: BuildPlan,
   sharedDir: string,
   outputDir: string,
-  _config: VideoConfig,
+  config: VideoConfig,
   { captionsOnly = false, runtimeSourceDir, assetSourceDir, voiceSnapshots }: EmitOptions = {},
 ): FrameworkPreparation {
   if (captionsOnly) return {};
@@ -56,7 +102,15 @@ export function preflight(
     ? [...voiceSnapshots]
     : captureVoiceWavSnapshots(assetSourceDir ?? sharedDir, voicePaths);
   validateVoiceAssets(join(runtimeSourceDir ?? outputDir, "public"), voicePaths, { allowMissing: true });
-  return { voiceSnapshots: capturedVoiceSnapshots };
+  const { resolvedBindings } = prepareRemotionBindings(
+    plan,
+    runtimeSourceDir ?? outputDir,
+    config,
+  );
+  return {
+    voiceSnapshots: capturedVoiceSnapshots,
+    bindingManifest: resolvedBindings.manifest,
+  };
 }
 
 export function emit(
@@ -102,18 +156,23 @@ export function emit(
     });
   }
 
-  const policy = resolveVisualSyncPolicy(_config);
-  const hasVisualBeats = plan.frames.some((frame) => frame.visualBeats?.length);
-  const bindingSpecPath = join(runtimeSourceDir ?? outputDir, "visual_bindings.json");
-  const bindingSpec = policy.mode !== "off" && hasVisualBeats && existsSync(bindingSpecPath)
-    ? readRemotionBindingSpec(bindingSpecPath)
-    : undefined;
-  if (!bindingSpec && hasVisualBeats && policy.mode === "required") {
-    throw new Error(`${bindingSpecPath}: required visual_bindings.json is missing for planned visual beats`);
+  const preparedBindings = preparation.bindingManifest
+    ? undefined
+    : prepareRemotionBindings(plan, runtimeSourceDir ?? outputDir, _config);
+  const bindingSpec = preparedBindings?.bindingSpec
+    ?? resolveBindingSpecForPlan(plan, runtimeSourceDir ?? outputDir, _config);
+  const resolvedBindings = preparedBindings?.resolvedBindings
+    ?? (bindingSpec
+      ? resolveRemotionBindings(
+          bindingSpec,
+          plan,
+          undefined,
+          bindingSpec.version === 2 ? collectRemotionVisualBindingInputs(runtimeSourceDir ?? outputDir) : [],
+        )
+      : { runtimeBindings: undefined, manifest: emptyRemotionBindingManifest() });
+  if (preparation.bindingManifest) {
+    resolvedBindings.manifest = preparation.bindingManifest;
   }
-  const resolvedBindings = policy.mode === "off"
-    ? { runtimeBindings: undefined, manifest: emptyRemotionBindingManifest() }
-    : resolveRemotionBindings(bindingSpec ?? { version: 1, frames: Object.create(null) }, plan);
 
   // Publish the full neutral plan only after a full emit has staged every required
   // voice asset. Replacing caption groups must retain additive visual timing fields.
