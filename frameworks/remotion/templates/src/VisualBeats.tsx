@@ -1,11 +1,11 @@
 import React, { createContext, useContext } from "react";
 import { interpolate, useCurrentFrame, useVideoConfig } from "remotion";
-import type { PlanFrame, RemotionVisualBinding } from "./types";
+import type { PlanFrame, ResolvedVisualBeat, RuntimeVisualBinding } from "./types";
 import { secToFrames } from "./primitives";
 
 type VisualBeatContextValue = {
   frame: PlanFrame;
-  bindings: readonly RemotionVisualBinding[];
+  bindings: readonly RuntimeVisualBinding[];
 };
 
 const VisualBeatContext = createContext<VisualBeatContextValue | null>(null);
@@ -16,10 +16,21 @@ type Entrance = (typeof entrances)[number];
 const isEntrance = (value: unknown): value is Entrance =>
   typeof value === "string" && (entrances as readonly string[]).includes(value);
 
+const isV2Binding = (binding: RuntimeVisualBinding): binding is Extract<RuntimeVisualBinding, { beatId: string }> =>
+  "beatId" in binding;
+
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return value;
+}
+
 export interface VisualBeatBindingResolution {
-  beat: NonNullable<PlanFrame["visualBeats"]>[number];
-  binding: RemotionVisualBinding;
+  beat: ResolvedVisualBeat;
+  binding: RuntimeVisualBinding;
   startFrame: number;
+  endFrame: number;
   durationFrames: number;
 }
 
@@ -31,7 +42,7 @@ export function resolveVisualBeatBinding({
   registryFrameSlug,
 }: {
   frame: PlanFrame;
-  bindings: readonly RemotionVisualBinding[];
+  bindings: readonly RuntimeVisualBinding[];
   target: string;
   fps: number;
   registryFrameSlug?: string;
@@ -52,21 +63,46 @@ export function resolveVisualBeatBinding({
   if (!isEntrance(binding.enter)) {
     throw new Error(`unsupported visual entrance ${String(binding.enter)}`);
   }
+
+  if (isV2Binding(binding)) {
+    const startFrame = requireNonNegativeInteger(binding.startFrame, `visual binding startFrame for ${target}`);
+    const endFrame = requireNonNegativeInteger(binding.endFrame, `visual binding endFrame for ${target}`);
+    const durationFrames = requireNonNegativeInteger(binding.durationFrames, `visual binding durationFrames for ${target}`);
+    if (endFrame < startFrame) {
+      throw new Error(`visual binding endFrame must be after startFrame for ${target}`);
+    }
+    if (binding.role !== "focal" && binding.role !== "supporting") {
+      throw new Error(`visual binding role must be focal or supporting for ${target}`);
+    }
+    const beat = frame.visualBeats?.find((candidate) => candidate.id === binding.beatId);
+    if (!beat) {
+      throw new Error(`unknown visual beat ${binding.beatId} for ${target}`);
+    }
+    return { beat, binding, startFrame, endFrame, durationFrames };
+  }
+
   if (!Number.isFinite(binding.duration) || binding.duration < 0) {
     throw new Error(`visual binding duration must be a non-negative finite duration for ${target}`);
   }
-
   const beat = frame.visualBeats?.find((candidate) => candidate.id === binding.beat);
   if (!beat) {
     throw new Error(`unknown visual beat ${binding.beat} for ${target}`);
   }
-
+  const startFrame = secToFrames(beat.start, fps);
   return {
     beat,
     binding,
-    startFrame: secToFrames(beat.start, fps),
+    startFrame,
+    endFrame: beat.version === 2 ? secToFrames(beat.end, fps) : Number.POSITIVE_INFINITY,
     durationFrames: Math.max(1, secToFrames(binding.duration, fps)),
   };
+}
+
+export function isVisualBeatActive(
+  currentFrame: number,
+  target: Pick<VisualBeatBindingResolution, "startFrame" | "endFrame">,
+): boolean {
+  return currentFrame >= target.startFrame && currentFrame < target.endFrame;
 }
 
 export function resolveVisualBeatProgress(
@@ -120,9 +156,17 @@ export function resolveVisualBeatStyle(enter: Entrance, progress: number, visibl
   }
 }
 
-export const BeatReveal: React.FC<{ target: string; children: React.ReactNode }> = ({ target, children }) => {
-  const { binding, startFrame } = useVisualBeatBinding(target);
+export const BeatState: React.FC<{ target: string; children: React.ReactNode }> = ({ target, children }) => {
+  const resolved = useVisualBeatBinding(target);
   const current = useCurrentFrame();
-  const progress = useVisualBeatProgress(target);
-  return <div style={resolveVisualBeatStyle(binding.enter, progress, current >= startFrame)}>{children}</div>;
+  if (!isVisualBeatActive(current, resolved)) return null;
+  return <>{children}</>;
+};
+
+export const BeatReveal: React.FC<{ target: string; children: React.ReactNode }> = ({ target, children }) => {
+  const resolved = useVisualBeatBinding(target);
+  const current = useCurrentFrame();
+  if (!isVisualBeatActive(current, resolved)) return null;
+  const progress = resolveVisualBeatProgress(current, resolved.startFrame, resolved.durationFrames);
+  return <div style={resolveVisualBeatStyle(resolved.binding.enter, progress, true)}>{children}</div>;
 };

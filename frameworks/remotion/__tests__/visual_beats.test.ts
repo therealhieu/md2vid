@@ -23,11 +23,15 @@ const FRAME = {
   start: 20,
   words: [],
   visualKind: "workflow" as const,
+  visualSpecVersion: 2,
   visualBeats: [
     {
+      version: 2,
       id: "reserve",
       text: "Reserve value",
+      role: "focal",
       start: 2.95,
+      end: 11.066666666666666,
       cueWordIndex: 3,
       cueText: "reserve",
       sourceRefs: [],
@@ -35,13 +39,27 @@ const FRAME = {
       tolerance: { maxLead: 0.25, maxLag: 0.75 },
     },
     {
+      version: 2,
       id: "execute",
       text: "Execute operation",
-      start: 11.06,
+      role: "focal",
+      start: 11.066666666666666,
+      end: 17,
       cueWordIndex: 17,
       cueText: "execute",
       sourceRefs: [],
       workflowStep: 2,
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+    {
+      version: 2,
+      id: "support",
+      text: "Supporting detail",
+      role: "supporting",
+      start: 2.95,
+      end: 17,
+      cueText: "<frame-start>",
+      sourceRefs: [],
       tolerance: { maxLead: 0.25, maxLag: 0.75 },
     },
   ],
@@ -50,8 +68,9 @@ const FRAME = {
 const REGISTRY = {
   frames: {
     "reserve-flow": [
-      { beat: "reserve", target: "WorkflowStep:reserve", enter: "rise" as const, duration: 0.5 },
-      { beat: "execute", target: "WorkflowStep:execute", enter: "rise" as const, duration: 0.5 },
+      { beatId: "reserve", target: "WorkflowStep:reserve", role: "focal" as const, startFrame: 89, endFrame: 332, durationFrames: 15, enter: "none" as const },
+      { beatId: "execute", target: "WorkflowStep:execute", role: "focal" as const, startFrame: 332, endFrame: 510, durationFrames: 15, enter: "rise" as const },
+      { beatId: "support", target: "SupportingLabel", role: "supporting" as const, startFrame: 89, endFrame: 510, durationFrames: 0, enter: "none" as const },
     ],
   },
 };
@@ -83,7 +102,9 @@ test("Remotion templates expose beat-owned reveal helpers and standalone type pa
 
   for (const name of [
     "VisualBeatProvider",
+    "BeatState",
     "BeatReveal",
+    "isVisualBeatActive",
     "useVisualBeatBinding",
     "useVisualBeatProgress",
     "resolveVisualBeatBinding",
@@ -94,12 +115,17 @@ test("Remotion templates expose beat-owned reveal helpers and standalone type pa
 
   for (const field of [
     "visualKind?: \"focal\" | \"workflow\" | \"comparison\" | \"sequence\"",
+    "visualSpecVersion?: 1 | 2",
     "visualBeats?: ResolvedVisualBeat[]",
-    "visualBindings?: Record<string, RemotionVisualBinding[]>",
-    "cueWordIndex: number",
+    "visualBindings?: Record<string, RuntimeVisualBinding[]>",
+    "cueWordIndex?: number",
     "cueText: string",
     "sourceRefs: string[]",
     "tolerance: { maxLead: number; maxLag: number }",
+    "export interface ResolvedVisualStateV2",
+    "export interface RuntimeVisualBindingV2",
+    "startFrame: number",
+    "endFrame: number",
   ]) {
     assert.match(templateTypes, new RegExp(field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -123,14 +149,14 @@ test("scaffolded Remotion runtime includes typecheckable beat helpers", () => {
   }
 });
 
-test("resolveVisualBeatBinding converts registered cue seconds at the active FPS", async () => {
+test("resolveVisualBeatBinding consumes v2 runtime frame boundaries", async () => {
   const { resolveVisualBeatBinding } = await loadVisualBeats() as {
     resolveVisualBeatBinding: (input: {
       frame: typeof FRAME;
       bindings: typeof REGISTRY.frames["reserve-flow"];
       target: string;
       fps: number;
-    }) => { startFrame: number; durationFrames: number };
+    }) => { startFrame: number; endFrame: number; durationFrames: number; binding: { beatId: string } };
   };
 
   const binding = resolveVisualBeatBinding({
@@ -139,8 +165,10 @@ test("resolveVisualBeatBinding converts registered cue seconds at the active FPS
     target: "WorkflowStep:execute",
     fps: 30,
   });
-  assert.equal(binding.startFrame, Math.round(11.06 * 30));
-  assert.equal(binding.durationFrames, Math.round(0.5 * 30));
+  assert.equal(binding.binding.beatId, "execute");
+  assert.equal(binding.startFrame, 332);
+  assert.equal(binding.endFrame, 510);
+  assert.equal(binding.durationFrames, 15);
 });
 
 test("resolveVisualBeatBinding rejects invalid registered bindings", async () => {
@@ -168,27 +196,27 @@ test("resolveVisualBeatBinding rejects invalid registered bindings", async () =>
   assert.throws(
     () => resolveVisualBeatBinding(input([
       ...REGISTRY.frames["reserve-flow"],
-      { beat: "execute", target: "WorkflowStep:execute", enter: "rise", duration: 0.5 },
+      { beatId: "execute", target: "WorkflowStep:execute", role: "focal", startFrame: 332, endFrame: 510, durationFrames: 15, enter: "rise" },
     ])),
     /expected one visual binding.*found 2/,
   );
   assert.throws(
     () => resolveVisualBeatBinding(input([
-      { beat: "missing", target: "WorkflowStep:execute", enter: "rise", duration: 0.5 },
+      { beatId: "missing", target: "WorkflowStep:execute", role: "focal", startFrame: 332, endFrame: 510, durationFrames: 15, enter: "rise" },
     ])),
     /unknown visual beat missing/,
   );
   assert.throws(
     () => resolveVisualBeatBinding(input([
-      { beat: "execute", target: "WorkflowStep:execute", enter: "spin", duration: 0.5 },
+      { beatId: "execute", target: "WorkflowStep:execute", role: "focal", startFrame: 332, endFrame: 510, durationFrames: 15, enter: "spin" },
     ])),
     /unsupported visual entrance spin/,
   );
   assert.throws(
     () => resolveVisualBeatBinding(input([
-      { beat: "execute", target: "WorkflowStep:execute", enter: "rise", duration: -0.5 },
+      { beatId: "execute", target: "WorkflowStep:execute", role: "focal", startFrame: 332, endFrame: 510, durationFrames: -1, enter: "rise" },
     ])),
-    /non-negative finite duration/,
+    /durationFrames.*non-negative integer/,
   );
   assert.throws(
     () => resolveVisualBeatBinding({
@@ -199,41 +227,46 @@ test("resolveVisualBeatBinding rejects invalid registered bindings", async () =>
   );
 });
 
-test("owned reveal timing quantizes at active FPS and covers progress/token boundaries", async () => {
+test("owned reveal timing uses active intervals and covers progress/token boundaries", async () => {
   const runtime = await loadVisualBeats() as {
     resolveVisualBeatBinding: (input: {
       frame: typeof FRAME;
-      bindings: ReadonlyArray<{ beat: string; target: string; enter: string; duration: number }>;
+      bindings: typeof REGISTRY.frames["reserve-flow"];
       target: string;
       fps: number;
-    }) => { startFrame: number; durationFrames: number };
+    }) => { startFrame: number; endFrame: number; durationFrames: number };
+    isVisualBeatActive: (currentFrame: number, target: { startFrame: number; endFrame: number }) => boolean;
     resolveVisualBeatProgress: (currentFrame: number, startFrame: number, durationFrames: number) => number;
     resolveVisualBeatStyle: (enter: string, progress: number, visible: boolean) => Record<string, unknown>;
   };
 
-  for (const fps of [24, 30, 60]) {
-    const timing = runtime.resolveVisualBeatBinding({
-      frame: FRAME,
-      bindings: REGISTRY.frames["reserve-flow"],
-      target: "WorkflowStep:execute",
-      fps,
-    });
-    assert.equal(timing.startFrame, Math.round(11.06 * fps));
-    assert.equal(timing.durationFrames, Math.max(1, Math.round(0.5 * fps)));
-  }
-
-  const zeroDuration = runtime.resolveVisualBeatBinding({
+  const opening = runtime.resolveVisualBeatBinding({
     frame: FRAME,
-    bindings: [{ beat: "execute", target: "WorkflowStep:execute", enter: "fade", duration: 0 }],
-    target: "WorkflowStep:execute",
-    fps: 24,
+    bindings: REGISTRY.frames["reserve-flow"],
+    target: "WorkflowStep:reserve",
+    fps: 30,
   });
-  assert.equal(zeroDuration.durationFrames, 1);
+  assert.equal(runtime.isVisualBeatActive(88, opening), false);
+  assert.equal(runtime.isVisualBeatActive(89, opening), true);
+  assert.equal(runtime.isVisualBeatActive(331, opening), true);
+  assert.equal(runtime.isVisualBeatActive(332, opening), false);
 
-  assert.equal(runtime.resolveVisualBeatProgress(9, 10, 4), 0);
-  assert.equal(runtime.resolveVisualBeatProgress(10, 10, 4), 0);
-  assert.equal(runtime.resolveVisualBeatProgress(12, 10, 4), 0.5);
-  assert.equal(runtime.resolveVisualBeatProgress(14, 10, 4), 1);
+  const solution = runtime.resolveVisualBeatBinding({
+    frame: FRAME,
+    bindings: REGISTRY.frames["reserve-flow"],
+    target: "WorkflowStep:execute",
+    fps: 30,
+  });
+  assert.equal(runtime.isVisualBeatActive(331, solution), false);
+  assert.equal(runtime.isVisualBeatActive(332, solution), true);
+  assert.equal(runtime.isVisualBeatActive(509, solution), true);
+  assert.equal(runtime.isVisualBeatActive(510, solution), false);
+  assert.equal(solution.durationFrames, 15);
+
+  assert.equal(runtime.resolveVisualBeatProgress(331, 332, 15), 0);
+  assert.equal(runtime.resolveVisualBeatProgress(332, 332, 15), 0);
+  assert.equal(runtime.resolveVisualBeatProgress(347, 332, 15), 1);
+  assert.equal(runtime.resolveVisualBeatProgress(509, 332, 15), 1);
   assert.equal(runtime.resolveVisualBeatProgress(15, 10, 0), 1);
 
   assert.deepEqual(runtime.resolveVisualBeatStyle("fade", 0.5, false), { opacity: 0.5 });

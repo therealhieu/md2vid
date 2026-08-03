@@ -118,9 +118,15 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
     assert.match(root, /export const FPS = 30;/);
     assert.match(root, /fps=\{FPS\}/);
     assert.match(visualBeats, /VisualBeatProvider/);
+    assert.match(visualBeats, /BeatState/);
     assert.match(visualBeats, /BeatReveal/);
+    assert.match(types, /ResolvedVisualStateV2/);
+    assert.match(types, /RuntimeVisualBindingV2/);
+    assert.match(types, /cueWordIndex\?: number/);
+    assert.match(types, /startFrame: number/);
+    assert.match(types, /endFrame: number/);
     assert.match(types, /visualBeats\?: ResolvedVisualBeat\[\]/);
-    assert.match(types, /visualBindings\?: Record<string, RemotionVisualBinding\[\]>/);
+    assert.match(types, /visualBindings\?: Record<string, RuntimeVisualBinding\[\]>/);
     assert.match(video, /VisualBeatProvider/);
     assert.match(nextSteps, /visual_beats\.json/);
     assert.match(nextSteps, /npm run plan/);
