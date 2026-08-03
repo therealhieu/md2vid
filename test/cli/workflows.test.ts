@@ -248,6 +248,79 @@ function createRemotionCoverageProject(): { project: WorkflowProject; adapter: F
   return { project, adapter: getAdapter("remotion") };
 }
 
+
+test("verify warns once with manual refresh instructions for missing legacy project standard marker", () => {
+  const project = validHyperframesProject();
+  const standardPath = join(project.output, ".md2vid", "standards", "hyperframes.md");
+  try {
+    rmSync(standardPath);
+    const result = captureConsole(() => verifyRun([project.output]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /WARN: \.md2vid\/standards\/hyperframes\.md is missing md2vid-continuous-visual-coverage: 2/);
+    assert.match(result.stdout, /docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.match(result.stdout, /Destination: \.md2vid\/standards\/hyperframes\.md/);
+    assert.equal(existsSync(standardPath), false, "verify must not create or overwrite project-local standards");
+  } finally {
+    cleanup(project);
+  }
+});
+
+test("verify errors on missing project standard marker when v2 coverage is required", () => {
+  const { project } = createCoverageProject();
+  const standardPath = join(project.outputDir, ".md2vid", "standards", "hyperframes.md");
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    rmSync(standardPath);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /\.md2vid\/standards\/hyperframes\.md is missing md2vid-continuous-visual-coverage: 2/);
+    assert.match(result.stderr, /docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.match(result.stderr, /Destination: \.md2vid\/standards\/hyperframes\.md/);
+    assert.equal(existsSync(standardPath), false, "verify must not create or overwrite project-local standards");
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify accepts the current project standard marker without mutating the file", () => {
+  const { project } = createCoverageProject();
+  const standardPath = join(project.outputDir, ".md2vid", "standards", "hyperframes.md");
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const before = readFileSync(standardPath, "utf8");
+    assert.match(before, /md2vid-continuous-visual-coverage: 2/);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /Refresh it from docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.equal(readFileSync(standardPath, "utf8"), before);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify never overwrites a stale project standard while warning", () => {
+  const project = validRemotionProject();
+  const standardPath = join(project.output, ".md2vid", "standards", "remotion.md");
+  const stale = "# Local custom Remotion notes\n";
+  try {
+    writeFileSync(standardPath, stale);
+
+    const result = captureConsole(() => verifyRun([project.output]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /docs\/standards\/frameworks\/remotion\.md/);
+    assert.match(result.stdout, /Destination: \.md2vid\/standards\/remotion\.md/);
+    assert.equal(readFileSync(standardPath, "utf8"), stale);
+  } finally {
+    cleanup(project);
+  }
+});
+
 function writeFreshV2Manifest(project: WorkflowProject, adapter: FrameworkAdapter): void {
   const planning = createProjectPlan(project.outputDir);
   assert.ok(adapter.collectVisualBindingInputs);
@@ -1114,6 +1187,8 @@ function validHyperframesProject(): Project {
   writeNeutralConfig(shared);
   writeValidAudioMeta(shared);
   writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
+  mkdirSync(join(output, ".md2vid", "standards"), { recursive: true });
+  writeFileSync(join(output, ".md2vid", "standards", "hyperframes.md"), "<!-- md2vid-continuous-visual-coverage: 2 -->\n");
   mkdirSync(join(output, "assets", "voice"), { recursive: true });
   writeFileSync(join(output, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
   writeFileSync(join(output, "index.html"), `<script src="${DEFAULT_GSAP_SRC}"></script><script>window.__timelines["main"] = 1;</script>`);
@@ -1129,6 +1204,8 @@ function validRemotionProject(): Project {
   writeNeutralConfig(shared);
   writeValidAudioMeta(shared);
   writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "remotion" }));
+  mkdirSync(join(output, ".md2vid", "standards"), { recursive: true });
+  writeFileSync(join(output, ".md2vid", "standards", "remotion.md"), "<!-- md2vid-continuous-visual-coverage: 2 -->\n");
   mkdirSync(join(output, "public", "assets", "voice"), { recursive: true });
   writeFileSync(join(output, "public", "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
   writeFileSync(join(output, "src", "Root.tsx"), 'id="video"\n');

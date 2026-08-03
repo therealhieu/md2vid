@@ -40,12 +40,13 @@ const HYPERFRAMES_NEXT_STEPS = [
   "verify Kokoro readiness and generate fresh WAVs through /media-use",
   "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
-  "author visual_beats.json",
-  "run npm run plan",
-  "author cue-bound frames in compositions/frames/",
+  "transcribe → author visual-beats v2 → plan → inspect coverage intervals → bind semantic targets → build → verify continuous coverage → review → render",
+  "author visual_beats.json v2 with a static opening focal, body states, and a final frame-end landing",
+  "run npm run plan and inspect build/visual_timing.json coverage intervals",
+  "bind semantic targets in compositions/frames/ with data-md2vid-coverage=\"planned\" or owned helpers",
   "run npm run build",
-  "run npm run check",
-  "run npm run dev for review",
+  "run npm run check before preview or render",
+  "run npm run dev for listening and visual review",
   "run npm run render after review",
 ];
 
@@ -57,11 +58,12 @@ const REMOTION_NEXT_STEPS = [
   "verify Kokoro readiness and generate fresh WAVs through /media-use",
   "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
-  "author visual_beats.json",
-  "run npm run plan",
-  "author and register cue-bound src/scenes/*.tsx",
+  "transcribe → author visual-beats v2 → plan → inspect coverage intervals → bind semantic targets → build → verify continuous coverage → review → render",
+  "author visual_beats.json v2 with a static opening focal, body states, and a final frame-end landing",
+  "run npm run plan and inspect build/visual_timing.json coverage intervals",
+  "bind semantic targets through visual_bindings.json plus BeatState/BeatReveal scenes",
   "run npm run build",
-  "run npm run check",
+  "run npm run check before still, studio, preview, or render",
   "run npm run still or npm run studio for review",
   "run npm run render after review",
 ];
@@ -132,6 +134,7 @@ test("HF scaffold: CLAUDE.md/AGENTS.md @import the copied-in standard", () => {
       readFileSync(join(DOCS_STANDARDS, "hyperframes.md"), "utf8"),
       "copied standard is byte-identical to the packaged source",
     );
+    assert.match(readFileSync(copied, "utf8"), /md2vid-continuous-visual-coverage: 2/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -248,17 +251,18 @@ test("HyperFrames frame template documents the canonical project-root-relative l
   assert.doesNotMatch(template, /\.\.\/\.\.\/.*gsap/i);
 });
 
-test("HyperFrames frame template teaches declarative and helper-owned cue bindings without copied beat times", () => {
+test("HyperFrames frame template teaches continuous declarative coverage without copied beat times", () => {
   const template = readFileSync(
     join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
     "utf8",
   );
-  assert.match(template, /data-md2vid-beat="focal"/);
-  assert.match(template, /data-md2vid-enter="rise"/);
-  assert.match(template, /data-md2vid-custom-bindings/);
-  assert.match(template, /window\.__md2vidTiming\.forFrame\("NN-slug"\)/);
-  assert.match(template, /timing\.from\(\s*tl,\s*"second-step"/);
-  assert.doesNotMatch(template, /"beat"\s*:\s*"second-step"[^}]*"start"\s*:/);
+  assert.match(template, /data-md2vid-beat="opening-context"/);
+  assert.match(template, /data-md2vid-enter="none"/);
+  assert.match(template, /data-md2vid-beat="body-detail"/);
+  assert.match(template, /data-md2vid-beat="final-landing"/);
+  assert.match(template, /data-md2vid-coverage="planned"/);
+  assert.match(template, /semantic activation\/retention/);
+  assert.doesNotMatch(template, /"beat"\s*:\s*"body-detail"[^}]*"start"\s*:/);
 });
 
 test("canonical HyperFrames frame template nests frame styles inside the composition root", () => {
@@ -479,6 +483,8 @@ test("Remotion ensureRuntime recursively fills missing templates without overwri
       ".gitignore",
       join("src", "index.ts"),
       join("src", "Video.tsx"),
+      join("src", "VisualBeats.tsx"),
+      join("src", "types.ts"),
     ]) {
       assert.ok(existsSync(join(root, rel)), `runtime wrote missing ${rel}`);
     }
@@ -496,7 +502,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
       const neutral = JSON.parse(readFileSync(join(dir, "video.config.json"), "utf8"));
       const local = JSON.parse(readFileSync(join(dir, "output.config.json"), "utf8"));
       assert.deepEqual(Object.keys(neutral), ["$comment", "timing", "canvas", "slugs", "visualSync"]);
-      assert.deepEqual(neutral.visualSync, { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 });
+      assert.deepEqual(neutral.visualSync, { mode: "required", coverageMode: "required", maxLead: 0.25, maxLag: 0.75, maxUncoveredGap: 0.5, minLanding: 1 });
       assert.equal(neutral.framework, undefined);
       assert.equal(neutral.gsapSrc, undefined);
       assert.equal(local.framework, framework);

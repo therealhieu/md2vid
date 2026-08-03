@@ -29,10 +29,12 @@ export const AUDIO_REQUEST_EXAMPLE = Object.freeze({
 
 const REQUIRED_VISUAL_SYNC = {
   mode: "required",
+  coverageMode: "required",
   maxLead: 0.25,
   maxLag: 0.75,
+  maxUncoveredGap: 0.5,
   minLanding: 1,
-};
+} as const;
 
 const NEUTRAL_CONFIG = {
   $comment:
@@ -44,36 +46,34 @@ const NEUTRAL_CONFIG = {
 };
 
 const VISUAL_BEATS_EXAMPLE = {
-  version: 1,
+  version: 2,
   frames: {
-    "replace-with-workflow-slug": {
-      kind: "workflow",
-      beats: [
-        {
-          id: "first-step",
-          text: "First step",
-          cue: { phrase: "first step", occurrence: 1 },
-          workflowStep: 1,
-          sourceRefs: ["source.md:1-3"],
-        },
-        {
-          id: "second-step",
-          text: "Second step",
-          cue: { wordIndex: 8 },
-          workflowStep: 2,
-          sourceRefs: ["source.md:4-6"],
-        },
-      ],
-    },
-    "replace-with-focal-slug": {
+    "frame-slug": {
       kind: "focal",
       beats: [
         {
-          id: "focal",
-          text: "Main idea",
-          cue: { phrase: "main idea", occurrence: 1 },
+          id: "opening-context",
+          text: "Opening context",
+          role: "focal",
+          cue: { frameStart: true },
+          coverage: { until: "next-state" },
+        },
+        {
+          id: "body-detail",
+          text: "Body detail",
+          role: "focal",
+          cue: { phrase: "body detail", occurrence: 1 },
+          coverage: { until: "next-state" },
+        },
+        {
+          id: "final-landing",
+          text: "Final landing",
+          role: "focal",
+          cue: { phrase: "final landing", occurrence: 1 },
+          coverage: { until: "frame-end" },
         },
       ],
+      coverageExemptions: [],
     },
   },
 };
@@ -236,6 +236,8 @@ export function validateFrameworkRuntime(stageDir: string, framework: string): v
       join("src", "index.ts"),
       join("src", "Root.tsx"),
       join("src", "Video.tsx"),
+      join("src", "VisualBeats.tsx"),
+      join("src", "types.ts"),
     ]) {
       requireFile(join(stageDir, rel));
     }

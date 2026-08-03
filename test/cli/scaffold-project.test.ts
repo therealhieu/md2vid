@@ -89,7 +89,7 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
       timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
       canvas: { width: 1920, height: 1080 },
       slugs: {},
-      visualSync: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 },
+      visualSync: { mode: "required", coverageMode: "required", maxLead: 0.25, maxLag: 0.75, maxUncoveredGap: 0.5, minLanding: 1 },
     });
     const audioRequest = JSON.parse(readFileSync(join(stage, "audio_request.json.example"), "utf8"));
     assert.deepEqual(audioRequest, EXPECTED_AUDIO_REQUEST);
@@ -99,30 +99,34 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
     assert.equal(analyzed.findings.some((finding) => finding.severity === "error"), false);
     assert.equal(existsSync(join(stage, "audio_meta.json")), false);
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "visual_beats.json.example"), "utf8")), {
-      version: 1,
+      version: 2,
       frames: {
-        "replace-with-workflow-slug": {
-          kind: "workflow",
+        "frame-slug": {
+          kind: "focal",
           beats: [
             {
-              id: "first-step",
-              text: "First step",
-              cue: { phrase: "first step", occurrence: 1 },
-              workflowStep: 1,
-              sourceRefs: ["source.md:1-3"],
+              id: "opening-context",
+              text: "Opening context",
+              role: "focal",
+              cue: { frameStart: true },
+              coverage: { until: "next-state" },
             },
             {
-              id: "second-step",
-              text: "Second step",
-              cue: { wordIndex: 8 },
-              workflowStep: 2,
-              sourceRefs: ["source.md:4-6"],
+              id: "body-detail",
+              text: "Body detail",
+              role: "focal",
+              cue: { phrase: "body detail", occurrence: 1 },
+              coverage: { until: "next-state" },
+            },
+            {
+              id: "final-landing",
+              text: "Final landing",
+              role: "focal",
+              cue: { phrase: "final landing", occurrence: 1 },
+              coverage: { until: "frame-end" },
             },
           ],
-        },
-        "replace-with-focal-slug": {
-          kind: "focal",
-          beats: [{ id: "focal", text: "Main idea", cue: { phrase: "main idea", occurrence: 1 } }],
+          coverageExemptions: [],
         },
       },
     });
@@ -130,7 +134,8 @@ test("writeCommonScaffold writes neutral common files and packaged framework gui
     assert.deepEqual(JSON.parse(readFileSync(join(stage, "package.json"), "utf8")), mergePackageManifest("demo-video", spec));
     assert.equal(readFileSync(join(stage, "CLAUDE.md"), "utf8"), "@.md2vid/standards/hyperframes.md\n");
     assert.equal(readFileSync(join(stage, "AGENTS.md"), "utf8"), "@.md2vid/standards/hyperframes.md\n");
-    assert.ok(existsSync(join(stage, ".md2vid", "standards", "hyperframes.md")));
+    const localStandard = readFileSync(join(stage, ".md2vid", "standards", "hyperframes.md"), "utf8");
+    assert.match(localStandard, /md2vid-continuous-visual-coverage: 2/);
     assert.doesNotThrow(() => validateCommonScaffold(stage, "demo-video"));
   } finally {
     rmSync(stage, { recursive: true, force: true });

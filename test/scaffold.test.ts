@@ -42,7 +42,7 @@ test("default scaffold creates an HF project with pinned CDN config and no local
     const local = JSON.parse(readFileSync(join(dir, "output.config.json"), "utf8"));
     assert.equal(neutral.framework, undefined, "neutral config excludes framework choice");
     assert.equal(neutral.gsapSrc, undefined, "neutral config excludes framework assets");
-    assert.deepEqual(neutral.visualSync, { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 });
+    assert.deepEqual(neutral.visualSync, { mode: "required", coverageMode: "required", maxLead: 0.25, maxLag: 0.75, maxUncoveredGap: 0.5, minLanding: 1 });
     assert.deepEqual(local, {
       framework: "hyperframes",
       gsapSrc: DEFAULT_GSAP_SRC,

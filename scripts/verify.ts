@@ -156,6 +156,18 @@ export function run(argv: string[], dependencies: VerifyDependencies = {}): numb
     const problem = (msg: string) => problems.push(msg);
     const warn = (msg: string) => warnings.push(msg);
 
+    const expectedMarker = "md2vid-continuous-visual-coverage: 2";
+    const relativeStandard = `.md2vid/standards/${adapter.name}.md`;
+    const standardPath = join(layout.outputDir, relativeStandard);
+    const standardText = existsSync(standardPath)
+      ? readFileSync(standardPath, "utf8")
+      : "";
+    const standardMessage = `${relativeStandard} is missing ${expectedMarker}. Refresh it from docs/standards/frameworks/${adapter.name}.md without changing authored project files. Destination: ${relativeStandard}.`;
+    if (!standardText.includes(expectedMarker)) {
+      if (policy.coverageMode === "required") problem(standardMessage);
+      else warn(standardMessage);
+    }
+
     // Neutral caption invariants — delegate to the engine, framework-agnostic.
     const src = join(layout.sharedDir, "caption_groups.json");
     if (!isFile(src)) {

@@ -1,5 +1,7 @@
 # Remotion
 
+<!-- md2vid-continuous-visual-coverage: 2 -->
+
 The Remotion adapter renders a neutral `build_plan.json` into a React/Remotion
 composition and out to MP4 via the SSR API. It shares the adapter lifecycle
 `{ name, scaffoldSpec, writeScaffoldRuntime, ensureRuntime, emit, verify }` with

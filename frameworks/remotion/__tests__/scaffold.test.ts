@@ -107,11 +107,12 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
       "verify Kokoro readiness and generate fresh WAVs through /media-use",
       "run npm run transcribe",
       "fill video.config.json voice-id -> frame-slug mappings",
-      "author visual_beats.json",
-      "run npm run plan",
-      "author and register cue-bound src/scenes/*.tsx",
+      "transcribe → author visual-beats v2 → plan → inspect coverage intervals → bind semantic targets → build → verify continuous coverage → review → render",
+      "author visual_beats.json v2 with a static opening focal, body states, and a final frame-end landing",
+      "run npm run plan and inspect build/visual_timing.json coverage intervals",
+      "bind semantic targets through visual_bindings.json plus BeatState/BeatReveal scenes",
       "run npm run build",
-      "run npm run check",
+      "run npm run check before still, studio, preview, or render",
       "run npm run still or npm run studio for review",
       "run npm run render after review",
     ]);
@@ -130,9 +131,10 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
     assert.match(types, /visualBeats\?: ResolvedVisualBeat\[\]/);
     assert.match(types, /visualBindings\?: Record<string, RuntimeVisualBinding\[\]>/);
     assert.match(video, /VisualBeatProvider/);
-    assert.match(nextSteps, /visual_beats\.json/);
-    assert.match(nextSteps, /npm run plan/);
-    assert.ok(nextSteps.indexOf("visual_beats.json") < nextSteps.indexOf("src/scenes"));
+    assert.match(nextSteps, /visual_beats\.json v2/);
+    assert.match(nextSteps, /npm run plan and inspect build\/visual_timing\.json/);
+    assert.match(nextSteps, /BeatState\/BeatReveal/);
+    assert.ok(nextSteps.indexOf("visual_beats.json v2") < nextSteps.indexOf("BeatState/BeatReveal"));
     assert.doesNotMatch(readTextTree(join(tmp, "src")), /md2vid-public|frameworks\/remotion/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });

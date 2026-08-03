@@ -1,5 +1,7 @@
 # HyperFrames Composition Project
 
+<!-- md2vid-continuous-visual-coverage: 2 -->
+
 ## Skills — USE THESE FIRST
 
 **Always invoke the relevant skill before writing or modifying compositions.** Skills encode framework-specific patterns (e.g., `window.__timelines` registration, `data-*` attribute semantics, shader-compatible CSS rules) that are NOT in generic web docs. Skipping them produces broken compositions.
