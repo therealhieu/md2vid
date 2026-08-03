@@ -58,6 +58,7 @@ test("release package manifest covers executable, assets, postinstall, and all r
     "dist/scripts/plan.js",
     "dist/scripts/plan_project.js",
     "dist/engine/visual_beats.js",
+    "dist/engine/visual_evidence.js",
     "dist/engine/visual_sync.js",
     "dist/frameworks/hyperframes/visual_timing.js",
     "dist/frameworks/remotion/visual_bindings.js",

@@ -18,7 +18,8 @@ import {
 } from "../engine/voice_assets.ts";
 import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
 import { resolveVisualSyncPolicy } from "../engine/plan.ts";
-import type { BuildPlan, CaptionGroup, VisualBinding, VisualBindingManifest } from "../engine/types.ts";
+import type { BuildPlan, CaptionGroup, VisualBindingManifest } from "../engine/types.ts";
+import { validateVisualBindingManifest } from "../engine/visual_evidence.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -69,27 +70,6 @@ function readCaptionGroups(path: string): CaptionGroup[] {
   }
 }
 
-function isVisualBinding(value: unknown): value is VisualBinding {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const binding = value as Record<string, unknown>;
-  return typeof binding.frameSlug === "string"
-    && typeof binding.beatId === "string"
-    && typeof binding.target === "string"
-    && typeof binding.revealStart === "number"
-    && typeof binding.revealDuration === "number"
-    && (binding.source === "declarative" || binding.source === "custom")
-    && (binding.authoredDuration === undefined || typeof binding.authoredDuration === "number")
-    && (binding.outerDuration === undefined || typeof binding.outerDuration === "number");
-}
-
-function isVisualFrameDuration(value: unknown): boolean {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-  const frame = value as Record<string, unknown>;
-  return typeof frame.frameSlug === "string"
-    && (frame.authoredDuration === undefined || typeof frame.authoredDuration === "number")
-    && (frame.outerDuration === undefined || typeof frame.outerDuration === "number");
-}
-
 export function readBindingManifest(path: string): VisualBindingManifest | undefined {
   if (!isFile(path)) return undefined;
   let value: unknown;
@@ -101,17 +81,7 @@ export function readBindingManifest(path: string): VisualBindingManifest | undef
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`invalid visual binding manifest at ${path}: expected an object`);
   }
-  const manifest = value as Record<string, unknown>;
-  if (manifest.version !== 1 || typeof manifest.framework !== "string" || !Array.isArray(manifest.bindings)) {
-    throw new Error(`invalid visual binding manifest at ${path}: expected version 1, framework, and bindings`);
-  }
-  if (!manifest.bindings.every(isVisualBinding)) {
-    throw new Error(`invalid visual binding manifest at ${path}: bindings must use the normalized visual-binding shape`);
-  }
-  if (manifest.frames !== undefined && (!Array.isArray(manifest.frames) || !manifest.frames.every(isVisualFrameDuration))) {
-    throw new Error(`invalid visual binding manifest at ${path}: frames must use the normalized duration-evidence shape`);
-  }
-  return manifest as unknown as VisualBindingManifest;
+  return validateVisualBindingManifest(value, path);
 }
 
 export function run(argv: string[]): number {

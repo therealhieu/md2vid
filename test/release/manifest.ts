@@ -26,6 +26,7 @@ export const REQUIRED_PACKED_FILES = [
   "dist/scripts/scaffold_project.js",
   "dist/scripts/skill_references.js",
   "dist/engine/visual_beats.js",
+  "dist/engine/visual_evidence.js",
   "dist/engine/visual_sync.js",
   "dist/frameworks/assets.js",
   "dist/frameworks/hyperframes/visual_timing.js",

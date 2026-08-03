@@ -295,6 +295,18 @@ export interface CaptionArtifactContext {
   captionGroupsPath: string;
 }
 
+export interface VisualBindingEvidenceContext {
+  plan: BuildPlan;
+  videoDir: string;
+  sharedDir: string;
+  config: VideoConfig;
+}
+
+export interface AuthoredVisualInput {
+  path: string;
+  bytes: Buffer;
+}
+
 export interface AdapterVerifyContext {
   plan: BuildPlan;
   videoDir: string;
@@ -327,6 +339,9 @@ export interface FrameworkAdapter {
   captionArtifactPath: string;
   captionIndexArtifactPath?: string;
   bindingManifestPath?: string;
+  collectVisualBindingInputs?: (
+    context: VisualBindingEvidenceContext,
+  ) => AuthoredVisualInput[];
   managedVoiceArtifactPath: string;
   verifyCaptionArtifact(context: CaptionArtifactContext): Finding[];
   resolveVerificationFps(config: VideoConfig, videoDir: string): number;
