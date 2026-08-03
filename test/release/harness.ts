@@ -1305,25 +1305,47 @@ function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixtu
       frames: {
         "01-smoke": {
           kind: "focal",
-          beats: [{
-            id: "reveal",
-            text: "Staged reveal",
-            role: "focal",
-            cue: { wordIndex: 0 },
-            coverage: { until: "frame-end" },
-            sourceRefs: ["smoke.md:1-1"],
-          }],
+          beats: [
+            {
+              id: "opening-context",
+              text: "Introduce the topic",
+              role: "focal",
+              cue: { frameStart: true },
+              coverage: { until: "next-state" },
+              sourceRefs: ["smoke.md:1-1"],
+            },
+            {
+              id: "final-landing",
+              text: "The topic",
+              role: "focal",
+              cue: { wordIndex: 2 },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:1-1"],
+            },
+          ],
+          coverageExemptions: [],
         },
         "02-smoke": {
           kind: "focal",
-          beats: [{
-            id: "reveal",
-            text: "Second staged reveal",
-            role: "focal",
-            cue: { wordIndex: 0 },
-            coverage: { until: "frame-end" },
-            sourceRefs: ["smoke.md:2-2"],
-          }],
+          beats: [
+            {
+              id: "opening-context",
+              text: "Recap the key idea",
+              role: "focal",
+              cue: { frameStart: true },
+              coverage: { until: "next-state" },
+              sourceRefs: ["smoke.md:2-2"],
+            },
+            {
+              id: "final-landing",
+              text: "The key idea",
+              role: "focal",
+              cue: { wordIndex: 3 },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:2-2"],
+            },
+          ],
+          coverageExemptions: [],
         },
       },
     }, null, 2)}\n`,
@@ -2673,10 +2695,16 @@ export async function runFrameworkSmoke(
     writeFileSync(
       join(project, "visual_bindings.json"),
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         frames: {
-          "01-smoke": [{ beat: "reveal", target: "SmokeTitle:01-smoke", enter: "rise", duration: 0.2 }],
-          "02-smoke": [{ beat: "reveal", target: "SmokeTitle:02-smoke", enter: "rise", duration: 0.2 }],
+          "01-smoke": [
+            { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "rise", duration: 0.5, coverage: "planned" },
+          ],
+          "02-smoke": [
+            { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "rise", duration: 0.5, coverage: "planned" },
+          ],
         },
       }, null, 2)}\n`,
     );
@@ -2685,17 +2713,15 @@ export async function runFrameworkSmoke(
     const smokeTemplate = template
       .replace(
         'import { VisualBeatProvider } from "./VisualBeats";',
-        'import { BeatReveal, VisualBeatProvider } from "./VisualBeats";',
+        'import { BeatReveal, BeatState, VisualBeatProvider } from "./VisualBeats";',
       )
       .replace(
-        "      <div\n        style={{",
-        "      <BeatReveal target={`SmokeTitle:${frame.slug}`}>\n      <div\n        style={{",
-      )
-      .replace(
-        "      </div>\n    </AbsoluteFill>\n  </AbsoluteFill>\n);",
-        "      </div>\n      </BeatReveal>\n    </AbsoluteFill>\n  </AbsoluteFill>\n);",
+        'const SCENES: Record<string, React.FC<SceneProps>> = {};',
+        `const SmokeScene: React.FC<SceneProps> = ({ opacity }) => (\n  <AbsoluteFill style={{ opacity }}>\n    <BeatState target="OpeningContext">\n      <div data-testid="smoke-opening">Opening context</div>\n    </BeatState>\n    <BeatReveal target="FinalLanding">\n      <div data-testid="smoke-landing">Final landing</div>\n    </BeatReveal>\n  </AbsoluteFill>\n);\n\nconst SCENES: Record<string, React.FC<SceneProps>> = {\n  "01-smoke": SmokeScene,\n  "02-smoke": SmokeScene,\n};`,
       );
-    assert.match(smokeTemplate, /BeatReveal target=\{`SmokeTitle:\$\{frame\.slug\}`\}/);
+    assert.match(smokeTemplate, /BeatState target="OpeningContext"/);
+    assert.match(smokeTemplate, /BeatReveal target="FinalLanding"/);
+    assert.match(smokeTemplate, /data-testid="smoke-landing"/);
     writeFileSync(videoPath, smokeTemplate);
 
     await narrationStages.run("build/check Remotion", () => {

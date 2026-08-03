@@ -435,17 +435,26 @@ test("release smoke supplies required visual timing inputs and consumes draft re
   assert.match(source, /data-md2vid-beat/);
   assert.match(source, /visual_bindings\.json/);
   assert.match(source, /VisualBeatProvider/);
+  assert.match(source, /BeatState/);
   assert.match(source, /BeatReveal/);
+  assert.match(source, /OpeningContext/);
+  assert.match(source, /FinalLanding/);
+  assert.match(source, /smoke-opening/);
+  assert.match(source, /smoke-landing/);
   assert.match(source, /--profile",\s*"draft"/);
   assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
   assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);
   assert.match(source, /md2vid-render\.json/);
 });
 
-test("retained Kokoro smoke reserves a full landing after its first transcribed word", () => {
+test("retained Kokoro smoke uses exact coverage states and transcript indexes", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
-  assert.match(source, /cue: \{ wordIndex: 0 \}/);
-  assert.doesNotMatch(source, /cue: \{ wordIndex: 1 \}/);
+  assert.match(source, /id: "opening-context"/);
+  assert.match(source, /id: "final-landing"/);
+  assert.match(source, /cue: \{ frameStart: true \}/);
+  assert.match(source, /cue: \{ wordIndex: 2 \}/);
+  assert.match(source, /cue: \{ wordIndex: 3 \}/);
+  assert.doesNotMatch(source, /id: "reveal"/);
 });
 
 test("HyperFrames smoke derives assertions from frame-quantized seeks", () => {

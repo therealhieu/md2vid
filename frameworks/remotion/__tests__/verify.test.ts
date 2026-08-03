@@ -5,11 +5,15 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import adapter from "../index.ts";
 import { verify, verifyRemotionCaptionArtifact, resolveVerificationFps, REMOTION_COMPOSITION_FPS } from "../verify.ts";
+import { verifyVisualSync } from "../../../engine/visual_sync.ts";
 import type {
   AdapterVerifyContext,
   BuildPlan,
+  ResolvedVisualSyncPolicy,
   VisualBindingManifest,
   VisualBindingManifestV1,
+  VisualBindingManifestV2,
+  VisualBindingV2,
 } from "../../../engine/types.ts";
 
 function goodProject(): string {
@@ -273,4 +277,101 @@ test("Remotion preserves warn, off, and legacy semantic verification behavior", 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+const COVERAGE_POLICY: ResolvedVisualSyncPolicy = {
+  mode: "required",
+  coverageMode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  maxUncoveredGap: 0.5,
+  minLanding: 1,
+};
+
+function makeCoveragePlan(): BuildPlan {
+  return {
+    version: 1,
+    canvas: { width: 1920, height: 1080 },
+    timing: { tail: 0, xfade: 0, gap: 0 },
+    totalDuration: 23.08,
+    captionGroups: [],
+    frames: [{
+      id: "overview",
+      frameNum: 1,
+      slug: "overview",
+      voicePath: "assets/voice/overview.wav",
+      voiceDur: 22.08,
+      frameDur: 23.08,
+      start: 0,
+      words: [
+        { text: "A", start: 0.07, end: 0.12 },
+        { text: "solution", start: 18.26, end: 18.8 },
+      ],
+      visualSpecVersion: 2,
+      visualKind: "focal",
+      visualBeats: [
+        { version: 2, id: "opening", text: "Opening context", role: "focal", start: 0, end: 18.26, cueText: "<frame-start>", sourceRefs: [], tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+        { version: 2, id: "solution", text: "Solution", role: "focal", start: 18.26, end: 23.08, cueWordIndex: 1, cueText: "solution", sourceRefs: [], tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+      ],
+    }],
+  };
+}
+
+function manifestV2(framework: string, bindings: VisualBindingV2[]): VisualBindingManifestV2 {
+  return {
+    version: 2,
+    framework,
+    planSha256: "0".repeat(64),
+    authoredInputs: [],
+    bindings,
+  };
+}
+
+function focalBinding(
+  target: string,
+  beatId: string,
+  coverageStart: number,
+  coverageEnd: number,
+): VisualBindingV2 {
+  return {
+    frameSlug: "overview",
+    beatId,
+    target,
+    role: "focal",
+    revealStart: coverageStart,
+    revealDuration: 0,
+    coverageStart,
+    coverageEnd,
+    source: "static",
+    authoredDuration: 22.08,
+    outerDuration: 23.08,
+  };
+}
+
+test("HyperFrames and Remotion report the same semantic gap", () => {
+  const plan = makeCoveragePlan();
+  const hyperframes = verifyVisualSync({
+    plan,
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: manifestV2("hyperframes", [
+      focalBinding("#solution", "solution", 18.26, 23.08),
+    ]),
+  });
+  const remotion = verify({
+    plan,
+    videoDir: goodProject(),
+    sharedDir: "unused",
+    config: { framework: "remotion" },
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    bindings: manifestV2("remotion", [
+      focalBinding("SolutionCard", "solution", 18.26, 23.08),
+    ]),
+  });
+  const neutralFinding = ({ code }: { code?: string }) => code?.endsWith("_visual_gap");
+  assert.deepEqual(
+    remotion.filter(neutralFinding).map(({ code, details }) => ({ code, details })),
+    hyperframes.filter(neutralFinding).map(({ code, details }) => ({ code, details })),
+  );
 });

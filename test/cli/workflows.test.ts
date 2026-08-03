@@ -240,8 +240,10 @@ function createRemotionCoverageProject(): { project: WorkflowProject; adapter: F
     }])),
   }, null, 2)}\n`);
   writeFileSync(join(project.outputDir, "visual_bindings.json"), `${JSON.stringify({
-    version: 1,
-    frames: {},
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, [
+      { beat: "opening", target: "OpeningContext", enter: "none", coverage: "planned" },
+    ]])),
   }, null, 2)}\n`);
   return { project, adapter: getAdapter("remotion") };
 }
@@ -522,6 +524,30 @@ test("verify reports missing Remotion registry input as stale visual evidence", 
   }
 });
 
+test("Remotion verify rejects source mutation, addition, and removal after full build", () => {
+  for (const [name, mutate, expected] of [
+    ["changed source", (project: WorkflowProject) => appendFileSync(join(project.outputDir, "src", "Video.tsx"), "\n// semantic mutation\n"), /src\/Video\.tsx/],
+    ["new source", (project: WorkflowProject) => {
+      mkdirSync(join(project.outputDir, "src", "scenes"), { recursive: true });
+      writeFileSync(join(project.outputDir, "src", "scenes", "NewScene.tsx"), "export const NewScene = () => null;\n");
+    }, /src\/scenes\/NewScene\.tsx/],
+    ["removed source", (project: WorkflowProject) => rmSync(join(project.outputDir, "src", "types.ts")), /missing authored input src\/types\.ts/],
+  ] as const) {
+    const { project } = createRemotionCoverageProject();
+    try {
+      assert.equal(buildRun([project.outputDir]), 0, name);
+      mutate(project);
+      const result = captureConsole(() => verifyRun([project.outputDir]));
+      assert.equal(result.code, 1, name);
+      assert.match(result.stderr, /stale_visual_evidence/, name);
+      assert.match(result.stderr, expected, name);
+      assert.match(result.stderr, /md2vid build/, name);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  }
+});
+
 test("Remotion authored input collection rejects symlinks and excludes generated source subtrees", () => {
   const { project, adapter } = createRemotionCoverageProject();
   try {
@@ -583,17 +609,19 @@ test("Remotion authored input collection rejects symlinks and excludes generated
   }
 });
 
-test("Remotion verify rejects preserved v2 evidence without runtime visual bindings", () => {
-  const { project, adapter } = createRemotionCoverageProject();
+test("Remotion full build writes runtime visual bindings for v2 evidence", () => {
+  const { project } = createRemotionCoverageProject();
   try {
     assert.equal(buildRun([project.outputDir]), 0);
-    writeFreshV2Manifest(project, adapter);
+    const plan = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+    assert.ok(plan.visualBindings, "Remotion build_plan.json must contain semantic runtime bindings");
+    assert.deepEqual(plan.visualBindings["01-intro"].map((binding: { target: string; beatId: string }) => [binding.target, binding.beatId]), [
+      ["OpeningContext", "opening"],
+    ]);
 
     const result = captureConsole(() => verifyRun([project.outputDir]));
 
-    assert.equal(result.code, 1);
-    assert.match(result.stderr, /missing Remotion semantic runtime bindings/i);
-    assert.match(result.stderr, /md2vid build/);
+    assert.equal(result.code, 0, result.stderr);
   } finally {
     rmSync(project.root, { recursive: true, force: true });
   }
