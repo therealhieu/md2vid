@@ -19,7 +19,11 @@ import {
 import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
 import { resolveVisualSyncPolicy } from "../engine/plan.ts";
 import type { BuildPlan, CaptionGroup, VisualBindingManifest } from "../engine/types.ts";
-import { validateVisualBindingManifest } from "../engine/visual_evidence.ts";
+import {
+  digestAuthoredInputs,
+  hashCoveragePlan,
+  validateVisualBindingManifest,
+} from "../engine/visual_evidence.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -84,7 +88,11 @@ export function readBindingManifest(path: string): VisualBindingManifest | undef
   return validateVisualBindingManifest(value, path);
 }
 
-export function run(argv: string[]): number {
+export interface VerifyDependencies {
+  getAdapter?: typeof getAdapter;
+}
+
+export function run(argv: string[], dependencies: VerifyDependencies = {}): number {
   const parsed = parseVerifyArgs(argv);
   if (parsed.kind === "help") {
     console.log(USAGE);
@@ -120,13 +128,20 @@ export function run(argv: string[]): number {
     const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
     const policy = resolveVisualSyncPolicy(loaded.neutral);
     const visualBeatsPath = join(layout.sharedDir, "visual_beats.json");
-    const requiresCurrentVisualPlanning = policy.mode !== "off"
-      && (policy.mode === "required" || isFile(visualBeatsPath));
+    const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+    const requiresCurrentVisualPlanning = visualPlanningEnabled
+      && (
+        policy.mode === "required"
+        || policy.coverageMode === "required"
+        || isFile(visualBeatsPath)
+      );
     const planning = requiresCurrentVisualPlanning ? createProjectPlan(layout.outputDir) : undefined;
-    const adapter = getAdapter(configuredFramework(loaded, layout.flat, layout.outputDir));
+    const adapter = (dependencies.getAdapter ?? getAdapter)(
+      configuredFramework(loaded, layout.flat, layout.outputDir),
+    );
     const problems: string[] = [];
     const warnings: string[] = planning?.warnings ?? (
-      policy.mode === "warn"
+      policy.mode === "warn" || policy.coverageMode === "warn"
         ? [`${visualBeatsPath}: no visual beat specification; semantic checks are skipped`]
         : []
     );
@@ -161,6 +176,25 @@ export function run(argv: string[]): number {
       : undefined;
     const hasPlannedVisualBeats = verificationPlan.frames.some((frame) => frame.visualBeats?.length);
     const verificationConfig = planning?.adapterConfig ?? loaded.config;
+    const freshness = bindings?.version === 2 && visualPlanningEnabled
+      ? (() => {
+          if (!planning) {
+            throw new Error("current visual planning is required for semantic verification");
+          }
+          if (!adapter.collectVisualBindingInputs) {
+            throw new Error(`framework adapter "${adapter.name}" must collect authored visual binding inputs for manifest v2 evidence`);
+          }
+          return {
+            planSha256: hashCoveragePlan(planning.plan),
+            authoredInputs: digestAuthoredInputs(adapter.collectVisualBindingInputs({
+              plan: planning.plan,
+              videoDir: planning.layout.outputDir,
+              sharedDir: planning.layout.sharedDir,
+              config: planning.adapterConfig,
+            })),
+          };
+        })()
+      : undefined;
 
     // Framework-specific layout checks — dispatch off validated config.framework.
     for (const finding of adapter.verify({
@@ -173,6 +207,7 @@ export function run(argv: string[]): number {
         ? adapter.resolveVerificationFps(verificationConfig, layout.outputDir)
         : 30,
       bindings,
+      freshness,
       voiceSnapshots: planning?.voiceSnapshots ?? voiceSnapshots,
     })) {
       if (finding.level === "error") problem(finding.msg);

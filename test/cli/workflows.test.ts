@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   lstatSync,
@@ -18,6 +19,8 @@ import test from "node:test";
 import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
 import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
 import { transcribeVoices } from "../../engine/transcribe.ts";
+import { hashCoveragePlan, digestAuthoredInputs } from "../../engine/visual_evidence.ts";
+import type { FrameworkAdapter } from "../../engine/types.ts";
 import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import { getAdapter } from "../../frameworks/index.ts";
 import { DEFAULT_GSAP_SRC } from "../../frameworks/hyperframes/scaffold.ts";
@@ -26,6 +29,7 @@ import {
   type BuildDependencies,
 } from "../../scripts/build.ts";
 import { createProject } from "../../scripts/new_video.ts";
+import { createProjectPlan } from "../../scripts/plan_project.ts";
 import { run as planRun } from "../../scripts/plan.ts";
 import {
   run as regroupRun,
@@ -170,6 +174,152 @@ function captureConsole(run: () => number): { code: number; stdout: string; stde
     console.error = originalError;
   }
 }
+
+function createCoverageProject(): { project: WorkflowProject; adapter: FrameworkAdapter } {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = {
+    mode: "off",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 0.5,
+  };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, {
+      beats: [{
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        cue: { frameStart: true },
+        coverage: { until: "frame-end" },
+      }],
+    }])),
+  }, null, 2)}\n`);
+
+  const base = getAdapter("hyperframes");
+  const adapter: FrameworkAdapter = {
+    ...base,
+    name: "fixture",
+    collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.map((frame) => ({
+      path: `compositions/frames/${frame.slug}.html`,
+      bytes: readFileSync(join(videoDir, "compositions", "frames", `${frame.slug}.html`)),
+    })),
+  };
+  return { project, adapter };
+}
+
+function writeFreshV2Manifest(project: WorkflowProject, adapter: FrameworkAdapter): void {
+  const planning = createProjectPlan(project.outputDir);
+  assert.ok(adapter.collectVisualBindingInputs);
+  const authoredInputs = digestAuthoredInputs(adapter.collectVisualBindingInputs({
+    plan: planning.plan,
+    videoDir: planning.layout.outputDir,
+    sharedDir: planning.layout.sharedDir,
+    config: planning.adapterConfig,
+  }));
+  const bindings = planning.plan.frames.flatMap((frame) =>
+    (frame.visualBeats ?? []).flatMap((beat) => beat.version === 2 && beat.role === "focal" ? [{
+      frameSlug: frame.slug,
+      beatId: beat.id,
+      target: `#${frame.slug}-${beat.id}`,
+      role: "focal" as const,
+      revealStart: beat.start,
+      revealDuration: 0,
+      coverageStart: beat.start,
+      coverageEnd: beat.end,
+      source: "static" as const,
+      authoredDuration: frame.voiceDur,
+      outerDuration: frame.frameDur,
+    }] : []),
+  );
+  const path = join(project.outputDir, "build", "visual_bindings.json");
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({
+    version: 2,
+    framework: "hyperframes",
+    planSha256: hashCoveragePlan(planning.plan),
+    authoredInputs,
+    bindings,
+  }, null, 2)}\n`);
+}
+
+function mutateVisualBeatsEnd(project: WorkflowProject): void {
+  const path = join(project.sharedDir, "visual_beats.json");
+  const visualBeats = JSON.parse(readFileSync(path, "utf8"));
+  visualBeats.frames["01-intro"].beats[0].coverage.until = "voice-end";
+  writeFileSync(path, `${JSON.stringify(visualBeats, null, 2)}\n`);
+}
+
+test("verify rejects stale coverage plan and authored-source evidence", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    mutateVisualBeatsEnd(project);
+
+    let result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /planSha256/);
+    assert.match(result.stderr, /md2vid build/);
+
+    writeFreshV2Manifest(project, adapter);
+    appendFileSync(
+      join(project.outputDir, "compositions", "frames", "01-intro.html"),
+      "\n<!-- changed -->\n",
+    );
+    result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /compositions\/frames\/01-intro\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify warns on stale evidence without accepting stale focal coverage", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    mutateVisualBeatsEnd(project);
+    const configPath = join(project.sharedDir, "video.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync.coverageMode = "warn";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /stale_visual_evidence/);
+    assert.doesNotMatch(result.stdout, /semantic coverage (?:passed|satisfied)/i);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify replans when reveal mode is off but coverage is required", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 0, result.stderr);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
 
 test("verify applies current semantic visual timing through the registered HyperFrames adapter", () => {
   const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });

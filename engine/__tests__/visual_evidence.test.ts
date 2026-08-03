@@ -3,6 +3,7 @@ import test from "node:test";
 import type { BuildPlan } from "../types.ts";
 import {
   canonicalizeCoveragePlan,
+  compareVisualEvidenceFreshness,
   digestAuthoredInputs,
   hashCoveragePlan,
   validateVisualBindingManifest,
@@ -193,4 +194,26 @@ test("manifest validation requires authored inputs in sorted path order", () => 
     }, "build/visual_bindings.json"),
     /authoredInputs.*sorted/,
   );
+});
+
+test("freshness comparison reports stale plan and exact input set changes", () => {
+  const manifest = validateVisualBindingManifest(V2_MANIFEST, "build/visual_bindings.json");
+  assert.equal(manifest.version, 2);
+  const changes = compareVisualEvidenceFreshness(manifest, {
+    planSha256: "c".repeat(64),
+    authoredInputs: [
+      { path: "compositions/frames/overview.html", sha256: "d".repeat(64) },
+      { path: "compositions/frames/new.html", sha256: "e".repeat(64) },
+    ],
+  });
+  assert.deepEqual(changes, [
+    { kind: "planSha256", expected: "a".repeat(64), actual: "c".repeat(64) },
+    { kind: "added", path: "compositions/frames/new.html", actual: "e".repeat(64) },
+    {
+      kind: "changed",
+      path: "compositions/frames/overview.html",
+      expected: "b".repeat(64),
+      actual: "d".repeat(64),
+    },
+  ]);
 });

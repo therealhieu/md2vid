@@ -117,12 +117,13 @@ export function verify(
   if (voiceSnapshots) {
     findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), voiceSnapshots));
   }
-  if (context && context.policy.mode !== "off") {
+  if (context && (context.policy.mode !== "off" || context.policy.coverageMode !== "off")) {
     findings.push(...verifyVisualSync({
       plan: context.plan,
       manifest: context.bindings,
       policy: context.policy,
       fps: context.fps,
+      freshness: context.freshness,
     }));
   }
 

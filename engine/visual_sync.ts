@@ -6,11 +6,13 @@ import type {
   ResolvedVisualBeat,
   ResolvedVisualStateV2,
   ResolvedVisualSyncPolicy,
+  VisualBindingEvidenceFreshness,
   VisualBindingManifest,
   VisualBindingV1,
   VisualBindingV2,
   VisualFrameDuration,
 } from "./types.ts";
+import { compareVisualEvidenceFreshness } from "./visual_evidence.ts";
 
 interface Interval {
   start: number;
@@ -29,6 +31,7 @@ export function verifyVisualSync(input: {
   manifest?: VisualBindingManifest;
   policy: ResolvedVisualSyncPolicy;
   fps: number;
+  freshness?: VisualBindingEvidenceFreshness;
 }): Finding[] {
   const revealEnabled = input.policy.mode !== "off";
   const coverageEnabled = input.policy.coverageMode !== "off";
@@ -55,6 +58,22 @@ export function verifyVisualSync(input: {
   }
 
   const findings: Finding[] = [];
+  let manifest = input.manifest;
+  if (manifest.version === 2 && input.freshness) {
+    const changes = compareVisualEvidenceFreshness(manifest, input.freshness);
+    if (changes.length > 0) {
+      findings.push({
+        level: input.policy.coverageMode === "required" ? "error" : "warn",
+        code: "stale_visual_evidence",
+        msg: formatStaleVisualEvidence(changes),
+        details: { changes },
+      });
+      manifest = {
+        ...manifest,
+        bindings: manifest.bindings.filter((binding) => binding.role !== "focal"),
+      };
+    }
+  }
   const durationTolerance = Math.max(0.001, 0.5 / input.fps);
   const coverageEpsilon = 0.5 / input.fps;
   const frames = new Map(input.plan.frames.map((frame) => [frame.slug, frame]));
@@ -69,7 +88,7 @@ export function verifyVisualSync(input: {
   ): void => { findings.push({ level: coverageLevel, code, msg, details }); };
 
   if (revealEnabled) {
-    for (const evidence of input.manifest.frames ?? []) {
+    for (const evidence of manifest.frames ?? []) {
       if (!frames.has(evidence.frameSlug)) {
         pushReveal(`frame duration evidence references unknown frame "${evidence.frameSlug}"`);
         continue;
@@ -82,7 +101,7 @@ export function verifyVisualSync(input: {
     }
   }
 
-  for (const binding of input.manifest.bindings) {
+  for (const binding of manifest.bindings) {
     const frame = frames.get(binding.frameSlug);
     if (!frame) {
       if (revealEnabled) {
@@ -138,7 +157,7 @@ export function verifyVisualSync(input: {
       durationEvidence.set(frame.slug, existingEvidence);
     }
 
-    if (!coverageEnabled || input.manifest.version !== 2 || frame.visualSpecVersion !== 2) {
+    if (!coverageEnabled || manifest.version !== 2 || frame.visualSpecVersion !== 2) {
       continue;
     }
     if (!isVisualBindingV2(binding) || !isResolvedVisualStateV2(beat)) {
@@ -185,11 +204,11 @@ export function verifyVisualSync(input: {
         pushReveal(`frame "${frame.slug}" beat "${beat.id}" has no visual binding`);
       }
     }
-    appendDuplicateTargetFindings(findings, input.manifest.bindings, revealLevel);
+    appendDuplicateTargetFindings(findings, manifest.bindings, revealLevel);
     appendWorkflowOrderFindings(findings, input.plan.frames, byKey, revealLevel);
   }
 
-  if (coverageEnabled && input.manifest.version === 2) {
+  if (coverageEnabled && manifest.version === 2) {
     appendCoverageFindings(
       findings,
       coverageFrames,
@@ -389,6 +408,18 @@ function classifyGap(
     return { code: "ending_visual_gap", extendsThroughFrameEnd: false };
   }
   return { code: "mid_scene_visual_gap", extendsThroughFrameEnd: false };
+}
+
+function formatStaleVisualEvidence(
+  changes: ReturnType<typeof compareVisualEvidenceFreshness>,
+): string {
+  const summary = changes.map((change) => {
+    if (change.kind === "planSha256") return "planSha256 differs from the current semantic plan";
+    if (change.kind === "added") return `new authored input ${change.path}`;
+    if (change.kind === "removed") return `missing authored input ${change.path}`;
+    return `changed authored input ${change.path}`;
+  });
+  return `stale_visual_evidence: ${summary.join("; ")}. Run \`md2vid build\` to regenerate semantic visual evidence.`;
 }
 
 const seconds = (value: number): string => value.toFixed(3);

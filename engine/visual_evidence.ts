@@ -3,6 +3,7 @@ import type {
   AuthoredVisualInput,
   BuildPlan,
   ResolvedVisualBeat,
+  VisualBindingEvidenceFreshness,
   VisualBindingInputDigest,
   VisualBindingManifest,
   VisualBindingManifestV1,
@@ -139,6 +140,46 @@ export function digestAuthoredInputs(
     }
   }
   return digests;
+}
+
+export type VisualEvidenceFreshnessChange =
+  | { kind: "planSha256"; expected: string; actual: string }
+  | { kind: "added"; path: string; actual: string }
+  | { kind: "removed"; path: string; expected: string }
+  | { kind: "changed"; path: string; expected: string; actual: string };
+
+export function compareVisualEvidenceFreshness(
+  manifest: VisualBindingManifestV2,
+  current: VisualBindingEvidenceFreshness,
+): VisualEvidenceFreshnessChange[] {
+  const changes: VisualEvidenceFreshnessChange[] = [];
+  if (manifest.planSha256 !== current.planSha256) {
+    changes.push({
+      kind: "planSha256",
+      expected: manifest.planSha256,
+      actual: current.planSha256,
+    });
+  }
+  const expected = new Map(manifest.authoredInputs.map((input) => [input.path, input.sha256]));
+  const actual = new Map(current.authoredInputs.map((input) => [input.path, input.sha256]));
+  const paths = [...new Set([...expected.keys(), ...actual.keys()])].sort(comparePaths);
+  for (const path of paths) {
+    const expectedDigest = expected.get(path);
+    const actualDigest = actual.get(path);
+    if (expectedDigest === undefined && actualDigest !== undefined) {
+      changes.push({ kind: "added", path, actual: actualDigest });
+    } else if (expectedDigest !== undefined && actualDigest === undefined) {
+      changes.push({ kind: "removed", path, expected: expectedDigest });
+    } else if (expectedDigest !== actualDigest) {
+      changes.push({
+        kind: "changed",
+        path,
+        expected: expectedDigest!,
+        actual: actualDigest!,
+      });
+    }
+  }
+  return changes;
 }
 
 function requireString(value: unknown, path: string): string {

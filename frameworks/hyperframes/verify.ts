@@ -88,7 +88,7 @@ export function verify(
   if (voiceSnapshots) {
     findings.push(...verifyEmittedVoiceSnapshots(videoDir, voiceSnapshots));
   }
-  if (context && context.policy.mode !== "off") {
+  if (context && (context.policy.mode !== "off" || context.policy.coverageMode !== "off")) {
     findings.push(...verifyVisualSync({
       plan: context.plan,
       manifest: withObservedOuterDurations(
@@ -96,10 +96,13 @@ export function verify(
         context.plan,
         context.bindings,
         findings,
-        context.policy.mode === "required" ? "error" : "warn",
+        context.policy.mode === "required" || context.policy.coverageMode === "required"
+          ? "error"
+          : "warn",
       ),
       policy: context.policy,
       fps: context.fps,
+      freshness: context.freshness,
     }));
   }
 

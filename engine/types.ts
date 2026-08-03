@@ -307,6 +307,11 @@ export interface AuthoredVisualInput {
   bytes: Buffer;
 }
 
+export interface VisualBindingEvidenceFreshness {
+  planSha256: string;
+  authoredInputs: VisualBindingInputDigest[];
+}
+
 export interface AdapterVerifyContext {
   plan: BuildPlan;
   videoDir: string;
@@ -315,6 +320,7 @@ export interface AdapterVerifyContext {
   policy: ResolvedVisualSyncPolicy;
   fps: number;
   bindings?: VisualBindingManifest;
+  freshness?: VisualBindingEvidenceFreshness;
   voiceSnapshots?: ReadonlyArray<VoiceAssetSnapshot>;
 }
 
