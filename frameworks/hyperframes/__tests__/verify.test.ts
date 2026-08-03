@@ -109,6 +109,7 @@ function semanticPlan(): BuildPlan {
       start: 0,
       words: [],
       visualBeats: [{
+        version: 1,
         id: "execute",
         text: "Execute",
         start: 1,
@@ -155,7 +156,14 @@ function semanticContext(output: string, fps: number, bindings?: VisualBindingMa
     videoDir: output,
     sharedDir: join(output, "..", "shared"),
     config: { framework: "hyperframes" },
-    policy: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 0.5 },
+    policy: {
+      mode: "required",
+      coverageMode: "warn",
+      maxLead: 0.25,
+      maxLag: 0.75,
+      maxUncoveredGap: 0.5,
+      minLanding: 0.5,
+    },
     fps,
     bindings,
   };

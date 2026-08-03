@@ -117,6 +117,14 @@ function optionalNonEmptyString(config: ConfigRecord, field: string, path: strin
   }
 }
 
+function optionalVisualMode(value: unknown, path: string): "off" | "warn" | "required" | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !VISUAL_SYNC_MODES.has(value)) {
+    throw new Error(`${path} must be one of off, warn, required`);
+  }
+  return value as "off" | "warn" | "required";
+}
+
 function optionalNonNegativeNumber(value: unknown, path: string): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -181,13 +189,14 @@ export function validateVideoConfig(value: unknown, path: string): VideoConfig {
 
   const visualSync = optionalRecord(value, "visualSync", path);
   if (visualSync) {
-    if (visualSync.mode !== undefined && (
-      typeof visualSync.mode !== "string" || !VISUAL_SYNC_MODES.has(visualSync.mode)
-    )) {
-      invalid(path, "visualSync.mode", 'must be one of "off", "warn", or "required"');
-    }
+    optionalVisualMode(visualSync.mode, `${path}.visualSync.mode`);
+    optionalVisualMode(visualSync.coverageMode, `${path}.visualSync.coverageMode`);
     optionalNonNegativeNumber(visualSync.maxLead, `${path}.visualSync.maxLead`);
     optionalNonNegativeNumber(visualSync.maxLag, `${path}.visualSync.maxLag`);
+    optionalNonNegativeNumber(
+      visualSync.maxUncoveredGap,
+      `${path}.visualSync.maxUncoveredGap`,
+    );
     optionalLandingSeconds(visualSync.minLanding, `${path}.visualSync.minLanding`);
   }
 

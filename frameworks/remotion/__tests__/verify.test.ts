@@ -160,8 +160,8 @@ function semanticPlan(): BuildPlan {
       words: [],
       visualKind: "workflow",
       visualBeats: [
-        { id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
-        { id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+        { version: 1, id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+        { version: 1, id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75} },
       ],
     }],
     captionGroups: [],
@@ -196,7 +196,14 @@ function semanticContext(dir: string, bindings?: VisualBindingManifest): Adapter
     videoDir: dir,
     sharedDir: dir,
     config: { framework: "remotion", visualSync: { mode: "required" } },
-    policy: { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 },
+    policy: {
+      mode: "required",
+      coverageMode: "warn",
+      maxLead: 0.25,
+      maxLag: 0.75,
+      maxUncoveredGap: 0.5,
+      minLanding: 1,
+    },
     fps: 30,
     bindings,
   };

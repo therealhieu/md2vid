@@ -301,6 +301,7 @@ function resolveBeat(
   }
 
   return {
+    version: 1,
     id: beat.id,
     text: beat.text,
     start: resolvedStart(frame, firstWordIndex, path),
@@ -337,6 +338,9 @@ export function resolveVisualBeats(
   path = "visual_beats.json",
 ): Map<string, { visualKind?: AuthoredVisualFrame["kind"]; visualBeats: ResolvedVisualBeat[] }> {
   const validatedSpec = validateVisualBeatSpec(spec, path);
+  if (validatedSpec.version !== 1) {
+    fail(`${path}.version`, "expected 1");
+  }
   const bySlug = new Map(frames.map((frame) => [frame.slug, frame]));
   const resolved = new Map<string, { visualKind?: AuthoredVisualFrame["kind"]; visualBeats: ResolvedVisualBeat[] }>();
 

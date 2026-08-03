@@ -21,8 +21,10 @@ const FRAME: PlanFrame = {
 
 const POLICY: ResolvedVisualSyncPolicy = {
   mode: "required",
+  coverageMode: "warn",
   maxLead: 0.25,
   maxLag: 0.75,
+  maxUncoveredGap: 0.5,
   minLanding: 1,
 };
 
@@ -47,6 +49,20 @@ test("resolves word index and phrase occurrence to original word timing", () => 
     ["execute", 11.06],
     ["settle", 14.35],
   ]);
+});
+
+test("resolves v1 beats with explicit v1 provenance", () => {
+  const spec = validateVisualBeatSpec({
+    version: 1,
+    frames: {
+      "reserve-flow": {
+        beats: [{ id: "reserve", text: "Reserve", cue: { wordIndex: 0 } }],
+      },
+    },
+  }, "visual_beats.json");
+
+  const [beat] = resolveVisualBeats(spec, [FRAME], POLICY).get("reserve-flow")!.visualBeats;
+  assert.equal(beat.version, 1);
 });
 
 test("resolves a repeated normalized phrase by explicit occurrence", () => {

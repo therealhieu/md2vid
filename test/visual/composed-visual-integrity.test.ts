@@ -535,7 +535,14 @@ test("script-context serialization cannot inject executable timing payloads", as
 test("emitted HyperFrames runtime keeps cue-bound states deterministic across seeks", async () => {
   const fixture = join(FIXTURES, "visual-timing-sync");
   const plan = JSON.parse(readFileSync(join(fixture, "build", "build_plan.json"), "utf8")) as BuildPlan;
-  const policy = { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1 } as const;
+  const policy = {
+    mode: "required",
+    coverageMode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  } as const;
   const root = mkdtempSync(join(tmpdir(), "md2vid-real-hyperframes-"));
   const shared = join(root, "shared");
   const output = join(root, "hyperframes");

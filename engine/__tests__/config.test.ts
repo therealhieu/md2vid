@@ -12,14 +12,46 @@ import {
 
 const VALID_SYNC = {
   mode: "required",
+  coverageMode: "required",
   maxLead: 0.25,
   maxLag: 0.75,
+  maxUncoveredGap: 0.5,
   minLanding: 1,
 } as const;
 
-test("visualSync accepts the required policy", () => {
+test("visualSync accepts required reveal and coverage policy", () => {
   const config = validateVideoConfig({ visualSync: VALID_SYNC }, "video.config.json");
   assert.deepEqual(config.visualSync, VALID_SYNC);
+});
+
+for (const coverageMode of ["off", "warn", "required"] as const) {
+  test(`visualSync accepts coverageMode=${coverageMode}`, () => {
+    const config = validateVideoConfig(
+      { visualSync: { coverageMode } },
+      "video.config.json",
+    );
+    assert.equal(config.visualSync?.coverageMode, coverageMode);
+  });
+}
+
+for (const value of [-0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+  test(`visualSync rejects maxUncoveredGap=${String(value)}`, () => {
+    assert.throws(
+      () => validateVideoConfig(
+        { visualSync: { maxUncoveredGap: value } },
+        "video.config.json",
+      ),
+      /visualSync\.maxUncoveredGap.*finite non-negative/,
+    );
+  });
+}
+
+test("visualSync accepts a zero uncovered-gap threshold", () => {
+  const config = validateVideoConfig(
+    { visualSync: { maxUncoveredGap: 0 } },
+    "video.config.json",
+  );
+  assert.equal(config.visualSync?.maxUncoveredGap, 0);
 });
 
 for (const [field, value] of [

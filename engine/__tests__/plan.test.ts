@@ -124,38 +124,56 @@ test("plan mode off ignores supplied beat data and omits visual fields", () => {
   assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
 });
 
-test("resolves the legacy visual sync policy defaults", () => {
+test("legacy visual coverage defaults to warn", () => {
   assert.deepEqual(resolveVisualSyncPolicy({}), {
     mode: "warn",
+    coverageMode: "warn",
     maxLead: 0.25,
     maxLag: 0.75,
+    maxUncoveredGap: 0.5,
     minLanding: 1,
   });
+});
+
+test("coverage planning remains enabled when reveal timing is off", () => {
+  const policy = resolveVisualSyncPolicy({
+    visualSync: { mode: "off", coverageMode: "required" },
+  });
+  assert.equal(policy.mode, "off");
+  assert.equal(policy.coverageMode, "required");
 });
 
 test("resolves supplied visual sync policy keys over legacy defaults", () => {
   assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { mode: "off" } }), {
     mode: "off",
+    coverageMode: "warn",
     maxLead: 0.25,
     maxLag: 0.75,
+    maxUncoveredGap: 0.5,
     minLanding: 1,
   });
   assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLead: 0 } }), {
     mode: "warn",
+    coverageMode: "warn",
     maxLead: 0,
     maxLag: 0.75,
+    maxUncoveredGap: 0.5,
     minLanding: 1,
   });
   assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLag: 1.5 } }), {
     mode: "warn",
+    coverageMode: "warn",
     maxLead: 0.25,
     maxLag: 1.5,
+    maxUncoveredGap: 0.5,
     minLanding: 1,
   });
   assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { minLanding: 0.5 } }), {
     mode: "warn",
+    coverageMode: "warn",
     maxLead: 0.25,
     maxLag: 0.75,
+    maxUncoveredGap: 0.5,
     minLanding: 0.5,
   });
 });

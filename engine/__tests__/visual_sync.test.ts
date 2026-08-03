@@ -10,8 +10,10 @@ import { verifyVisualSync } from "../visual_sync.ts";
 
 const POLICY: ResolvedVisualSyncPolicy = {
   mode: "required",
+  coverageMode: "warn",
   maxLead: 0.25,
   maxLag: 0.75,
+  maxUncoveredGap: 0.5,
   minLanding: 1,
 };
 
@@ -33,6 +35,7 @@ function makePlan(): BuildPlan {
       visualKind: "workflow",
       visualBeats: [
         {
+          version: 1,
           id: "reserve",
           text: "Reserve",
           start: 2.95,
@@ -43,6 +46,7 @@ function makePlan(): BuildPlan {
           tolerance: { maxLead: 0.25, maxLag: 0.75 },
         },
         {
+          version: 1,
           id: "execute",
           text: "Execute",
           start: 11.06,
@@ -53,6 +57,7 @@ function makePlan(): BuildPlan {
           tolerance: { maxLead: 0.25, maxLag: 0.75 },
         },
         {
+          version: 1,
           id: "settle",
           text: "Settle",
           start: 14.35,

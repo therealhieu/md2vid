@@ -55,6 +55,7 @@ function makePlan(): BuildPlan {
 function visualPlan() {
   const plan = makePlan();
   plan.frames[0].visualBeats = [{
+    version: 1,
     id: "execute",
     text: "Execute",
     start: 1,

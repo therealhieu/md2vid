@@ -27,8 +27,10 @@ import type {
 export function resolveVisualSyncPolicy(config: VideoConfig): ResolvedVisualSyncPolicy {
   return {
     mode: config.visualSync?.mode ?? "warn",
+    coverageMode: config.visualSync?.coverageMode ?? "warn",
     maxLead: config.visualSync?.maxLead ?? 0.25,
     maxLag: config.visualSync?.maxLag ?? 0.75,
+    maxUncoveredGap: config.visualSync?.maxUncoveredGap ?? 0.5,
     minLanding: config.visualSync?.minLanding ?? 1,
   };
 }

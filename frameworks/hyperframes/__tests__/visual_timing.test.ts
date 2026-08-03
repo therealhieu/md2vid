@@ -17,6 +17,7 @@ const FRAME_WITH_EXECUTE_BEAT: PlanFrame = {
   start: 0,
   words: [],
   visualBeats: [{
+    version: 1,
     id: "execute",
     text: "Execute",
     start: 11.06,

@@ -35,6 +35,7 @@ const PLAN_WITH_BEATS: BuildPlan = {
     visualKind: "workflow",
     visualBeats: [
       {
+        version: 1,
         id: "reserve",
         text: "Reserve",
         start: 2.95,
@@ -45,6 +46,7 @@ const PLAN_WITH_BEATS: BuildPlan = {
         tolerance: { maxLead: 0.25, maxLag: 0.75 },
       },
       {
+        version: 1,
         id: "execute",
         text: "Execute",
         start: 11.06,

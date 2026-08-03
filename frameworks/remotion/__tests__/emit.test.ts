@@ -279,9 +279,9 @@ function visualFixture(): { plan: BuildPlan; config: VideoConfig } {
         words: [],
         visualKind: "workflow",
         visualBeats: [
-          { id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
-          { id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
-          { id: "settle", text: "Settle", start: 14.35, cueWordIndex: 2, cueText: "settle", sourceRefs: [], workflowStep: 3, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+          { version: 1, id: "reserve", text: "Reserve", start: 2.95, cueWordIndex: 0, cueText: "reserve", sourceRefs: [], workflowStep: 1, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+          { version: 1, id: "execute", text: "Execute", start: 11.06, cueWordIndex: 1, cueText: "execute", sourceRefs: [], workflowStep: 2, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
+          { version: 1, id: "settle", text: "Settle", start: 14.35, cueWordIndex: 2, cueText: "settle", sourceRefs: [], workflowStep: 3, tolerance: { maxLead: 0.25, maxLag: 0.75 } },
         ],
       }],
       captionGroups: [],
@@ -517,7 +517,14 @@ test("normalized bindings quantify runtime scheduling and preserve independent m
   const findings = verifyVisualSync({
     plan: multi,
     manifest: corrupted,
-    policy: { mode: "required", maxLead: 1, maxLag: 1, minLanding: 0 },
+    policy: {
+      mode: "required",
+      coverageMode: "warn",
+      maxLead: 1,
+      maxLag: 1,
+      maxUncoveredGap: 0.5,
+      minLanding: 0,
+    },
     fps: 24,
   });
   assert.deepEqual(

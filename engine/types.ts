@@ -17,6 +17,8 @@ export interface VoiceAssetSnapshot {
 
 // ── Neutral IR — the serialized build_plan.json contract ─────────────────────
 export type VisualSyncMode = "off" | "warn" | "required";
+export type VisualCoverageMode = "off" | "warn" | "required";
+export type VisualSemanticRole = "focal" | "supporting";
 export type RenderProfile = "final" | "draft" | "gif";
 
 export interface VisualBeatTolerance {
@@ -24,30 +26,79 @@ export interface VisualBeatTolerance {
   maxLag: number;
 }
 
-export type VisualCueAnchor =
+export type VisualCueAnchorV1 =
   | { wordIndex: number }
   | { phrase: string; occurrence: number };
 
-export interface AuthoredVisualBeat {
+export type VisualCueAnchorV2 =
+  | { frameStart: true }
+  | VisualCueAnchorV1;
+
+export type VisualCoverageEnd =
+  | "next-state"
+  | "voice-end"
+  | "frame-end"
+  | { cue: VisualCueAnchorV2 };
+
+export interface AuthoredVisualBeatV1 {
   id: string;
   text: string;
-  cue: VisualCueAnchor;
+  cue: VisualCueAnchorV1;
   sourceRefs?: string[];
   workflowStep?: number;
   tolerance?: Partial<VisualBeatTolerance>;
 }
 
-export interface AuthoredVisualFrame {
+export interface AuthoredVisualBeatV2 {
+  id: string;
+  text: string;
+  role: VisualSemanticRole;
+  cue: VisualCueAnchorV2;
+  coverage?: { until?: VisualCoverageEnd };
+  sourceRefs?: string[];
+  workflowStep?: number;
+  tolerance?: Partial<VisualBeatTolerance>;
+}
+
+export interface AuthoredCoverageExemption {
+  id: string;
+  from: VisualCueAnchorV2;
+  until: VisualCoverageEnd;
+  reason: string;
+  approvedBy: string;
+}
+
+export interface AuthoredVisualFrameV1 {
   kind?: "focal" | "workflow" | "comparison" | "sequence";
-  beats: AuthoredVisualBeat[];
+  beats: AuthoredVisualBeatV1[];
 }
 
-export interface VisualBeatSpec {
+export interface AuthoredVisualFrameV2 {
+  kind?: AuthoredVisualFrameV1["kind"];
+  beats: AuthoredVisualBeatV2[];
+  coverageExemptions?: AuthoredCoverageExemption[];
+}
+
+export interface VisualBeatSpecV1 {
   version: 1;
-  frames: Record<string, AuthoredVisualFrame>;
+  frames: Record<string, AuthoredVisualFrameV1>;
 }
 
-export interface ResolvedVisualBeat {
+export interface VisualBeatSpecV2 {
+  version: 2;
+  frames: Record<string, AuthoredVisualFrameV2>;
+}
+
+export type VisualBeatSpec = VisualBeatSpecV1 | VisualBeatSpecV2;
+export type VisualCueAnchor = VisualCueAnchorV1 | VisualCueAnchorV2;
+
+/** @deprecated Use the versioned authored beat types. */
+export type AuthoredVisualBeat = AuthoredVisualBeatV1;
+/** @deprecated Use the versioned authored frame types. */
+export type AuthoredVisualFrame = AuthoredVisualFrameV1;
+
+export interface ResolvedVisualBeatV1 {
+  version: 1;
   id: string;
   text: string;
   start: number;
@@ -59,17 +110,47 @@ export interface ResolvedVisualBeat {
   tolerance: VisualBeatTolerance;
 }
 
+export interface ResolvedVisualStateV2 {
+  version: 2;
+  id: string;
+  text: string;
+  role: VisualSemanticRole;
+  start: number;
+  end: number;
+  cueWordIndex?: number;
+  cueText: string;
+  sourceRefs: string[];
+  workflowStep?: number;
+  tolerance: VisualBeatTolerance;
+}
+
+export interface ResolvedCoverageExemption {
+  id: string;
+  start: number;
+  end: number;
+  reason: string;
+  approvedBy: string;
+}
+
+export type ResolvedVisualBeat =
+  | ResolvedVisualBeatV1
+  | ResolvedVisualStateV2;
+
 export interface VisualSyncConfig {
   mode?: VisualSyncMode;
+  coverageMode?: VisualCoverageMode;
   maxLead?: number;
   maxLag?: number;
+  maxUncoveredGap?: number;
   minLanding?: number;
 }
 
 export interface ResolvedVisualSyncPolicy {
   mode: VisualSyncMode;
+  coverageMode: VisualCoverageMode;
   maxLead: number;
   maxLag: number;
+  maxUncoveredGap: number;
   minLanding: number;
 }
 
