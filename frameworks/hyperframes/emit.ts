@@ -25,6 +25,7 @@ import type {
   VideoConfig,
   VisualBindingManifest,
   VisualBindingV1,
+  VisualBindingV2,
 } from "../../engine/types.ts";
 import {
   captureVoiceWavSnapshots,
@@ -32,6 +33,7 @@ import {
 } from "../../engine/voice_assets.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { resolveVisualSyncPolicy } from "../../engine/plan.ts";
+import { digestAuthoredInputs, hashCoveragePlan } from "../../engine/visual_evidence.ts";
 import { prepareFrameVisualTiming } from "./visual_timing.ts";
 import {
   extractCompositionTemplate,
@@ -326,22 +328,23 @@ export function preflight(
     : captureVoiceWavSnapshots(voiceSourceDir, voicePaths);
   validateVoiceAssets(sourceDir, voicePaths, { allowMissing: true });
   const mode = resolveVisualSyncPolicy(config).mode;
-  const preparedFrames = plan.frames.map((frame) => {
-    const documentPath = `compositions/frames/${frame.slug}.html`;
-    const authoredHtml = readFileSync(
-      join(outputDir, "compositions", "frames", `${frame.slug}.html`),
-      "utf8",
-    );
+  const authoredInputs = plan.frames.map((frame) => {
+    const relativePath = `compositions/frames/${frame.slug}.html`;
+    const absolutePath = join(outputDir, "compositions", "frames", `${frame.slug}.html`);
+    return { frame, relativePath, bytes: readFileSync(absolutePath) };
+  });
+  const preparedFrames = authoredInputs.map(({ frame, relativePath, bytes }) => {
+    const authoredHtml = bytes.toString("utf8");
     const sanitizedHtml = sanitizeCompositionTemplate(
       authoredHtml,
       frame.slug,
       gsapSrc,
-      documentPath,
+      relativePath,
     );
     const prepared = prepareFrameVisualTiming({
       frame,
       authoredHtml: sanitizedHtml,
-      documentPath,
+      documentPath: relativePath,
       mode,
     });
     return {
@@ -352,22 +355,42 @@ export function preflight(
         : { frameSlug: frame.slug, authoredDuration: prepared.authoredDuration },
     };
   });
-  const bindings: VisualBindingV1[] = preparedFrames.flatMap((frame) => frame.bindings).map((binding) => ({
-    frameSlug: binding.frameSlug,
-    beatId: binding.beatId,
-    target: binding.target,
-    revealStart: binding.revealStart,
-    revealDuration: binding.revealDuration,
-    source: binding.source === "static" ? "declarative" : binding.source,
-    ...(binding.authoredDuration === undefined ? {} : { authoredDuration: binding.authoredDuration }),
-    ...(binding.outerDuration === undefined ? {} : { outerDuration: binding.outerDuration }),
-  }));
-  const manifest: VisualBindingManifest = {
-    version: 1,
-    framework: "hyperframes",
-    bindings,
-    frames: preparedFrames.flatMap((frame) => frame.duration ? [frame.duration] : []),
-  };
+  const hasCoverageV2 = plan.frames.some((frame) => frame.visualSpecVersion === 2);
+  const frames = preparedFrames.flatMap((frame) => frame.duration ? [frame.duration] : []);
+  let manifest: VisualBindingManifest;
+  if (hasCoverageV2) {
+    const bindings = preparedFrames
+      .flatMap((frame) => frame.bindings)
+      .filter((binding): binding is VisualBindingV2 => "coverageStart" in binding && "coverageEnd" in binding);
+    manifest = {
+      version: 2,
+      framework: "hyperframes",
+      planSha256: hashCoveragePlan(plan),
+      authoredInputs: digestAuthoredInputs(authoredInputs.map(({ relativePath, bytes }) => ({
+        path: relativePath,
+        bytes,
+      }))),
+      bindings,
+      frames,
+    };
+  } else {
+    const bindings: VisualBindingV1[] = preparedFrames.flatMap((frame) => frame.bindings).map((binding) => ({
+      frameSlug: binding.frameSlug,
+      beatId: binding.beatId,
+      target: binding.target,
+      revealStart: binding.revealStart,
+      revealDuration: binding.revealDuration,
+      source: binding.source === "static" ? "declarative" : binding.source,
+      ...(binding.authoredDuration === undefined ? {} : { authoredDuration: binding.authoredDuration }),
+      ...(binding.outerDuration === undefined ? {} : { outerDuration: binding.outerDuration }),
+    }));
+    manifest = {
+      version: 1,
+      framework: "hyperframes",
+      bindings,
+      frames,
+    };
+  }
   return {
     embeddedFrameTemplates: preparedFrames.map((frame) => frame.template),
     bindingManifest: manifest,

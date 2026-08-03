@@ -200,6 +200,16 @@ function createCoverageProject(): { project: WorkflowProject; adapter: Framework
       }],
     }])),
   }, null, 2)}\n`);
+  for (const slug of Object.values(config.slugs) as string[]) {
+    const framePath = join(project.outputDir, "compositions", "frames", `${slug}.html`);
+    writeFileSync(
+      framePath,
+      readFileSync(framePath, "utf8").replace(
+        `${slug}</div>`,
+        `<article id="${slug}-opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article>${slug}</div>`,
+      ),
+    );
+  }
 
   const base = getAdapter("hyperframes");
   const adapter: FrameworkAdapter = {
@@ -287,6 +297,92 @@ function mutateVisualBeatsEnd(project: WorkflowProject): void {
   visualBeats.frames["01-intro"].beats[0].coverage.until = "voice-end";
   writeFileSync(path, `${JSON.stringify(visualBeats, null, 2)}\n`);
 }
+
+function addPlannedCoverageFrame(project: WorkflowProject): void {
+  const metaPath = join(project.sharedDir, "audio_meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  meta.voices.push({
+    id: "second",
+    path: "assets/voice/second.wav",
+    duration_s: 1,
+    words: [{ text: "Second", start: 0, end: 1 }],
+  });
+  writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "assets", "voice", "second.wav"), ONE_SECOND_WAV);
+
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.slugs.second = "04-second";
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  const visualBeatsPath = join(project.sharedDir, "visual_beats.json");
+  const visualBeats = JSON.parse(readFileSync(visualBeatsPath, "utf8"));
+  visualBeats.frames["04-second"] = {
+    beats: [{
+      id: "opening",
+      text: "Second opening semantic state",
+      role: "focal",
+      cue: { frameStart: true },
+      coverage: { until: "frame-end" },
+    }],
+  };
+  writeFileSync(visualBeatsPath, `${JSON.stringify(visualBeats, null, 2)}\n`);
+
+  const framePath = join(project.outputDir, "compositions", "frames", "04-second.html");
+  writeFileSync(framePath, `<template data-composition-id="04-second">
+<div data-composition-id="04-second" data-frame-theme="light" data-width="1920" data-height="1080" data-duration="1"><article id="04-second-opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article></div>
+<script src="${DEFAULT_GSAP_SRC}"></script>
+<script>window.__timelines = window.__timelines || {}; window.__timelines["04-second"] = gsap.timeline({ paused: true });</script>
+</template>\n`);
+}
+
+test("HyperFrames full build emits fresh manifest v2 and rejects frame mutation", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const manifest = JSON.parse(readFileSync(join(project.outputDir, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.version, 2);
+    assert.equal(manifest.framework, "hyperframes");
+    assert.match(manifest.planSha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(manifest.authoredInputs.map(({ path }: { path: string }) => path), [
+      "compositions/frames/01-intro.html",
+      "compositions/frames/02-details.html",
+      "compositions/frames/03-recap.html",
+    ]);
+    assert.equal(captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    })).code, 0);
+
+    appendFileSync(
+      join(project.outputDir, "compositions", "frames", "01-intro.html"),
+      "\n<!-- semantic mutation -->\n",
+    );
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /compositions\/frames\/01-intro\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames verify rejects a newly planned frame source set", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    addPlannedCoverageFrame(project);
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /compositions\/frames\/04-second\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
 
 test("verify rejects stale coverage plan and authored-source evidence", () => {
   const { project, adapter } = createCoverageProject();

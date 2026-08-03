@@ -67,6 +67,49 @@ function visualPlan() {
   return plan;
 }
 
+function coveragePlan() {
+  const plan = makePlan();
+  plan.totalDuration = 23.08;
+  plan.frames = [{
+    ...plan.frames[0],
+    voiceDur: 22.08,
+    frameDur: 23.08,
+    words: [
+      { text: "A", start: 0.07, end: 0.12 },
+      { text: "solution", start: 18.26, end: 18.8 },
+    ],
+    visualSpecVersion: 2,
+    visualKind: "focal",
+    visualBeats: [
+      {
+        version: 2,
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        start: 0,
+        end: 18.26,
+        cueText: "<frame-start>",
+        sourceRefs: [],
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+      {
+        version: 2,
+        id: "solution",
+        text: "Solution semantic state",
+        role: "focal",
+        start: 18.26,
+        end: 23.08,
+        cueWordIndex: 1,
+        cueText: "solution",
+        sourceRefs: [],
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+    ],
+  }];
+  plan.captionGroups = [plan.captionGroups[0]];
+  return plan;
+}
+
 function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
   return `<!doctype html>
 <html><body>
@@ -119,6 +162,34 @@ test("preflight finalizes declarative timing after a transported authored contro
 
     assert.ok(helper >= 0 && helper < controller, "generated helper must initialize before authored controller");
     assert.ok(controller < finalizer, "generated declarative timing must finalize after authored controller");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames emits manifest v2 with plan and raw frame digests", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = coveragePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="22.08"><article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article><article id="solution" data-md2vid-beat="solution" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">Solution</article></div>`,
+      ),
+    );
+
+    const manifest = preflight(plan, shared, output, {}).bindingManifest;
+
+    assert.equal(manifest?.version, 2);
+    assert.match(manifest?.version === 2 ? manifest.planSha256 : "", /^[a-f0-9]{64}$/);
+    assert.deepEqual(manifest?.version === 2 ? manifest.authoredInputs.map(({ path }) => path) : [], [
+      "compositions/frames/01-a.html",
+    ]);
+    assert.match(manifest?.version === 2 ? manifest.authoredInputs[0]?.sha256 ?? "" : "", /^[a-f0-9]{64}$/);
+    assert.equal(manifest?.version === 2 ? manifest.bindings[0]?.coverageEnd : undefined, 18.26);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
