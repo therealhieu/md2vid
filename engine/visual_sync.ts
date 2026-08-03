@@ -105,14 +105,17 @@ export function verifyVisualSync(input: {
     ));
   }
 
-  if (revealEnabled) {
+  if (revealEnabled || coverageEnabled) {
+    const pushDurationProblem = revealEnabled
+      ? pushReveal
+      : (msg: string): void => { findings.push({ level: coverageLevel, msg }); };
     for (const evidence of manifest.frames ?? []) {
       if (!frames.has(evidence.frameSlug)) {
-        pushReveal(`frame duration evidence references unknown frame "${evidence.frameSlug}"`);
+        pushDurationProblem(`frame duration evidence references unknown frame "${evidence.frameSlug}"`);
         continue;
       }
       if (durationEvidence.has(evidence.frameSlug)) {
-        pushReveal(`duplicate frame duration evidence for frame "${evidence.frameSlug}"`);
+        pushDurationProblem(`duplicate frame duration evidence for frame "${evidence.frameSlug}"`);
         continue;
       }
       durationEvidence.set(evidence.frameSlug, evidence);
@@ -165,6 +168,12 @@ export function verifyVisualSync(input: {
       if (landing < input.policy.minLanding) {
         pushReveal(formatLandingFinding(frame, beat, binding, landing, input.policy.minLanding));
       }
+    }
+
+    if (
+      validRevealTiming &&
+      (revealEnabled || (coverageEnabled && manifest.version === 2 && frame.visualSpecVersion === 2))
+    ) {
       const existingEvidence = durationEvidence.get(frame.slug) ?? { frameSlug: frame.slug };
       if (existingEvidence.authoredDuration === undefined && binding.authoredDuration !== undefined) {
         existingEvidence.authoredDuration = binding.authoredDuration;
@@ -210,13 +219,17 @@ export function verifyVisualSync(input: {
     ]);
   }
 
-  if (revealEnabled) {
-    for (const frame of input.plan.frames) {
+  if (revealEnabled || coverageEnabled) {
+    const durationFrames = revealEnabled ? input.plan.frames : coverageFrames;
+    const durationLevel = revealEnabled ? revealLevel : coverageLevel;
+    for (const frame of durationFrames) {
       if (!frame.visualBeats?.length) continue;
       const evidence = durationEvidence.get(frame.slug);
-      if (evidence) appendDurationFindings(findings, revealLevel, frame, evidence, durationTolerance, input.fps);
+      if (evidence) appendDurationFindings(findings, durationLevel, frame, evidence, durationTolerance, input.fps);
     }
+  }
 
+  if (revealEnabled) {
     for (const { frame, beat, key } of planned) {
       if ((byKey.get(key) ?? []).length === 0) {
         pushReveal(`frame "${frame.slug}" beat "${beat.id}" has no visual binding`);

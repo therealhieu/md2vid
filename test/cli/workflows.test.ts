@@ -211,17 +211,7 @@ function createCoverageProject(): { project: WorkflowProject; adapter: Framework
     );
   }
 
-  const base = getAdapter("hyperframes");
-  const adapter: FrameworkAdapter = {
-    ...base,
-    name: "fixture",
-    collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.flatMap((frame) => {
-      const path = `compositions/frames/${frame.slug}.html`;
-      const absolutePath = join(videoDir, "compositions", "frames", `${frame.slug}.html`);
-      return existsSync(absolutePath) ? [{ path, bytes: readFileSync(absolutePath) }] : [];
-    }),
-  };
-  return { project, adapter };
+  return { project, adapter: getAdapter("hyperframes") };
 }
 
 function createRemotionCoverageProject(): { project: WorkflowProject; adapter: FrameworkAdapter } {
@@ -384,6 +374,27 @@ test("HyperFrames verify rejects a newly planned frame source set", () => {
   }
 });
 
+test("HyperFrames coverage-only verify rejects post-build emitted host duration mutation", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const indexPath = join(project.outputDir, "index.html");
+    const index = readFileSync(indexPath, "utf8");
+    const mutated = index.replace(/(id="el-01-intro"[^>]*data-duration=")([^"]+)(")/, "$10.5$3");
+    assert.notEqual(mutated, index, "test must mutate the emitted 01-intro host duration");
+    writeFileSync(indexPath, mutated);
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /outer duration/);
+    assert.match(result.stderr, /frame "01-intro"/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
 test("verify rejects stale coverage plan and authored-source evidence", () => {
   const { project, adapter } = createCoverageProject();
   try {
@@ -429,6 +440,63 @@ test("verify reports missing HyperFrames authored frame input as stale visual ev
     assert.match(result.stderr, /stale_visual_evidence/);
     assert.match(result.stderr, /missing authored input compositions\/frames\/01-intro\.html/);
     assert.match(result.stderr, /md2vid build/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames authored frame input collection rejects symlinked files and parent directories", () => {
+  for (const kind of ["file", "parent"] as const) {
+    const { project, adapter } = createCoverageProject();
+    const externalRoot = mkdtempSync(join(tmpdir(), `md2vid-hf-external-${kind}-`));
+    try {
+      const planning = createProjectPlan(project.outputDir);
+      assert.ok(adapter.collectVisualBindingInputs);
+      const framePath = join(project.outputDir, "compositions", "frames", "01-intro.html");
+      if (kind === "file") {
+        const externalFrame = join(externalRoot, "01-intro.html");
+        writeFileSync(externalFrame, readFileSync(framePath));
+        rmSync(framePath);
+        symlinkSync(externalFrame, framePath);
+      } else {
+        const framesPath = join(project.outputDir, "compositions", "frames");
+        const externalFrames = join(externalRoot, "frames");
+        mkdirSync(externalFrames, { recursive: true });
+        for (const slug of ["01-intro", "02-details", "03-recap"]) {
+          writeFileSync(join(externalFrames, `${slug}.html`), readFileSync(join(framesPath, `${slug}.html`)));
+        }
+        rmSync(framesPath, { recursive: true, force: true });
+        symlinkSync(externalFrames, framesPath);
+      }
+
+      assert.throws(
+        () => adapter.collectVisualBindingInputs!({
+          plan: planning.plan,
+          videoDir: planning.layout.outputDir,
+          sharedDir: planning.layout.sharedDir,
+          config: planning.adapterConfig,
+        }),
+        /compositions\/frames.*symlink|compositions\/frames\/01-intro\.html.*symlink/i,
+      );
+      const result = captureConsole(() => buildRun([project.outputDir]));
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /symlink/i);
+      assert.doesNotMatch(result.stderr, /ENOENT/);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("HyperFrames full build reports a missing planned authored frame input", () => {
+  const { project } = createCoverageProject();
+  try {
+    rmSync(join(project.outputDir, "compositions", "frames", "01-intro.html"));
+    const result = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /missing HyperFrames authored frame input compositions\/frames\/01-intro\.html/);
     assert.doesNotMatch(result.stderr, /ENOENT/);
   } finally {
     rmSync(project.root, { recursive: true, force: true });

@@ -123,6 +123,19 @@ function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
 `;
 }
 
+function coverageOnlyConfig() {
+  return {
+    visualSync: {
+      mode: "off" as const,
+      coverageMode: "required" as const,
+      maxLead: 0.25,
+      maxLag: 0.75,
+      maxUncoveredGap: 0.5,
+      minLanding: 0.5,
+    },
+  };
+}
+
 function setup() {
   const tmp = mkdtempSync(join(tmpdir(), "emit-"));
   const shared = join(tmp, "shared");
@@ -192,6 +205,49 @@ test("HyperFrames emits manifest v2 with plan and raw frame digests", () => {
     assert.equal(manifest?.version === 2 ? manifest.bindings[0]?.coverageEnd : undefined, 18.26);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames coverage-only preflight remains strict for v2 declarations", () => {
+  const valid = setup();
+  try {
+    const plan = coveragePlan();
+    writeFileSync(join(valid.shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    writeFileSync(
+      join(valid.output, "compositions", "frames", "01-a.html"),
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="22.08"><article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article><article id="solution" data-md2vid-beat="solution" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">Solution</article></div>`,
+      ),
+    );
+    const manifest = preflight(plan, valid.shared, valid.output, coverageOnlyConfig()).bindingManifest;
+    assert.equal(manifest?.version, 2);
+    assert.equal(manifest?.version === 2 ? manifest.bindings.length : 0, 2);
+  } finally {
+    rmSync(valid.tmp, { recursive: true, force: true });
+  }
+
+  for (const [name, replacement, expected] of [
+    ["missing declarative planned marker", '<article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none">Opening</article>', /data-md2vid-coverage.*planned/],
+    ["invalid declarative planned marker", '<article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="typo">Opening</article>', /data-md2vid-coverage must be "planned"/],
+    ["invalid custom planned marker", '<article id="opening">Opening</article><script type="application/json" data-md2vid-custom-bindings>{"bindings":[{"beat":"opening","target":"#opening","method":"from","duration":0.2,"coverage":"typo"}]}</script>', /custom binding coverage must be "planned"/],
+  ] as const) {
+    const { tmp, shared, output } = setup();
+    try {
+      const plan = coveragePlan();
+      writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+      writeFileSync(
+        join(output, "compositions", "frames", "01-a.html"),
+        authoredFrame("01-a").replace(`data-duration="2"></div>`, `data-duration="22.08">${replacement}</div>`),
+      );
+      assert.throws(
+        () => preflight(plan, shared, output, coverageOnlyConfig()),
+        expected,
+        name,
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }
 });
 

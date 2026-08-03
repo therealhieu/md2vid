@@ -59,6 +59,10 @@ const ENTRANCES: Record<HyperframesEntranceToken, {
 
 const CUSTOM_METHODS = new Set<CustomMethod>(["from", "fromTo", "set"]);
 const SAFE_ID_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const VOID_ELEMENTS = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+  "param", "source", "track", "wbr",
+]);
 
 function serializeScriptData(value: unknown): string {
   const json = JSON.stringify(value) ?? "undefined";
@@ -100,6 +104,68 @@ function elementIds(tags: readonly HtmlTag[]): Map<string, HtmlTag[]> {
   return ids;
 }
 
+function renderedDescendantTags(tags: readonly HtmlTag[], root: HtmlTag | undefined): Set<HtmlTag> {
+  const rendered = new Set<HtmlTag>();
+  if (!root) return rendered;
+  const stack: HtmlTag[] = [];
+  let rootDepth: number | undefined;
+  let nestedTemplateDepth = 0;
+  for (const tag of tags) {
+    if (tag.closing) {
+      let start: HtmlTag | undefined;
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        const candidate = stack.pop();
+        if (candidate?.name === tag.name) {
+          start = candidate;
+          break;
+        }
+      }
+      if (start === root) rootDepth = undefined;
+      else if (rootDepth !== undefined && start?.name === "template" && nestedTemplateDepth > 0) {
+        nestedTemplateDepth -= 1;
+      }
+      continue;
+    }
+
+    const insideRoot = rootDepth !== undefined;
+    const insideNestedTemplate = nestedTemplateDepth > 0;
+    if (insideRoot && !insideNestedTemplate && tag !== root && tag.name !== "template") {
+      rendered.add(tag);
+    }
+    if (tag === root) {
+      rootDepth = stack.length + 1;
+    } else if (insideRoot && tag.name === "template" && !tag.selfClosing) {
+      nestedTemplateDepth += 1;
+    }
+    if (!tag.selfClosing && !VOID_ELEMENTS.has(tag.name)) stack.push(tag);
+  }
+  return rendered;
+}
+
+function validateCoverageAttributes(
+  tags: readonly HtmlTag[],
+  beats: ReadonlyMap<string, ResolvedVisualBeat>,
+  mode: VisualSyncMode,
+  documentPath: string,
+): boolean {
+  for (const tag of tags) {
+    if (tag.closing) continue;
+    const coverage = htmlAttribute(tag, "data-md2vid-coverage");
+    if (coverage === undefined) continue;
+    if (coverage !== "planned") {
+      return fail(mode, documentPath, `data-md2vid-coverage must be "planned"`);
+    }
+    const beatId = htmlAttribute(tag, "data-md2vid-beat");
+    if (beatId === undefined) {
+      return fail(mode, documentPath, `data-md2vid-coverage must be attached to a data-md2vid-beat target`);
+    }
+    if (!beats.has(beatId)) {
+      return fail(mode, documentPath, `data-md2vid-coverage references unknown beat "${beatId}"`);
+    }
+  }
+  return true;
+}
+
 function readDuration(
   root: HtmlTag | undefined,
   mode: VisualSyncMode,
@@ -128,6 +194,7 @@ function parseCustomDeclarations(
   html: string,
   beats: ReadonlyMap<string, ResolvedVisualBeat>,
   ids: ReadonlyMap<string, readonly HtmlTag[]>,
+  renderedTags: ReadonlySet<HtmlTag>,
   frame: PlanFrame,
   mode: VisualSyncMode,
   documentPath: string,
@@ -185,8 +252,12 @@ function parseCustomDeclarations(
       return fail(mode, documentPath, `custom binding target must be an ID selector (got ${serializeScriptData(target)})`);
     }
     const id = target.slice(1);
-    if ((ids.get(id)?.length ?? 0) !== 1) {
+    const matches = ids.get(id) ?? [];
+    if (matches.length !== 1) {
       return fail(mode, documentPath, `custom binding target "${target}" does not match exactly one element id`);
+    }
+    if (!renderedTags.has(matches[0])) {
+      return fail(mode, documentPath, `custom binding target "${target}" must be a rendered descendant of composition root`);
     }
     if (typeof method !== "string" || !CUSTOM_METHODS.has(method as CustomMethod)) {
       return fail(mode, documentPath, `unsupported custom method "${String(method)}"`);
@@ -258,6 +329,7 @@ function readDeclarativeBindings(
   tags: readonly HtmlTag[],
   beats: ReadonlyMap<string, ResolvedVisualBeat>,
   ids: ReadonlyMap<string, readonly HtmlTag[]>,
+  renderedTags: ReadonlySet<HtmlTag>,
   frame: PlanFrame,
   mode: VisualSyncMode,
   documentPath: string,
@@ -275,8 +347,12 @@ function readDeclarativeBindings(
     if (id === undefined || id.length === 0 || !SAFE_ID_SELECTOR.test(id)) {
       return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a safe ID selector`);
     }
-    if ((ids.get(id)?.length ?? 0) !== 1) {
+    const matches = ids.get(id) ?? [];
+    if (matches.length !== 1) {
       return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a unique non-empty id that matches exactly one element id`);
+    }
+    if (!renderedTags.has(tag)) {
+      return fail(mode, documentPath, `declarative visual target for beat "${beatId}" must be a rendered descendant of composition root`);
     }
     const coverage = htmlAttribute(tag, "data-md2vid-coverage");
     if (coverage !== undefined && coverage !== "planned") {
@@ -337,6 +413,7 @@ export function prepareFrameVisualTiming(input: {
   const hasTimingDeclaration = initialTags.some((tag) =>
     !tag.closing && (
       htmlAttribute(tag, "data-md2vid-beat") !== undefined
+      || htmlAttribute(tag, "data-md2vid-coverage") !== undefined
       || hasHtmlAttribute(tag, "data-md2vid-custom-bindings")
     ),
   );
@@ -361,14 +438,19 @@ export function prepareFrameVisualTiming(input: {
     return { html: input.authoredHtml, bindings: [], authoredDuration };
   }
   const ids = elementIds(tags);
+  const renderedTags = renderedDescendantTags(tags, root);
   const beats = new Map((frame.visualBeats ?? []).map((beat) => [beat.id, beat]));
-  const declarative = readDeclarativeBindings(tags, beats, ids, frame, input.mode, input.documentPath);
+  if (!validateCoverageAttributes(tags, beats, input.mode, input.documentPath)) {
+    return { html: input.authoredHtml, bindings: [] };
+  }
+  const declarative = readDeclarativeBindings(tags, beats, ids, renderedTags, frame, input.mode, input.documentPath);
   if (declarative === false) return { html: input.authoredHtml, bindings: [] };
   const customDeclarations = parseCustomDeclarations(
     tags,
     body,
     beats,
     ids,
+    renderedTags,
     frame,
     input.mode,
     input.documentPath,
@@ -542,9 +624,6 @@ export function buildHyperframesTimingRuntime(
         var at = options && Object.prototype.hasOwnProperty.call(options, "at") ? options.at : "coverage-end";
         if (at !== "coverage-end") {
           throw new Error("md2vid exit supports only coverage-end");
-        }
-        if (beat.end <= ${frame.voiceDur}) {
-          timeline.set(target, { autoAlpha: 0 }, beat.end);
         }
         return timeline;
       }

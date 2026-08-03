@@ -247,13 +247,13 @@ test("HyperFrames smoke derives semantic coverage seek samples from manifest int
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
   assert.match(source, /coverageStart/);
   assert.match(source, /coverageEnd/);
-  assert.match(source, /binding\.coverageStart - 0\.01/);
-  assert.match(source, /binding\.coverageEnd - 0\.01/);
+  assert.match(source, /firstFrameAtOrAfter\(binding\.coverageStart\)/);
+  assert.match(source, /lastFrameBefore\(binding\.coverageEnd\)/);
   assert.match(source, /direct.*sequential.*reverse/s);
   assert.match(source, /voiceDur.*frameDur|frameDur.*voiceDur/s);
 });
 
-test("HyperFrames smoke coverage probes include before start inside before-end and end", () => {
+test("HyperFrames smoke coverage probes include every v2 binding", () => {
   const checks = deriveSmokeCoverageChecks(
     [
       { slug: "01-smoke", start: 0, frameDur: 4 },
@@ -261,11 +261,13 @@ test("HyperFrames smoke coverage probes include before start inside before-end a
     ],
     [
       { frameSlug: "01-smoke", target: "#s01-future", coverageStart: 1, coverageEnd: 4 },
+      { frameSlug: "01-smoke", target: "#s01-extra", coverageStart: 2, coverageEnd: 3 },
       { frameSlug: "02-smoke", target: "#s02-future", coverageStart: 1.5, coverageEnd: 3 },
     ],
     100,
   );
 
+  assert.deepEqual(checks.map((check) => check.target), ["#s01-future", "#s01-extra", "#s02-future"]);
   assert.deepEqual(checks[0].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
     ["before", 0.99, 0.99, false],
     ["start", 1, 1, true],
@@ -273,13 +275,36 @@ test("HyperFrames smoke coverage probes include before start inside before-end a
     ["before-end", 3.99, 3.99, true],
     ["end", 4, 4, true],
   ]);
-  assert.deepEqual(checks[1].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
+  assert.deepEqual(checks[2].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
     ["before", 1.49, 6.49, false],
     ["start", 1.5, 6.5, true],
     ["inside", 1.6, 6.6, true],
     ["before-end", 2.99, 7.99, true],
     ["end", 3, 8, false],
   ]);
+});
+
+test("HyperFrames smoke coverage probes derive expectations from quantized seek time", () => {
+  for (const fps of [24, 30, 60]) {
+    const [check] = deriveSmokeCoverageChecks(
+      [{ slug: "01-smoke", start: 0, frameDur: 1 }],
+      [{ frameSlug: "01-smoke", target: "#fractional", coverageStart: 0.13, coverageEnd: 0.57 }],
+      fps,
+    );
+    const byPhase = new Map(check.samples.map((sample) => [sample.phase, sample]));
+    assert.equal(byPhase.get("before")?.expectedVisible, false, `${fps} before`);
+    assert.equal(byPhase.get("start")?.expectedVisible, true, `${fps} quantized start`);
+    assert.equal(byPhase.get("inside")?.expectedVisible, true, `${fps} inside`);
+    assert.equal(byPhase.get("before-end")?.expectedVisible, true, `${fps} before-end`);
+    assert.equal(byPhase.get("end")?.expectedVisible, false, `${fps} end`);
+
+    const actualExpectations = new Map<string, boolean>();
+    for (const sample of check.samples) {
+      const previous = actualExpectations.get(sample.globalTime.toFixed(6));
+      if (previous !== undefined) assert.equal(previous, sample.expectedVisible, `${fps} conflicting ${sample.globalTime}`);
+      actualExpectations.set(sample.globalTime.toFixed(6), sample.expectedVisible);
+    }
+  }
 });
 
 test("HyperFrames smoke derives each cue probe from generated binding evidence", () => {
@@ -426,7 +451,7 @@ test("retained Kokoro smoke reserves a full landing after its first transcribed 
 test("HyperFrames smoke derives assertions from frame-quantized seeks", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
   assert.match(source, /function frameSafeSeekTime/);
-  assert.match(source, /Math\.floor\(time \* fps\) \/ fps/);
+  assert.match(source, /Math\.floor\(\(time \+ 1e-9\) \* fps\) \/ fps/);
 });
 
 test("HyperFrames smoke samples the first-frame hidden state before its generated cue", () => {

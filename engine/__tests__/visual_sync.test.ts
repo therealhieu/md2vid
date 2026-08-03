@@ -636,6 +636,25 @@ test("reports a final reveal that violates the voice landing interval quantitati
   assert.match(landing.msg, /by 0\.700s/);
 });
 
+test("coverage-only required mode validates authored and observed durations", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan(),
+    manifest: makeV2Manifest([
+      { ...focalBinding("opening", 0, 18.26), authoredDuration: 0.5, outerDuration: 0.5 },
+      { ...focalBinding("solution", 18.26, 23.08), authoredDuration: 0.5, outerDuration: 0.5 },
+    ]),
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 30,
+  });
+
+  assert.ok(findings.some((finding) =>
+    finding.level === "error" && finding.msg.includes("authored duration")
+  ), JSON.stringify(findings));
+  assert.ok(findings.some((finding) =>
+    finding.level === "error" && finding.msg.includes("outer duration")
+  ), JSON.stringify(findings));
+});
+
 test("uses the active FPS frame quantization tolerance for authored and outer durations", () => {
   for (const fps of [24, 30, 60]) {
     const tolerance = Math.max(0.001, 0.5 / fps);

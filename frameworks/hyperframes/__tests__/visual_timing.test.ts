@@ -243,6 +243,46 @@ test("v2 semantic targets require planned declarative coverage", () => {
   }), /unknown beat "shell"/);
 });
 
+test("orphan coverage markers cannot create or imply semantic bindings", () => {
+  for (const authoredHtml of [
+    coverageFrameHtml('<aside id="shell" data-md2vid-coverage="planned">Shell</aside>'),
+    coverageFrameHtml('<aside id="shell" data-md2vid-coverage="typo">Shell</aside>'),
+  ]) {
+    assert.throws(() => prepareFrameVisualTiming({
+      frame: FRAME_V2,
+      authoredHtml,
+      documentPath: "compositions/frames/overview.html",
+      mode: "required",
+    }), /data-md2vid-coverage.*data-md2vid-beat|data-md2vid-coverage must be "planned"/);
+  }
+});
+
+test("declarative semantic targets must be rendered composition-root descendants", () => {
+  const cases = [
+    coverageFrameHtml('<template><article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article></template>'),
+    `<template data-composition-id="overview">
+      <article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article>
+      <div id="overview-root" data-composition-id="overview" data-duration="22.08"></div>
+    </template>`,
+  ];
+  for (const authoredHtml of cases) {
+    assert.throws(() => prepareFrameVisualTiming({
+      frame: FRAME_V2,
+      authoredHtml,
+      documentPath: "compositions/frames/overview.html",
+      mode: "required",
+    }), /rendered descendant of composition root/);
+  }
+
+  const prepared = prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml(AUTHORED_V2),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  });
+  assert.equal(prepared.bindings.length, 3);
+});
+
 test("emits v2 coverage evidence for planned custom bindings", () => {
   const result = prepareFrameVisualTiming({
     frame: FRAME_V2,
@@ -310,7 +350,9 @@ test("v2 custom bindings require planned coverage and owned exits", () => {
   };
   timing.from(timeline, "opening", "#opening", { duration: 0.7 });
   timing.exit(timeline, "opening", "#opening", { at: "coverage-end" });
-  assert.ok(calls.some((call) => call.target === "#opening" && call.at === 18.26 && call.vars.autoAlpha === 0));
+  assert.equal(calls.filter((call) =>
+    call.target === "#opening" && call.at === 18.26 && call.vars.autoAlpha === 0
+  ).length, 1);
   assert.throws(() => timing.exit(timeline, "opening", "#other", { at: "coverage-end" }), /matching declaration/);
   assert.throws(() => timing.exit(timeline, "opening", "#opening", { at: "voice-end" }), /supports only coverage-end/);
 });

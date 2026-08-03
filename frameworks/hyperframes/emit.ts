@@ -34,6 +34,7 @@ import {
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
 import { resolveVisualSyncPolicy } from "../../engine/plan.ts";
 import { digestAuthoredInputs, hashCoveragePlan } from "../../engine/visual_evidence.ts";
+import { collectHyperframesAuthoredFrameInputs } from "./authored_inputs.ts";
 import { prepareFrameVisualTiming } from "./visual_timing.ts";
 import {
   extractCompositionTemplate,
@@ -327,13 +328,14 @@ export function preflight(
     ? [...voiceSnapshots]
     : captureVoiceWavSnapshots(voiceSourceDir, voicePaths);
   validateVoiceAssets(sourceDir, voicePaths, { allowMissing: true });
-  const mode = resolveVisualSyncPolicy(config).mode;
-  const authoredInputs = plan.frames.map((frame) => {
-    const relativePath = `compositions/frames/${frame.slug}.html`;
-    const absolutePath = join(outputDir, "compositions", "frames", `${frame.slug}.html`);
-    return { frame, relativePath, bytes: readFileSync(absolutePath) };
-  });
-  const preparedFrames = authoredInputs.map(({ frame, relativePath, bytes }) => {
+  const policy = resolveVisualSyncPolicy(config);
+  const mode = policy.mode === "required" || policy.coverageMode === "required"
+    ? "required"
+    : policy.mode === "warn" || policy.coverageMode === "warn"
+      ? "warn"
+      : "off";
+  const authoredInputs = collectHyperframesAuthoredFrameInputs(plan, outputDir, { missing: "throw" });
+  const preparedFrames = authoredInputs.map(({ frame, path: relativePath, bytes }) => {
     const authoredHtml = bytes.toString("utf8");
     const sanitizedHtml = sanitizeCompositionTemplate(
       authoredHtml,
@@ -366,8 +368,8 @@ export function preflight(
       version: 2,
       framework: "hyperframes",
       planSha256: hashCoveragePlan(plan),
-      authoredInputs: digestAuthoredInputs(authoredInputs.map(({ relativePath, bytes }) => ({
-        path: relativePath,
+      authoredInputs: digestAuthoredInputs(authoredInputs.map(({ path, bytes }) => ({
+        path,
         bytes,
       }))),
       bindings,

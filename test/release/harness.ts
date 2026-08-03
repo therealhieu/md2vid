@@ -1636,7 +1636,7 @@ export interface SmokeCoverageSample {
 }
 
 export interface SmokeCoverageCheck {
-  frameSlug: "01-smoke" | "02-smoke";
+  frameSlug: string;
   target: string;
   coverageStart: number;
   coverageEnd: number;
@@ -1687,40 +1687,53 @@ export function deriveSmokeCoverageChecks(
 ): SmokeCoverageCheck[] {
   assert.ok(Number.isFinite(fps) && fps > 0, `generated root FPS must be positive, got ${fps}`);
   const epsilon = 0.001;
-  return SMOKE_FRAME_PROBES.map((probe) => {
-    const frame = frames.find((candidate) => candidate.slug === probe.compositionId);
-    assert.ok(frame, `generated build plan is missing ${probe.compositionId}`);
-    const target = `#${probe.futureId}`;
-    const matches = bindings.filter((binding) =>
-      binding.frameSlug === probe.compositionId &&
-      binding.target === target &&
-      Number.isFinite(binding.coverageStart) &&
-      Number.isFinite(binding.coverageEnd)
+  const frameBySlug = new Map(frames.map((frame) => [frame.slug, frame]));
+  const roundTime = (value: number): number => Math.round(value * 1e9) / 1e9;
+  const coverageBindings = bindings.filter((binding) =>
+    Number.isFinite(binding.coverageStart) && Number.isFinite(binding.coverageEnd)
+  ) as Array<typeof bindings[number] & { coverageStart: number; coverageEnd: number }>;
+  return coverageBindings.map((binding) => {
+    const frame = frameBySlug.get(binding.frameSlug);
+    assert.ok(frame, `generated build plan is missing ${binding.frameSlug}`);
+    assert.ok(binding.coverageStart >= 0, `generated coverage start must be non-negative for ${binding.target}`);
+    assert.ok(binding.coverageEnd > binding.coverageStart, `generated coverage end must be after start for ${binding.target}`);
+    assert.ok(binding.coverageEnd <= frame.frameDur + epsilon, `generated coverage end must fit ${binding.frameSlug}`);
+    const quantizedLocal = (localTime: number): number => Math.max(
+      0,
+      Math.min(frameSafeSeekTime(frame.start + localTime, fps) - frame.start, frame.frameDur),
     );
-    assert.equal(matches.length, 1, `generated manifest-v2 evidence must contain exactly one ${probe.compositionId} ${target} coverage interval`);
-    const binding = matches[0] as typeof matches[number] & { coverageStart: number; coverageEnd: number };
-    assert.ok(binding.coverageStart >= 0, `generated coverage start must be non-negative for ${target}`);
-    assert.ok(binding.coverageEnd > binding.coverageStart, `generated coverage end must be after start for ${target}`);
-    assert.ok(binding.coverageEnd <= frame.frameDur + epsilon, `generated coverage end must fit ${probe.compositionId}`);
+    const firstFrameAtOrAfter = (localTime: number): number => Math.max(
+      0,
+      Math.min((Math.ceil((frame.start + localTime - 1e-9) * fps) / fps) - frame.start, frame.frameDur),
+    );
+    const lastFrameBefore = (localTime: number): number => Math.max(
+      0,
+      Math.min(((Math.ceil((frame.start + localTime - 1e-9) * fps) - 1) / fps) - frame.start, frame.frameDur),
+    );
+    const startSample = firstFrameAtOrAfter(binding.coverageStart);
+    const beforeSample = lastFrameBefore(binding.coverageStart);
+    const beforeEndSample = Math.max(startSample, lastFrameBefore(binding.coverageEnd));
+    const finalFrameEnd = Math.abs(binding.coverageEnd - frame.frameDur) < epsilon;
+    const endSample = finalFrameEnd ? frame.frameDur : firstFrameAtOrAfter(binding.coverageEnd);
     const intervalSamples = [
-      { phase: "before" as const, localTime: Math.max(0, binding.coverageStart - 0.01) },
-      { phase: "start" as const, localTime: binding.coverageStart },
-      { phase: "inside" as const, localTime: Math.min(binding.coverageEnd, binding.coverageStart + 0.1) },
-      { phase: "before-end" as const, localTime: Math.max(binding.coverageStart, binding.coverageEnd - 0.01) },
-      { phase: "end" as const, localTime: binding.coverageEnd },
+      { phase: "before" as const, localTime: roundTime(beforeSample) },
+      { phase: "start" as const, localTime: roundTime(startSample) },
+      { phase: "inside" as const, localTime: roundTime(Math.max(startSample, Math.min(beforeEndSample, firstFrameAtOrAfter(binding.coverageStart + 0.1)))) },
+      { phase: "before-end" as const, localTime: roundTime(beforeEndSample) },
+      { phase: "end" as const, localTime: roundTime(endSample) },
     ];
     return {
-      frameSlug: probe.compositionId,
-      target,
+      frameSlug: binding.frameSlug,
+      target: binding.target,
       coverageStart: binding.coverageStart,
       coverageEnd: binding.coverageEnd,
       samples: intervalSamples.map((sample) => {
-        const isFinalFrameEnd = Math.abs(binding.coverageEnd - frame.frameDur) < epsilon;
-        const expectedVisible = sample.localTime >= binding.coverageStart - epsilon &&
-          (sample.localTime < binding.coverageEnd - epsilon || isFinalFrameEnd);
+        const actualLocalTime = quantizedLocal(sample.localTime);
+        const expectedVisible = actualLocalTime >= binding.coverageStart - epsilon &&
+          (actualLocalTime < binding.coverageEnd - epsilon || (finalFrameEnd && actualLocalTime <= frame.frameDur + epsilon));
         return {
           ...sample,
-          globalTime: frameSafeSeekTime(frame.start + sample.localTime, fps),
+          globalTime: roundTime(frameSafeSeekTime(frame.start + sample.localTime, fps)),
           expectedVisible,
         };
       }),
@@ -1731,7 +1744,7 @@ export function deriveSmokeCoverageChecks(
 function frameSafeSeekTime(time: number, fps: number): number {
   assert.ok(Number.isFinite(time) && time >= 0, `seek time must be non-negative and finite, got ${time}`);
   assert.ok(Number.isFinite(fps) && fps > 0, `seek FPS must be positive and finite, got ${fps}`);
-  return Math.floor(time * fps) / fps;
+  return Math.floor((time + 1e-9) * fps) / fps;
 }
 
 function smokeSeekPoints(
@@ -2372,6 +2385,11 @@ async function assertHyperframesBrowserExecution(
       assert.deepEqual(sample.direct, sample.sequential, `${sample.target} direct/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
       assert.deepEqual(sample.reverse, sample.sequential, `${sample.target} reverse/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
       assert.equal(sample.direct.visible, sample.expectedVisible, `${sample.target} semantic visibility must match manifest evidence at ${sample.phase} ${sample.time}s`);
+      if (sample.expectedVisible) {
+        for (const [route, state] of Object.entries({ direct: sample.direct, sequential: sample.sequential, reverse: sample.reverse })) {
+          assert.ok(Number.parseFloat(state.opacity) > 0.01, `${sample.target} ${route} opacity must be nonzero at ${sample.phase} ${sample.time}s`);
+        }
+      }
     }
     for (const sample of execution.finalLandingSamples) {
       const frame = expectedFrameBySlug.get(sample.frameSlug)!;
