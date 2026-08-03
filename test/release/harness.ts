@@ -1454,6 +1454,66 @@ function restoreRetainedNarrationRequest(project: string, original: Buffer): voi
   writeFileSync(join(project, "audio_request.json"), original);
 }
 
+function commandDiagnostic(error: unknown): string {
+  const commandError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+  return [commandError.message, commandError.stdout, commandError.stderr]
+    .filter((value) => value !== undefined)
+    .map(String)
+    .join("\n");
+}
+
+function assertInstalledVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+  expectedPath: RegExp,
+): void {
+  try {
+    runInstalledCli(context, ["verify", "."], project);
+    assert.fail("stale visual evidence must reject installed md2vid verify");
+  } catch (error) {
+    const diagnostic = commandDiagnostic(error);
+    assert.match(diagnostic, /stale_visual_evidence/);
+    assert.match(diagnostic, expectedPath);
+    assert.match(diagnostic, /Run `md2vid build` to regenerate semantic visual evidence/);
+  }
+}
+
+function mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const framePath = join(project, "compositions", "frames", "01-smoke.html");
+  const original = readFileSync(framePath);
+  writeFileSync(framePath, `${original.toString("utf8")}\n<!-- stale visual evidence mutation -->\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input compositions\/frames\/01-smoke\.html/);
+  writeFileSync(framePath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
+function mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const registryPath = join(project, "visual_bindings.json");
+  const original = readFileSync(registryPath);
+  writeFileSync(registryPath, `${original.toString("utf8").trimEnd()}\n\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input visual_bindings\.json/);
+  writeFileSync(registryPath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
+function mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const sourcePath = join(project, "src", "Video.tsx");
+  const original = readFileSync(sourcePath);
+  writeFileSync(sourcePath, `${original.toString("utf8")}\n// stale visual evidence mutation\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input src\/Video\.tsx/);
+  writeFileSync(sourcePath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
 function stageFixtureSmokeFrame(
   project: string,
   frameSlug: "01-smoke" | "02-smoke",
@@ -2744,6 +2804,7 @@ export async function runFrameworkSmoke(
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence(context, project);
     const browserPath = runInstalledFromPath(
       context,
       ["hyperframes", "browser", "path"],
@@ -2863,6 +2924,8 @@ export async function runFrameworkSmoke(
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence(context, project);
+    mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence(context, project);
     await assertRemotionRuntimeProbe(context, project);
     const still = join(project, "out", "still.jpeg");
     const sourceWav = join(shared, "assets", "voice", "intro.wav");

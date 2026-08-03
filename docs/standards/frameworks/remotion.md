@@ -16,14 +16,15 @@ Both framework adapters consume the same neutral narration artifacts: `audio_req
 md2vid new <slug> --framework remotion
 cd <slug>
 npm install
+# source coverage → storyboard semantic coverage map → script
 # Review audio_request.json.example and author the spoken narration script.
 md2vid narration-check .        # before the neutral narration workflow synthesizes WAVs
 npm run transcribe               # unconditionally after synthesis
-# Author visual_beats.json against the transcribed WAV words.
-npm run plan                     # resolve beat anchors before scene authoring
-# Author and explicitly register beat-bound custom src/scenes/*.tsx.
+# Author visual_beats.json v2 with opening/body/final focal states for every narrated frame.
+npm run plan                     # resolve anchors, then inspect build/visual_timing.json intervals
+# Bind framework visibility in visual_bindings.json and authored src/scenes/*.tsx.
 npm run build
-npm run check
+npm run check                    # continuous verify before preview/manual semantic review or render
 npm run still      # fast render smoke
 npm run studio     # listening and visual review
 npm run render     # full MP4 only after review → out/video.mp4
@@ -38,9 +39,12 @@ Run all generated-project commands from the Remotion output directory. The insta
 Resolve neutral timing before scene authoring:
 
 ```text
-prepare/transcribe audio → author visual_beats.json v2 → npm run plan
-  → inspect resolved coverage intervals → author cue-bound scenes
-  → npm run build → continuous verify → review → render
+source coverage → storyboard semantic coverage map → script
+  → prepare/transcribe audio → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility in registry and scenes
+  → npm run build → continuous npm run check
+  → preview/manual semantic review → render
 ```
 
 Each output authors a static `visual_bindings.json` registry. Registry v2 records pure data for static and cue-bound targets, including `coverage: "planned"`. The adapter validates this pure data, produces normalized binding evidence, and never parses or executes arbitrary TSX to infer timing. Registry targets are consumed by the scene template rather than copied into a second cue array.

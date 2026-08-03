@@ -51,18 +51,16 @@ Rules:
 Semantic timing is a required workflow gate, not an animation afterthought:
 
 ```text
-transcription
-  → visual_beats.json
-  → npm run plan
-  → cue-bound visual authoring
-  → npm run build + npm run check
-  → review
-  → render
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
 ```
 
-- After narration has word timings, author `visual_beats.json` with stable beat IDs, transcript anchors, source references, and ordered workflow steps where applicable.
-- Run `npm run plan` before authoring framework visuals. It resolves the beat anchors against the transcript and writes the neutral timing authority; authors bind targets to beat IDs rather than copying numeric semantic offsets.
-- `npm run check` is the semantic gate: it verifies planned-beat coverage, cue lead/lag, workflow order, landing time, and framework duration before review or render.
+- After narration has word timings, author `visual_beats.json` v2 with stable beat IDs, transcript anchors, source references, and opening/body/final focal states for every narrated frame.
+- Run `npm run plan` before authoring framework visuals. It resolves anchors against the transcript and writes the neutral timing authority; inspect `build/visual_timing.json` intervals before binding targets to beat IDs rather than copying numeric semantic offsets.
+- `npm run check` is the continuous semantic gate: it verifies bound focal interval coverage, cue lead/lag, workflow order, manifest freshness, landing time, and framework duration before preview/manual semantic review or render.
 - Existing projects without visual beats remain in actionable legacy **warn** mode. New scaffolds use **required** mode and must provide binding evidence.
 - For MP4/MOV delivery, the final profile defaults to 30 FPS and rejects an effective rate below 24 FPS. Use `--profile draft` or `--profile gif` for intentionally low-rate work, or pass `--allow-low-fps` only as an explicit final-delivery override. `--quality` remains independent from the md2vid profile.
 - Review still judges source interpretation, treatment, hierarchy, and polish. Machine checks judge the declared timing contract; manual review does not waive it.
@@ -75,9 +73,10 @@ Use this workflow consistently:
 
 ```text
 source coverage → storyboard semantic coverage map → script
-  → narration/transcription → visual_beats v2 → npm run plan
-  → inspect resolved coverage intervals → bind framework visibility → full build
-  → continuous verify → preview/manual semantic review → render
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
 ```
 
 Manual review judges semantic honesty and treatment quality: whether the declared focal actually explains the narrated concept, whether a title is true content rather than shell, and whether the expression triad is honest. Machine verification proves declared and bound continuity, manifest freshness, timing tolerance, workflow order, and duration. It does not create a fixed motion cadence; a static focal diagram is valid for a long explanation.
@@ -127,16 +126,18 @@ Use this complete order:
 
 ```text
 source coverage
-  → storyboard
-  → spoken narration script
+  → storyboard semantic coverage map
+  → script
   → md2vid narration-check
   → explicit Kokoro am_michael synthesis through /media-use
   → md2vid transcribe
-  → visual_beats.json
+  → visual_beats v2 with opening/body/final focal states
   → npm run plan
-  → cue-bound visual authoring
-  → npm run build + npm run check
-  → listening + visual review
+  → inspect build/visual_timing.json intervals
+  → bind framework visibility
+  → npm run build
+  → continuous npm run check
+  → preview/manual semantic review
   → render
 ```
 

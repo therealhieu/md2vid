@@ -45,15 +45,16 @@ The npm `postinstall` normally applies the required caption-loop patch to the pi
 
 Both framework adapters consume the same neutral narration artifacts: `audio_request.json`, source WAVs, `audio_meta.json`, and (for versioned requests) `narration_evidence.json`. The neutral narration contract owns provider and voice policy; this framework document does not select or synthesize a voice. Matching evidence freshness is required before plan, build, regroup, or verify.
 
-1. Review the generated `audio_request.json.example`, author the spoken narration script, and materialize `audio_request.json` through the neutral narration workflow.
-2. Run `md2vid narration-check .` before synthesis.
-3. Complete the neutral narration workflow to prepare fresh WAVs and `audio_meta.json`, then run `npm run transcribe` unconditionally. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
-4. Author `visual_beats.json` against the transcribed WAV words.
-5. Run `npm run plan` to resolve those anchors before visual authoring.
-6. Author beat-bound `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
-7. Run `npm run build`.
-8. Run `npm run check` before preview or render.
-9. Run `npm run dev` for listening and visual review; render only after review.
+1. Complete source coverage, then author the storyboard semantic coverage map with opening/body/final focal states for every narrated frame.
+2. Author the spoken script, review `audio_request.json.example`, and materialize `audio_request.json` through the neutral narration workflow.
+3. Run `md2vid narration-check .` before synthesis.
+4. Complete the neutral narration workflow to prepare fresh WAVs and `audio_meta.json`, then run `npm run transcribe` unconditionally. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
+5. Author `visual_beats.json` v2 with opening/body/final focal states against the transcribed WAV words.
+6. Run `npm run plan`, then inspect `build/visual_timing.json` intervals before visual authoring.
+7. Bind framework visibility in `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
+8. Run `npm run build`.
+9. Run continuous `npm run check` before preview/manual semantic review or render.
+10. Run `npm run dev` for listening and visual review; render only after review.
 
 The generated scripts are:
 
@@ -97,9 +98,11 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 Plan narration cues before authoring visual motion:
 
 ```text
-prepare/transcribe audio → author visual_beats.json v2 → npm run plan
-  → inspect resolved coverage intervals → bind cue-bound visuals → npm run build
-  → continuous verify → review → render
+source coverage → storyboard semantic coverage map → script
+  → prepare/transcribe audio → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
 ```
 
 `visual_beats.json` is neutral input. `npm run plan` resolves its phrase, word-index, or frame-start anchors before HTML authoring. Every narrated node, row, card, code line, workflow station, opening state, and final landing binds to a beat ID; authored frames never copy the resolved seconds. Continuous coverage requires a focal semantic state from the first spoken word through `frameDur`. Long static focal states are valid; captions, shell, background, logos, and headings are not focal coverage by themselves.

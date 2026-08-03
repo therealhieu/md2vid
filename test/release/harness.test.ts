@@ -458,6 +458,11 @@ test("release smoke supplies required visual timing inputs and consumes draft re
   assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
   assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);
   assert.match(source, /md2vid-render\.json/);
+  assert.match(source, /mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /stale_visual_evidence/);
+  assert.match(source, /Run `md2vid build` to regenerate semantic visual evidence/);
 });
 
 test("retained Kokoro smoke uses exact coverage states and transcript indexes", () => {

@@ -267,9 +267,10 @@ Complete the normative narration and continuous coverage workflow in this order:
 
 ```text
 source coverage → storyboard semantic coverage map → script
-  → narration/transcription → visual_beats v2 → npm run plan
-  → inspect resolved coverage intervals → bind framework visibility → full build
-  → continuous verify → preview/manual semantic review → render
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect resolved build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
 ```
 
 1. Author the spoken narration script, then materialize and review the effective request.
@@ -318,12 +319,13 @@ Use this for the default HyperFrames workflow or one explicitly requested Remoti
 
    ```bash
    cd <slug>
+   # source coverage → storyboard semantic map → script → narration/transcription
    npm run transcribe
-   # author <slug>/visual_beats.json v2 with opening/body/final focal intervals
+   # author <slug>/visual_beats.json v2 with opening/body/final focal states for every narrated frame
    npm run plan
    ```
 
-   `npm run plan` writes the shared resolved timing authority without framework emission. Inspect resolved coverage intervals in `build/visual_timing.json` before framework motion; it is the source of beat IDs, cue times, and coverage endpoints.
+   `npm run plan` writes the shared resolved timing authority without framework emission. Inspect resolved `build/visual_timing.json` intervals before framework motion; it is the source of beat IDs, cue times, and coverage endpoints.
 
 4. **Author framework visuals** in the same flat project against resolved beat IDs:
 
@@ -375,12 +377,13 @@ Use this only when the user requests both frameworks or a shared-neutral multi-f
 
    ```bash
    cd outputs/<slug>/hyperframes
+   # source coverage → storyboard semantic map → script → narration/transcription
    npm run transcribe
-   # author outputs/<slug>/shared/visual_beats.json v2 with opening/body/final focal intervals
+   # author outputs/<slug>/shared/visual_beats.json v2 with opening/body/final focal states for every narrated frame
    npm run plan
    ```
 
-   Inspect resolved coverage intervals in `outputs/<slug>/shared/build/visual_timing.json` before either framework visual. The sibling output resolves the same neutral plan. Legacy v1 projects may migrate from actionable `warn` mode; scaffolded projects remain `required` and need binding evidence.
+   Inspect `outputs/<slug>/shared/build/visual_timing.json` intervals before either framework visual. The sibling output resolves the same neutral plan. Legacy v1 projects may migrate from actionable `warn` mode; scaffolded projects remain `required` and need binding evidence.
 
 5. **Author framework visuals** only in their output directories against those resolved IDs:
 
@@ -414,7 +417,7 @@ The canonical direct commands target framework outputs, never `shared/`: `md2vid
 3. HyperFrames binds through declarative `data-md2vid-beat` attributes or inert `data-md2vid-custom-bindings` declarations plus its owned helper. Remotion binds through static `visual_bindings.json`, `VisualBeatProvider`, `BeatState`, and `BeatReveal`; neither path copies semantic seconds.
 4. Caption regrouping targets ~50–56 characters and re-bakes HyperFrames `var GROUPS` so JSON and HTML stay synchronized.
 
-Do not hand-write emitted `index.html`, `compositions/captions.html`, or `build/visual_bindings.json`. Fix every failed check. Machine checks enforce declared beat coverage, reveal timing, order, landing, and duration. Continuous focal coverage and manifest freshness are additional gates. Manual review judges source interpretation, treatment quality, hierarchy, and polish; it cannot waive the objective timing contract. Long static focal visuals are valid; do not impose a fixed motion cadence.
+Do not hand-write emitted `index.html`, `compositions/captions.html`, or `build/visual_bindings.json`. Fix every failed check. Machine checks enforce declared focal interval coverage, reveal timing, order, landing, duration, and manifest freshness. Manual review judges source interpretation, treatment quality, hierarchy, and polish; it cannot waive the objective timing contract. Long static focal visuals are valid; do not impose a fixed motion cadence.
 
 ## The four hard gates
 
@@ -473,15 +476,16 @@ Final is the default: 30 FPS, with a 24 FPS floor for MP4/MOV unless `--allow-lo
 
 ```bash
 md2vid new my-slug                       # or add --framework remotion
-# write STORYBOARD.md, SCRIPT.md, narration/config under my-slug/
+# source coverage → storyboard semantic map → script → narration/config under my-slug/
 cd my-slug
-npm run transcribe                       # only if word timings are missing
-# author visual_beats.json, then plan before framework visual authoring
-npm run plan
+npm run transcribe                       # after synthesis; required before visual timing
+# author visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan                             # then inspect resolved build/visual_timing.json intervals
+# bind framework visibility, then build and continuously verify
 npm run build
 npm run check
-npm run dev                              # HyperFrames review
-npm run still && npm run studio          # Remotion smoke + review
+npm run dev                              # HyperFrames preview/manual semantic review
+npm run still && npm run studio          # Remotion smoke + manual semantic review
 npm run render                           # final is 30 FPS; draft/GIF need explicit profile intent
 ```
 
@@ -491,14 +495,17 @@ npm run render                           # final is 30 FPS; draft/GIF need expli
 md2vid new my-slug-hyperframes
 md2vid new my-slug-remotion --framework remotion
 # arrange outputs/my-slug/shared + hyperframes + remotion as Branch B specifies
+# source coverage → storyboard semantic map → script → shared narration/config
 cd outputs/my-slug/hyperframes
 npm run transcribe                       # shared narration, once
-# author shared/visual_beats.json, then resolve it before either framework visual
-npm run plan
+# author shared/visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan                             # then inspect shared/build/visual_timing.json intervals
+# bind HyperFrames visibility, then build and continuously verify
 npm run build && npm run check
-npm run dev                              # review
+npm run dev                              # preview/manual semantic review
 cd ../remotion
+# bind Remotion visibility in registry/source, then build and continuously verify
 npm run build && npm run check
-npm run still && npm run studio          # smoke + review
+npm run still && npm run studio          # smoke + manual semantic review
 npm run render                           # final is 30 FPS; draft/GIF need explicit profile intent
 ```

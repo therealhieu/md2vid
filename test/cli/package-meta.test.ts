@@ -193,7 +193,7 @@ test("public README gives both framework workflows cue-first ordering", () => {
   const remotion = readme.slice(readme.indexOf("Remotion projects:"), readme.indexOf("`npm run dev` is long-running"));
   assertOrder(
     remotion,
-    ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "src/scenes", "npm run build", "npm run check", "npm run still", "npm run studio", "npm run render"],
+    ["source coverage", "storyboard semantic", "script", "npm run transcribe", "visual_beats v2", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "src/scenes", "npm run build", "npm run check", "npm run still", "npm run studio", "npm run render"],
     "Remotion README workflow",
   );
 });

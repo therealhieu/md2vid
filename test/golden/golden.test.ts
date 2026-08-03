@@ -227,6 +227,31 @@ test("golden: synthetic continuous coverage fixture classifies opening, middle, 
   }
 });
 
+test("golden: supporting-only authored fixture is rejected before generated coverage artifacts", () => {
+  const fixture = join(FIXTURES, "continuous-visual-coverage");
+  const root = mkdtempSync(join(tmpdir(), "golden-continuous-coverage-supporting-only-"));
+  const shared = join(root, "shared");
+  const output = join(root, "hyperframes");
+  try {
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    mkdirSync(output, { recursive: true });
+    for (const name of ["audio_meta.json", "video.config.json"]) {
+      copyFileSync(join(fixture, "inputs", name), join(shared, name));
+    }
+    copyFileSync(join(fixture, "inputs", "supporting-only.visual_beats.json"), join(shared, "visual_beats.json"));
+    copyFileSync(join(fixture, "inputs", "output.config.json"), join(output, "output.config.json"));
+    const meta = JSON.parse(readFileSync(join(shared, "audio_meta.json"), "utf8"));
+    for (const voice of meta.voices) {
+      writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+    }
+
+    assert.notEqual(planRun([output]), 0);
+    assert.equal(existsSync(join(shared, "build", "visual_timing.json")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("golden: visual timing plan and build artifacts are byte-identical", () => {
   const fixture = join(FIXTURES, "visual-timing-sync");
   const root = mkdtempSync(join(tmpdir(), "golden-visual-timing-sync-"));

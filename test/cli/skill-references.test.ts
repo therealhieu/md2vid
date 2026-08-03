@@ -217,12 +217,16 @@ test("duplicate narration workflow marker pairs are rejected", () => {
   );
 });
 
-test("canonical and bundled standards require cue-bound visual timing", () => {
+test("canonical and bundled standards require v2 continuous visual timing workflow", () => {
   for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
-    assert.match(body, /visual_beats\.json/, label);
-    assert.match(body, /npm run plan/, label);
+    assert.match(body, /visual_beats(?:\.json)? v2/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
+    assert.match(body, /continuous npm run (?:check|verify)|continuous verify/i, label);
     assert.match(body, /--allow-low-fps/, label);
-    assertOrder(body, ["transcription", "visual_beats.json", "npm run plan", "cue-bound", "npm run build", "npm run check", "review", "render"], label);
+    assert.doesNotMatch(body, /cue-bound visual authoring/i, label);
+    assert.doesNotMatch(body, /planned-beat coverage/i, label);
+    assertOrder(body, ["source", "storyboard semantic", "script", "narration", "transcription", "visual_beats v2", "npm run plan", "build/visual_timing.json", "bind framework visibility", "npm run build", "npm run check", "preview", "manual semantic review", "render"], label);
   }
   for (const { label, body } of readSourceAndCopy("docs/standards/design/frame.md")) {
     assert.match(body, /every narrated (?:node|row|card|code line|station).*beat ID/is, label);
@@ -241,12 +245,16 @@ test("canonical and bundled standards require cue-bound visual timing", () => {
     assert.match(body, /owned helper/i, label);
     assert.match(body, /visual_bindings\.json/, label);
     assert.match(body, /seek-safe/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
   }
   for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
     assert.match(body, /static.*visual_bindings\.json/is, label);
     assert.match(body, /VisualBeatProvider/, label);
     assert.match(body, /BeatReveal/, label);
     assert.match(body, /30 FPS/, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
   }
   for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
     assert.match(body, /one registered parent timeline may compose generated and authored child timelines/i, label);
@@ -310,11 +318,15 @@ test("skill and README document the continuous coverage workflow and migration",
   for (const [label, body] of [["skill", skill], ["README", readme]] as const) {
     assert.match(body, /source coverage.*storyboard semantic coverage map.*script/is, label);
     assert.match(body, /visual_beats(?:\.json)? v2/i, label);
-    assert.match(body, /inspect resolved (?:coverage )?intervals/i, label);
-    assert.match(body, /continuous verify/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/i, label);
+    assert.match(body, /inspect resolved (?:coverage )?(?:build\/visual_timing\.json )?intervals/i, label);
+    assert.match(body, /continuous (?:npm run )?(?:check|verify)|continuous verify/i, label);
     assert.match(body, /preview\/manual semantic review|manual semantic review/i, label);
     assert.match(body, /captions.*(?:title|background).*insufficient|(?:title|background).*captions.*insufficient/is, label);
     assert.match(body, /no fixed motion cadence|does not require.*fixed motion cadence/i, label);
+    assert.doesNotMatch(body, /transcription\s*→\s*visual_beats\.json\s*→\s*(?:md2vid|npm run) plan\b/is, label);
+    assert.doesNotMatch(body, /beat coverage(?!.*interval)/i, label);
   }
 
   assert.match(readme, /v1.*compatibility/i);
@@ -330,19 +342,21 @@ test("framework onboarding resolves visual timing before framework authoring", (
     const onboarding = sectionBetween(body, "## First run", "### Existing generated projects", label);
     assertOrder(
       onboarding,
-      ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "compositions/frames", "npm run build", "npm run check"],
+      ["source", "storyboard semantic", "script", "audio_meta.json", "npm run transcribe", "visual_beats.json", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "compositions/frames", "npm run build", "npm run check", "preview", "manual semantic review", "render"],
       label,
     );
     assert.match(onboarding, /"plan": "md2vid plan \."/, label);
+    assert.doesNotMatch(onboarding, /Author `visual_beats\.json` against the transcribed WAV words/i, label);
   }
   for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
     const onboarding = sectionBetween(body, "## Generated-project pipeline", "## Cue-bound visual timing", label);
     assertOrder(
       onboarding,
-      ["audio_meta.json", "npm run transcribe", "visual_beats.json", "npm run plan", "src/scenes", "npm run build", "npm run check"],
+      ["source", "storyboard semantic", "script", "npm run transcribe", "visual_beats.json", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "src/scenes", "npm run build", "npm run check", "preview", "manual semantic review", "render"],
       label,
     );
     assert.match(onboarding, /"plan": "md2vid plan \."/, label);
+    assert.doesNotMatch(onboarding, /Author visual_beats\.json against the transcribed WAV words/i, label);
   }
 });
 

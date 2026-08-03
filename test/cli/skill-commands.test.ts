@@ -183,7 +183,7 @@ test("cue-bound timing precedes framework authoring in both skill workflows", ()
   assertOrder(canonical, ["npm run transcribe", "visual_beats.json", "npm run plan", "Author framework visuals", "npm run build", "npm run check"]);
 
   for (const binding of ["data-md2vid-beat", "data-md2vid-custom-bindings"]) assert.match(body, new RegExp(binding));
-  assert.match(body, /machine checks enforce declared beat coverage, reveal timing, order, landing, and duration/i);
+  assert.match(body, /machine checks enforce declared focal interval coverage, reveal timing, order, landing, duration, and manifest freshness/i);
   assert.match(body, /manual review.*source interpretation, treatment quality, hierarchy, and polish/is);
   assert.match(body, /--profile final\|draft\|gif/);
   assert.match(body, /legacy.*warn.*required/i);

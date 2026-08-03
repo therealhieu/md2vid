@@ -108,14 +108,17 @@ The `/md2vid` skill owns narration orchestration through `/media-use`. The publi
 
 ## Semantic visual timing
 
-`visual_beats.json` is the neutral authoring contract for narrated visuals. Give each narrated node, row, card, code line, or workflow station a stable beat ID and a transcript phrase/occurrence or word-index anchor. Resolve it before framework visual authoring:
+`visual_beats.json` v2 is the neutral authoring contract for narrated visuals. Give each narrated node, row, card, code line, or workflow station stable opening/body/final focal states with transcript phrase/occurrence, word-index, or frame-start anchors. Resolve intervals before framework visual authoring:
 
 ```text
-transcription → visual_beats.json → md2vid plan <dir> → cue-bound visual authoring
-  → md2vid build <dir> → md2vid verify <dir> → review → render
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → md2vid plan <dir> → inspect resolved build/visual_timing.json intervals
+  → bind framework visibility → md2vid build <dir>
+  → continuous md2vid verify <dir> → preview/manual semantic review → render
 ```
 
-`md2vid plan <dir>` writes neutral resolved timing artifacts without framework emission or authored-source mutation. HyperFrames binds targets through `data-md2vid-beat` or a declared custom binding with an owned helper. Remotion binds its static `visual_bindings.json` registry through generated beat components. `md2vid verify` machine-checks beat coverage, timing tolerance, workflow order, landing, and duration; review still checks source interpretation, treatment, hierarchy, and polish.
+`md2vid plan <dir>` writes neutral resolved timing artifacts without framework emission or authored-source mutation; inspect resolved `build/visual_timing.json` intervals before binding. HyperFrames binds targets through `data-md2vid-beat` or a declared custom binding with an owned helper. Remotion binds its static `visual_bindings.json` registry through generated beat components. `md2vid verify` machine-checks bound focal interval coverage, timing tolerance, workflow order, manifest freshness, landing, and duration; review still checks source interpretation, treatment, hierarchy, and polish.
 
 Continuous semantic visual coverage is verified from the first spoken word through the held landing: captions, title, background, shell chrome, logos, and decoration are insufficient by themselves. A static focal may cover a long explanation; there is no fixed motion cadence requirement.
 
@@ -123,9 +126,10 @@ Use this workflow consistently:
 
 ```text
 source coverage → storyboard semantic coverage map → script
-  → narration/transcription → visual_beats v2 → md2vid plan <dir>
-  → inspect resolved coverage intervals → bind framework visibility → full build
-  → continuous verify → preview/manual semantic review → render
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → md2vid plan <dir> → inspect resolved build/visual_timing.json intervals
+  → bind framework visibility → md2vid build <dir>
+  → continuous md2vid verify <dir> → preview/manual semantic review → render
 ```
 
 New scaffolds use this required policy:
@@ -226,9 +230,12 @@ HyperFrames projects:
 
 ```bash
 cd <video-project>
-npm run plan       # resolve visual_beats.json before HTML authoring
+# source coverage → storyboard semantic map → script → narration/transcription
+# author visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan       # resolve anchors, then inspect resolved build/visual_timing.json intervals
+# bind framework visibility in authored frame HTML
 npm run build
-npm run check
+npm run check      # continuous verify before preview/manual semantic review or render
 npm run dev        # review in preview
 npm run render     # final profile defaults to 30 FPS; only after review
 ```
@@ -242,13 +249,13 @@ Remotion projects:
 ```bash
 cd <video-project>
 npm install
-# Prepare audio_meta.json + assets/voice/*.wav, then normalize word timings.
+# source coverage → storyboard semantic map → script → narration/transcription
 npm run transcribe
-# Author visual_beats.json against the transcript, then resolve its anchors.
-npm run plan
-# Author and register beat-bound src/scenes/*.tsx.
+# author visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan       # resolve anchors, then inspect resolved build/visual_timing.json intervals
+# bind framework visibility in visual_bindings.json and authored src/scenes/*.tsx
 npm run build
-npm run check
+npm run check      # continuous verify before preview/manual semantic review or render
 npm run still      # fast smoke
 npm run studio     # interactive review
 npm run render     # only after review
