@@ -110,8 +110,9 @@ export function resolveVisualBeatProgress(
   startFrame: number,
   durationFrames: number,
 ): number {
+  if (currentFrame < startFrame) return 0;
   return interpolate(
-    currentFrame,
+    currentFrame + 1,
     [startFrame, startFrame + Math.max(1, durationFrames)],
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" },

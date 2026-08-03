@@ -122,6 +122,8 @@ test("Remotion scaffold ships local beat helpers and cue-first next steps", () =
     assert.match(visualBeats, /BeatReveal/);
     assert.match(types, /ResolvedVisualStateV2/);
     assert.match(types, /RuntimeVisualBindingV2/);
+    assert.match(types, /ResolvedCoverageExemption/);
+    assert.match(types, /visualCoverageExemptions\?: ResolvedCoverageExemption\[\]/);
     assert.match(types, /cueWordIndex\?: number/);
     assert.match(types, /startFrame: number/);
     assert.match(types, /endFrame: number/);

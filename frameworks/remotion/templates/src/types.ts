@@ -32,6 +32,14 @@ export interface ResolvedVisualStateV2 {
 
 export type ResolvedVisualBeat = ResolvedVisualBeatV1 | ResolvedVisualStateV2;
 
+export interface ResolvedCoverageExemption {
+  id: string;
+  start: number;
+  end: number;
+  reason: string;
+  approvedBy: string;
+}
+
 export interface RemotionVisualBindingV1 {
   beat: string;
   target: string;
@@ -57,6 +65,7 @@ export interface PlanFrame {
   visualSpecVersion?: 1 | 2;
   visualKind?: "focal" | "workflow" | "comparison" | "sequence";
   visualBeats?: ResolvedVisualBeat[];
+  visualCoverageExemptions?: ResolvedCoverageExemption[];
 }
 export interface CaptionGroup {
   id: string; frame: number; start: number; end: number; text: string; words: Word[];

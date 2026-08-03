@@ -441,6 +441,10 @@ test("release smoke supplies required visual timing inputs and consumes draft re
   assert.match(source, /FinalLanding/);
   assert.match(source, /smoke-opening/);
   assert.match(source, /smoke-landing/);
+  assert.match(source, /MD2VID_REMOTION_PROBE/);
+  assert.match(source, /assertRemotionRuntimeProbe/);
+  assert.match(source, /openBrowser/);
+  assert.match(source, /held-landing/);
   assert.match(source, /--profile",\s*"draft"/);
   assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
   assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);

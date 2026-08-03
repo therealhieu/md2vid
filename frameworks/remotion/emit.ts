@@ -72,6 +72,7 @@ function prepareRemotionBindings(
   plan: BuildPlan,
   outputDir: string,
   config: VideoConfig,
+  { ensureRuntimeBeforeDigest = false }: { ensureRuntimeBeforeDigest?: boolean } = {},
 ) {
   const bindingSpec = resolveBindingSpecForPlan(plan, outputDir, config);
   if (!bindingSpec) {
@@ -79,6 +80,11 @@ function prepareRemotionBindings(
       bindingSpec,
       resolvedBindings: { runtimeBindings: undefined, manifest: emptyRemotionBindingManifest() },
     };
+  }
+  if (bindingSpec.version === 2 && ensureRuntimeBeforeDigest) {
+    collectRemotionVisualBindingInputs(outputDir);
+    resolveRemotionBindings(bindingSpec, plan, undefined, []);
+    ensureRuntime(outputDir, "remotion");
   }
   const authoredInputs = bindingSpec.version === 2
     ? collectRemotionVisualBindingInputs(outputDir)
@@ -106,6 +112,7 @@ export function preflight(
     plan,
     runtimeSourceDir ?? outputDir,
     config,
+    { ensureRuntimeBeforeDigest: true },
   );
   return {
     voiceSnapshots: capturedVoiceSnapshots,

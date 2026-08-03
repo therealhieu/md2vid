@@ -1643,6 +1643,8 @@ const SMOKE_FRAME_PROBES: SmokeFrameProbe[] = [
   { compositionId: "02-smoke", futureId: "s02-future", lateId: "s02-late" },
 ];
 
+const REMOTION_RUNTIME_PROBE_PREFIX = "MD2VID_REMOTION_PROBE ";
+
 export interface SmokeRevealCheck {
   frameSlug: "01-smoke" | "02-smoke";
   target: string;
@@ -2462,6 +2464,128 @@ async function assertHyperframesBrowserExecution(
   }
 }
 
+async function assertRemotionRuntimeProbe(
+  context: ReleaseContext,
+  project: string,
+): Promise<void> {
+  const probePath = join(project, "runtime-probe.mjs");
+  writeFileSync(probePath, `
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { bundle } from "@remotion/bundler";
+import { openBrowser, renderStill, selectComposition } from "@remotion/renderer";
+
+const root = import.meta.dirname;
+const fps = 30;
+const prefix = ${JSON.stringify(REMOTION_RUNTIME_PROBE_PREFIX)};
+const plan = JSON.parse(readFileSync(join(root, "build_plan.json"), "utf8"));
+const manifest = JSON.parse(readFileSync(join(root, "build", "visual_bindings.json"), "utf8"));
+const inputProps = { plan };
+const serveUrl = await bundle({ entryPoint: join(root, "src", "index.ts"), publicDir: join(root, "public") });
+const composition = await selectComposition({ serveUrl, id: "video", inputProps });
+mkdirSync(join(root, "out", "runtime-probe"), { recursive: true });
+
+const frameBySlug = new Map(plan.frames.map((frame) => [frame.slug, frame]));
+const runtimeBindingFor = (binding) => {
+  const matches = (plan.visualBindings?.[binding.frameSlug] ?? []).filter((candidate) =>
+    candidate.beatId === binding.beatId && candidate.target === binding.target
+  );
+  if (matches.length !== 1) throw new Error(
+    \`expected exactly one runtime binding for \${binding.frameSlug} \${binding.target}, found \${matches.length}\`,
+  );
+  return matches[0];
+};
+const uniqueSamples = (samples) => {
+  const seen = new Set();
+  return samples.filter((sample) => {
+    const key = \`\${sample.frameSlug}:\${sample.target}:\${sample.localFrame}:\${sample.expectedVisible}:\${sample.phase}\`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const samples = uniqueSamples(manifest.bindings
+  .filter((binding) => binding.role === "focal")
+  .flatMap((binding) => {
+    const frame = frameBySlug.get(binding.frameSlug);
+    if (!frame) throw new Error(\`missing frame \${binding.frameSlug}\`);
+    const runtime = runtimeBindingFor(binding);
+    const frameDurFrames = Math.round(frame.frameDur * fps);
+    const voiceDurFrames = Math.round((frame.voiceDur ?? 0) * fps);
+    const local = [];
+    if (runtime.startFrame > 0) local.push({ phase: "before", localFrame: runtime.startFrame - 1, expectedVisible: false });
+    local.push({ phase: "start", localFrame: runtime.startFrame, expectedVisible: true });
+    local.push({ phase: "interior", localFrame: Math.min(runtime.endFrame - 1, runtime.startFrame + Math.max(1, runtime.durationFrames)), expectedVisible: true });
+    local.push({ phase: "before-end", localFrame: runtime.endFrame - 1, expectedVisible: true });
+    if (runtime.endFrame < frameDurFrames) local.push({ phase: "end", localFrame: runtime.endFrame, expectedVisible: false });
+    if (runtime.endFrame === frameDurFrames && voiceDurFrames < runtime.endFrame - 1) {
+      local.push({ phase: "held-landing", localFrame: runtime.endFrame - 1, expectedVisible: true });
+    }
+    return local
+      .filter((sample) => sample.localFrame >= 0 && sample.localFrame < frameDurFrames)
+      .map((sample) => ({
+        ...sample,
+        frameSlug: binding.frameSlug,
+        target: binding.target,
+        beatId: binding.beatId,
+        globalFrame: Math.round(frame.start * fps) + sample.localFrame,
+      }));
+  }));
+if (!samples.some((sample) => sample.phase === "held-landing" && sample.target === "FinalLanding")) {
+  throw new Error("Remotion runtime probe must include a FinalLanding held-landing sample");
+}
+
+const browser = await openBrowser("chrome", { logLevel: "error" });
+try {
+  const orders = {
+    direct: samples,
+    sequential: [...samples].sort((a, b) => a.globalFrame - b.globalFrame),
+    reverse: [...samples].sort((a, b) => b.globalFrame - a.globalFrame),
+  };
+  for (const [route, ordered] of Object.entries(orders)) {
+    for (const sample of ordered) {
+      const logs = [];
+      await renderStill({
+        composition,
+        serveUrl,
+        inputProps,
+        frame: sample.globalFrame,
+        output: join(root, "out", "runtime-probe", \`\${route}-\${sample.frameSlug}-\${sample.target}-\${sample.phase}.png\`),
+        puppeteerInstance: browser,
+        onBrowserLog: (log) => {
+          const text = typeof log === "string"
+            ? log
+            : typeof log?.text === "string"
+              ? log.text
+              : typeof log?.message === "string"
+                ? log.message
+                : String(log);
+          if (text.includes(prefix)) logs.push(text.slice(text.indexOf(prefix) + prefix.length));
+        },
+      });
+      const states = logs.map((line) => JSON.parse(line));
+      const state = states.find((candidate) =>
+        candidate.target === sample.target && candidate.localFrame === sample.localFrame
+      );
+      if (!state) throw new Error(\`missing Remotion runtime probe state for \${route} \${JSON.stringify(sample)} in \${JSON.stringify(states)}\`);
+      if (state.visible !== sample.expectedVisible) throw new Error(\`Remotion runtime visibility mismatch for \${route} \${JSON.stringify({ sample, state })}\`);
+      if (sample.expectedVisible && !(state.effectiveOpacity > 0.01)) {
+        throw new Error(\`Remotion runtime target is transparent for \${route} \${JSON.stringify({ sample, state })}\`);
+      }
+    }
+  }
+} finally {
+  await browser.close();
+}
+console.log(\`OK Remotion runtime probe: \${samples.length} samples x 3 routes\`);
+`);
+  const output = run(process.execPath, [probePath], {
+    cwd: project,
+    env: installedCommandEnvironment(context),
+  }, context);
+  assert.match(output, /OK Remotion runtime probe/);
+}
+
 export async function runFrameworkSmoke(
   context: ReleaseContext,
   framework: "hyperframes" | "remotion",
@@ -2713,11 +2837,11 @@ export async function runFrameworkSmoke(
     const smokeTemplate = template
       .replace(
         'import { VisualBeatProvider } from "./VisualBeats";',
-        'import { BeatReveal, BeatState, VisualBeatProvider } from "./VisualBeats";',
+        'import { BeatReveal, BeatState, VisualBeatProvider, isVisualBeatActive, resolveVisualBeatProgress, resolveVisualBeatStyle, useVisualBeatBinding } from "./VisualBeats";',
       )
       .replace(
         'const SCENES: Record<string, React.FC<SceneProps>> = {};',
-        `const SmokeScene: React.FC<SceneProps> = ({ opacity }) => (\n  <AbsoluteFill style={{ opacity }}>\n    <BeatState target="OpeningContext">\n      <div data-testid="smoke-opening">Opening context</div>\n    </BeatState>\n    <BeatReveal target="FinalLanding">\n      <div data-testid="smoke-landing">Final landing</div>\n    </BeatReveal>\n  </AbsoluteFill>\n);\n\nconst SCENES: Record<string, React.FC<SceneProps>> = {\n  "01-smoke": SmokeScene,\n  "02-smoke": SmokeScene,\n};`,
+        `const SmokeProbe: React.FC<{ target: string; testId: string; opacity: number }> = ({ target, testId, opacity }) => {\n  const localFrame = useCurrentFrame();\n  const resolved = useVisualBeatBinding(target);\n  const active = isVisualBeatActive(localFrame, resolved);\n  const progress = resolveVisualBeatProgress(localFrame, resolved.startFrame, resolved.durationFrames);\n  const style = resolveVisualBeatStyle(resolved.binding.enter, progress, active);\n  const targetOpacity = typeof style.opacity === "number" ? style.opacity : Number.parseFloat(String(style.opacity ?? 0));\n  const effectiveOpacity = active ? opacity * targetOpacity : 0;\n  console.log("${REMOTION_RUNTIME_PROBE_PREFIX}" + JSON.stringify({ target, testId, localFrame, active, visible: active && effectiveOpacity > 0.01, effectiveOpacity }));\n  return null;\n};\n\nconst SmokeScene: React.FC<SceneProps> = ({ opacity }) => (\n  <AbsoluteFill style={{ opacity }}>\n    <SmokeProbe target="OpeningContext" testId="smoke-opening" opacity={opacity} />\n    <SmokeProbe target="FinalLanding" testId="smoke-landing" opacity={opacity} />\n    <BeatState target="OpeningContext">\n      <div data-testid="smoke-opening">Opening context</div>\n    </BeatState>\n    <BeatReveal target="FinalLanding">\n      <div data-testid="smoke-landing">Final landing</div>\n    </BeatReveal>\n  </AbsoluteFill>\n);\n\nconst SCENES: Record<string, React.FC<SceneProps>> = {\n  "01-smoke": SmokeScene,\n  "02-smoke": SmokeScene,\n};`,
       );
     assert.match(smokeTemplate, /BeatState target="OpeningContext"/);
     assert.match(smokeTemplate, /BeatReveal target="FinalLanding"/);
@@ -2733,6 +2857,7 @@ export async function runFrameworkSmoke(
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    await assertRemotionRuntimeProbe(context, project);
     const still = join(project, "out", "still.jpeg");
     const sourceWav = join(shared, "assets", "voice", "intro.wav");
     const staged = join(project, "public", "assets", "voice", "intro.wav");

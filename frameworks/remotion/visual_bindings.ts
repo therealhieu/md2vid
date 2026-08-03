@@ -254,6 +254,22 @@ function resolveV1Bindings(
   };
 }
 
+function quantizedStateBoundaries(
+  frameSlug: string,
+  states: readonly ResolvedVisualStateV2[],
+  fps: number,
+): Map<number, ReturnType<typeof quantizeBoundary>> {
+  const boundaries = new Map<number, ReturnType<typeof quantizeBoundary>>();
+  for (const state of states) {
+    if (state.end < state.start) {
+      throw new Error(`${frameSlug}:${state.id} has invalid coverage interval ${state.start}-${state.end}`);
+    }
+    if (!boundaries.has(state.start)) boundaries.set(state.start, quantizeBoundary(state.start, fps));
+    if (!boundaries.has(state.end)) boundaries.set(state.end, quantizeBoundary(state.end, fps));
+  }
+  return boundaries;
+}
+
 function resolveV2Bindings(
   spec: RemotionBindingSpecV2,
   plan: BuildPlan,
@@ -268,7 +284,13 @@ function resolveV2Bindings(
     const frame = frames.get(frameSlug);
     if (!frame) throw new Error(`visual bindings reference unknown frame "${frameSlug}"`);
 
-    const beats = new Map((frame.visualBeats ?? []).map((beat) => [beat.id, beat]));
+    const visualBeats = frame.visualBeats ?? [];
+    const beats = new Map(visualBeats.map((beat) => [beat.id, beat]));
+    const boundaries = quantizedStateBoundaries(
+      frame.slug,
+      visualBeats.filter((beat): beat is ResolvedVisualStateV2 => beat.version === 2),
+      fps,
+    );
     const targets = new Set<string>();
     runtimeBindings[frameSlug] = authoredBindings.map((authored) => {
       if (targets.has(authored.target)) {
@@ -276,11 +298,8 @@ function resolveV2Bindings(
       }
       targets.add(authored.target);
       const state = requirePlannedState(frameSlug, authored, beats);
-      if (state.end < state.start) {
-        throw new Error(`${frame.slug}:${state.id} has invalid coverage interval ${state.start}-${state.end}`);
-      }
-      const start = quantizeBoundary(state.start, fps);
-      const end = quantizeBoundary(state.end, fps);
+      const start = boundaries.get(state.start)!;
+      const end = boundaries.get(state.end)!;
       if (end.frame < start.frame) {
         throw new Error(
           `${frame.slug}:${state.id} quantizes to inverted coverage ${start.frame}-${end.frame}`,
@@ -378,7 +397,7 @@ function collectRemotionSourcePaths(videoDir: string, relative = "src"): string[
       );
     }
     if (stat.isDirectory()) {
-      if (relative === "src" && EXCLUDED_SOURCE_DIRS.has(entry.name)) continue;
+      if (EXCLUDED_SOURCE_DIRS.has(entry.name)) continue;
       paths.push(...collectRemotionSourcePaths(videoDir, path));
     } else if (stat.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name))) {
       paths.push(path);

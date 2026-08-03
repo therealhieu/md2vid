@@ -741,8 +741,14 @@ test("Remotion emits registry-v2 coverage evidence", () => {
   ]);
   assert.match(manifest?.planSha256 ?? "", /^[a-f0-9]{64}$/);
   assert.deepEqual(manifest?.authoredInputs.map(({ path }) => path), [
+    "src/Captions.tsx",
+    "src/Root.tsx",
     "src/Video.tsx",
     "src/VisualBeats.tsx",
+    "src/fonts.ts",
+    "src/index.ts",
+    "src/primitives.tsx",
+    "src/theme.ts",
     "src/types.ts",
     "visual_bindings.json",
   ]);
@@ -821,12 +827,50 @@ test("Remotion manifest v2 records plan and current authored source digests", ()
     assert.equal(manifest.version, 2);
     assert.equal(manifest.planSha256, hashCoveragePlan(plan));
     assert.deepEqual(manifest.authoredInputs.map(({ path }: { path: string }) => path), [
+      "src/Captions.tsx",
+      "src/Root.tsx",
       "src/Video.tsx",
       "src/VisualBeats.tsx",
+      "src/fonts.ts",
+      "src/index.ts",
+      "src/primitives.tsx",
+      "src/theme.ts",
       "src/types.ts",
       "visual_bindings.json",
     ]);
     assertNoCoverageFindings(manifest, plan);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("Remotion registry-only v2 first build records the post-scaffold source set", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "remotion-registry-only-first-build-"));
+  try {
+    const shared = join(tmp, "shared");
+    const output = join(tmp, "remotion");
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(output, { recursive: true });
+    mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+    writeFileSync(join(shared, "assets", "voice", "01.wav"), VOICE01);
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: [] }));
+    writeFileSync(join(output, "visual_bindings.json"), `${JSON.stringify({
+      version: 2,
+      frames: {
+        overview: [
+          { beat: "opening", target: "OpeningContext", enter: "none", coverage: "planned" },
+          { beat: "solution", target: "SolutionCard", enter: "rise", duration: 0.5, coverage: "planned" },
+        ],
+      },
+    }, null, 2)}\n`);
+    const { plan, config } = coverageFixture();
+    emit(plan, shared, output, config);
+    const manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.deepEqual(
+      manifest.authoredInputs.map(({ path }: { path: string }) => path),
+      adapter.collectVisualBindingInputs!({ plan, videoDir: output, sharedDir: shared, config })
+        .map(({ path }) => path),
+    );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -841,15 +885,25 @@ test("Remotion authored source inputs include only safe registry and source file
     mkdirSync(output, { recursive: true });
     writeCoverageProject(output, shared);
     mkdirSync(join(output, "src", "scenes"), { recursive: true });
+    mkdirSync(join(output, "src", "components"), { recursive: true });
     mkdirSync(join(output, "src", "node_modules"), { recursive: true });
     mkdirSync(join(output, "src", "build"), { recursive: true });
     mkdirSync(join(output, "src", "dist"), { recursive: true });
+    mkdirSync(join(output, "src", "components", "node_modules"), { recursive: true });
+    mkdirSync(join(output, "src", "scenes", "build"), { recursive: true });
+    mkdirSync(join(output, "src", "components", "dist"), { recursive: true });
     mkdirSync(join(output, "public"), { recursive: true });
     mkdirSync(join(output, "build"), { recursive: true });
+    writeFileSync(join(output, "src", "components", "Helper.ts"), "export const Helper = null;\n");
+    writeFileSync(join(output, "src", "components", "Widget.js"), "export const Widget = null;\n");
     writeFileSync(join(output, "src", "scenes", "Scene.jsx"), "export const Scene = null;\n");
+    writeFileSync(join(output, "src", "scenes", "Panel.tsx"), "export const Panel = null;\n");
     writeFileSync(join(output, "src", "node_modules", "ignored.ts"), "ignored\n");
     writeFileSync(join(output, "src", "build", "ignored.ts"), "ignored\n");
     writeFileSync(join(output, "src", "dist", "ignored.ts"), "ignored\n");
+    writeFileSync(join(output, "src", "components", "node_modules", "ignored.ts"), "ignored\n");
+    writeFileSync(join(output, "src", "scenes", "build", "ignored.tsx"), "ignored\n");
+    writeFileSync(join(output, "src", "components", "dist", "ignored.js"), "ignored\n");
     writeFileSync(join(output, "public", "ignored.ts"), "ignored\n");
     writeFileSync(join(output, "build", "build_plan.json"), "ignored\n");
     const { plan, config } = coverageFixture();
@@ -862,6 +916,9 @@ test("Remotion authored source inputs include only safe registry and source file
     }).map(({ path }) => path), [
       "src/Video.tsx",
       "src/VisualBeats.tsx",
+      "src/components/Helper.ts",
+      "src/components/Widget.js",
+      "src/scenes/Panel.tsx",
       "src/scenes/Scene.jsx",
       "src/types.ts",
       "visual_bindings.json",

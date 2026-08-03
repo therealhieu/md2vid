@@ -375,3 +375,119 @@ test("HyperFrames and Remotion report the same semantic gap", () => {
     hyperframes.filter(neutralFinding).map(({ code, details }) => ({ code, details })),
   );
 });
+
+function coverageProjectWithRuntimeBindings(): {
+  dir: string;
+  context: AdapterVerifyContext;
+  plan: BuildPlan;
+} {
+  const dir = goodProject();
+  const plan = makeCoveragePlan();
+  const manifest = manifestV2("remotion", [
+    focalBinding("OpeningContext", "opening", 0, 18.266666666666666),
+    {
+      ...focalBinding("SolutionCard", "solution", 18.266666666666666, 23.066666666666666),
+      revealDuration: 0.5,
+      source: "custom" as const,
+    },
+  ]);
+  const runtimePlan = {
+    ...plan,
+    visualBindings: {
+      overview: [
+        { beatId: "opening", target: "OpeningContext", role: "focal", startFrame: 0, endFrame: 548, durationFrames: 0, enter: "none" },
+        { beatId: "solution", target: "SolutionCard", role: "focal", startFrame: 548, endFrame: 692, durationFrames: 15, enter: "rise" },
+      ],
+    },
+  };
+  writeFileSync(join(dir, "build_plan.json"), JSON.stringify(runtimePlan, null, 2));
+  return {
+    dir,
+    plan,
+    context: {
+      plan,
+      videoDir: dir,
+      sharedDir: dir,
+      config: { framework: "remotion" },
+      policy: COVERAGE_POLICY,
+      fps: 30,
+      bindings: manifest,
+    },
+  };
+}
+
+test("Remotion verification rejects runtime visual binding mutations", () => {
+  const mutations: Array<{
+    name: string;
+    mutate: (payload: Record<string, any>) => void;
+    expected: RegExp;
+  }> = [
+    {
+      name: "target mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].target = "MutatedSolutionCard"; },
+      expected: /MutatedSolutionCard|missing.*SolutionCard/,
+    },
+    {
+      name: "role mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].role = "supporting"; },
+      expected: /role supporting !== focal/,
+    },
+    {
+      name: "start boundary mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].startFrame += 1; },
+      expected: /startFrame/,
+    },
+    {
+      name: "end boundary mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].endFrame -= 1; },
+      expected: /endFrame/,
+    },
+    {
+      name: "duration mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].durationFrames += 1; },
+      expected: /durationFrames/,
+    },
+    {
+      name: "enter mutation",
+      mutate: (payload) => { payload.visualBindings.overview[1].enter = "none"; },
+      expected: /enter none contradicts custom/,
+    },
+    {
+      name: "missing binding",
+      mutate: (payload) => { payload.visualBindings.overview.pop(); },
+      expected: /missing.*SolutionCard/,
+    },
+    {
+      name: "extra binding",
+      mutate: (payload) => { payload.visualBindings.overview.push({ beatId: "solution", target: "Extra", role: "focal", startFrame: 548, endFrame: 692, durationFrames: 15, enter: "rise" }); },
+      expected: /extra.*Extra/,
+    },
+    {
+      name: "duplicate binding",
+      mutate: (payload) => { payload.visualBindings.overview.push({ ...payload.visualBindings.overview[1] }); },
+      expected: /duplicated.*SolutionCard/,
+    },
+    {
+      name: "malformed binding",
+      mutate: (payload) => { delete payload.visualBindings.overview[1].endFrame; },
+      expected: /malformed.*endFrame/,
+    },
+  ];
+
+  for (const { name, mutate, expected } of mutations) {
+    const { dir, context } = coverageProjectWithRuntimeBindings();
+    try {
+      assert.deepEqual(verify(context).filter((finding) => finding.level === "error"), [], name);
+      const payload = JSON.parse(readFileSync(join(dir, "build_plan.json"), "utf8"));
+      mutate(payload);
+      writeFileSync(join(dir, "build_plan.json"), JSON.stringify(payload, null, 2));
+
+      const messages = verify(context)
+        .filter((finding) => finding.level === "error")
+        .map((finding) => finding.msg);
+      assert.ok(messages.some((message) => expected.test(message)), `${name}: ${JSON.stringify(messages)}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});

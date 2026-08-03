@@ -75,12 +75,12 @@ const REGISTRY = {
   },
 };
 
-async function loadVisualBeats(): Promise<Record<string, unknown>> {
-  const outputDir = mkdtempSync(join(tmpdir(), "remotion-visual-beats-"));
-  const outfile = join(outputDir, "VisualBeats.mjs");
+async function loadTemplateModule(entryPoint: string, label: string): Promise<Record<string, unknown>> {
+  const outputDir = mkdtempSync(join(tmpdir(), `remotion-${label}-`));
+  const outfile = join(outputDir, `${label}.mjs`);
   try {
     buildSync({
-      entryPoints: [VISUAL_BEATS],
+      entryPoints: [entryPoint],
       outfile,
       bundle: true,
       format: "esm",
@@ -93,6 +93,10 @@ async function loadVisualBeats(): Promise<Record<string, unknown>> {
   } finally {
     rmSync(outputDir, { recursive: true, force: true });
   }
+}
+
+async function loadVisualBeats(): Promise<Record<string, unknown>> {
+  return loadTemplateModule(VISUAL_BEATS, "visual-beats");
 }
 
 test("Remotion templates expose beat-owned reveal helpers and standalone type parity", () => {
@@ -117,6 +121,7 @@ test("Remotion templates expose beat-owned reveal helpers and standalone type pa
     "visualKind?: \"focal\" | \"workflow\" | \"comparison\" | \"sequence\"",
     "visualSpecVersion?: 1 | 2",
     "visualBeats?: ResolvedVisualBeat[]",
+    "visualCoverageExemptions?: ResolvedCoverageExemption[]",
     "visualBindings?: Record<string, RuntimeVisualBinding[]>",
     "cueWordIndex?: number",
     "cueText: string",
@@ -124,6 +129,7 @@ test("Remotion templates expose beat-owned reveal helpers and standalone type pa
     "tolerance: { maxLead: number; maxLag: number }",
     "export interface ResolvedVisualStateV2",
     "export interface RuntimeVisualBindingV2",
+    "export interface ResolvedCoverageExemption",
     "startFrame: number",
     "endFrame: number",
   ]) {
@@ -264,7 +270,7 @@ test("owned reveal timing uses active intervals and covers progress/token bounda
   assert.equal(solution.durationFrames, 15);
 
   assert.equal(runtime.resolveVisualBeatProgress(331, 332, 15), 0);
-  assert.equal(runtime.resolveVisualBeatProgress(332, 332, 15), 0);
+  assert.ok(runtime.resolveVisualBeatProgress(332, 332, 15) > 0);
   assert.equal(runtime.resolveVisualBeatProgress(347, 332, 15), 1);
   assert.equal(runtime.resolveVisualBeatProgress(509, 332, 15), 1);
   assert.equal(runtime.resolveVisualBeatProgress(15, 10, 0), 1);
@@ -289,4 +295,14 @@ test("owned reveal timing uses active intervals and covers progress/token bounda
       /finite positive number/,
     );
   }
+});
+
+test("scene opacity is nonzero for every renderable semantic coverage frame", async () => {
+  const { sceneOpacity } = await loadTemplateModule(join(TEMPLATE_ROOT, "primitives.tsx"), "primitives") as {
+    sceneOpacity: (frame: number, durationInFrames: number, xfadeFrames: number) => number;
+  };
+
+  assert.ok(sceneOpacity(0, 510, 15) > 0);
+  assert.equal(sceneOpacity(1, 510, 15) > 0, true);
+  assert.equal(sceneOpacity(509, 510, 15) > 0, true);
 });
