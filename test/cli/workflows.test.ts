@@ -1171,6 +1171,10 @@ function fullBuildProject(framework: "hyperframes" | "remotion"): FullBuildProje
     authoredPath = join(project.outputDir, "compositions", "frames", "01-intro.html");
   } else {
     managedFiles.set(join(project.outputDir, "build_plan.json"), "ORIGINAL_REMOTION_PLAN\n");
+    managedFiles.set(
+      join(project.outputDir, "build", "visual_bindings.json"),
+      "ORIGINAL_REMOTION_VISUAL_BINDINGS\n",
+    );
     voiceDir = join(project.outputDir, "public", "assets", "voice");
     authoredPath = join(project.outputDir, "src", "Video.tsx");
   }
@@ -1465,7 +1469,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
     });
   }
 
-  const promotionCount = framework === "hyperframes" ? 8 : 6;
+  const promotionCount = framework === "hyperframes" ? 8 : 7;
   for (let position = 1; position <= promotionCount; position += 1) {
     test(`full ${framework} build rolls back every managed output after promotion failure ${position}/${promotionCount}`, () => {
       const project = fullBuildProject(framework);
