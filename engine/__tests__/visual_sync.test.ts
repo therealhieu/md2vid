@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   BuildPlan,
+  ResolvedCoverageExemption,
+  ResolvedVisualStateV2,
   ResolvedVisualSyncPolicy,
   VisualBinding,
   VisualBindingManifest,
+  VisualBindingManifestV2,
+  VisualBindingV2,
 } from "../types.ts";
 import { verifyVisualSync } from "../visual_sync.ts";
 
@@ -94,6 +98,109 @@ function manifest(bindings: VisualBinding[]): VisualBindingManifest {
   return { version: 1, framework: "hyperframes", bindings };
 }
 
+const COVERAGE_POLICY: ResolvedVisualSyncPolicy = {
+  mode: "required",
+  coverageMode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  maxUncoveredGap: 0.5,
+  minLanding: 1,
+};
+
+const COVERAGE_ONLY_POLICY: ResolvedVisualSyncPolicy = {
+  ...COVERAGE_POLICY,
+  mode: "off",
+};
+
+function coverageState(
+  id: string,
+  start: number,
+  end: number,
+  role: "focal" | "supporting" = "focal",
+): ResolvedVisualStateV2 {
+  return {
+    version: 2,
+    id,
+    text: `${id} state`,
+    role,
+    start,
+    end,
+    cueText: start === 0 ? "<frame-start>" : id,
+    sourceRefs: [],
+    tolerance: { maxLead: 0.25, maxLag: 0.75 },
+  };
+}
+
+function makeCoveragePlan(
+  visualBeats: ResolvedVisualStateV2[] = [
+    coverageState("opening", 0, 18.26),
+    {
+      ...coverageState("solution", 18.26, 23.08),
+      cueWordIndex: 1,
+      cueText: "solution",
+    },
+  ],
+  visualCoverageExemptions: ResolvedCoverageExemption[] = [],
+): BuildPlan {
+  return {
+    version: 1,
+    canvas: { width: 1920, height: 1080 },
+    timing: { tail: 0, xfade: 0, gap: 1 },
+    totalDuration: 23.08,
+    captionGroups: [],
+    frames: [{
+      id: "overview",
+      frameNum: 1,
+      slug: "overview",
+      voicePath: "assets/voice/overview.wav",
+      voiceDur: 22.08,
+      frameDur: 23.08,
+      start: 0,
+      words: [
+        { text: "A", start: 0.07, end: 0.12 },
+        { text: "solution", start: 18.26, end: 18.8 },
+      ],
+      visualSpecVersion: 2,
+      visualKind: "focal",
+      visualBeats,
+      ...(visualCoverageExemptions.length === 0
+        ? {}
+        : { visualCoverageExemptions }),
+    }],
+  };
+}
+
+function focalBinding(
+  beatId: string,
+  coverageStart: number,
+  coverageEnd: number,
+  target = `#${beatId}`,
+): VisualBindingV2 {
+  return {
+    frameSlug: "overview",
+    beatId,
+    target,
+    role: "focal",
+    revealStart: coverageStart,
+    revealDuration: 0,
+    coverageStart,
+    coverageEnd,
+    source: "static",
+    authoredDuration: 22.08,
+    outerDuration: 23.08,
+  };
+}
+
+function makeV2Manifest(bindings: VisualBindingV2[]): VisualBindingManifestV2 {
+  return {
+    version: 2,
+    framework: "fixture",
+    planSha256: "0".repeat(64),
+    authoredInputs: [],
+    bindings,
+  };
+}
+
 function alignedBindings(): VisualBinding[] {
   return [
     binding("reserve", 2.95),
@@ -101,6 +208,242 @@ function alignedBindings(): VisualBinding[] {
     binding("settle", 14.35),
   ];
 }
+
+test("reports an opening semantic coverage gap", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("solution", 18.26, 23.08)]),
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([focalBinding("solution", 18.26, 23.08)]),
+  });
+
+  const gap = findings.find((finding) => finding.code === "opening_visual_gap");
+  assert.deepEqual(gap && { code: gap.code, details: gap.details }, {
+    code: "opening_visual_gap",
+    details: {
+      frameSlug: "overview",
+      start: 0.07,
+      end: 18.26,
+      duration: 18.19,
+      maxUncoveredGap: 0.5,
+      nextBeatId: "solution",
+      extendsThroughFrameEnd: false,
+    },
+  });
+});
+
+test("reports a middle semantic coverage gap", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan(),
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 6),
+      focalBinding("solution", 18.26, 23.08),
+    ]),
+  });
+
+  const gap = findings.find((finding) => finding.code === "mid_scene_visual_gap");
+  assert.match(gap?.msg ?? "", /6\.000s-18\.260s/);
+});
+
+test("reports an ending semantic coverage gap", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan(),
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 18.26),
+      focalBinding("solution", 18.26, 20.08),
+    ]),
+  });
+
+  const gap = findings.find((finding) => finding.code === "ending_visual_gap");
+  assert.match(gap?.msg ?? "", /20\.080s-23\.080s/);
+});
+
+test("classifies a complete-frame gap as opening through frame end", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan(),
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([]),
+  });
+  const gap = findings.find((finding) => finding.code === "opening_visual_gap");
+  assert.equal(gap?.details?.extendsThroughFrameEnd, true);
+});
+
+test("accepts one static focal interval through the frame landing", () => {
+  const plan = makeCoveragePlan([coverageState("opening", 0, 23.08)]);
+  assert.deepEqual(verifyVisualSync({
+    plan,
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([focalBinding("opening", 0, 23.08)]),
+  }), []);
+});
+
+test("does not count supporting bindings as focal coverage", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("support", 0, 23.08, "supporting")]),
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([{
+      ...focalBinding("support", 0, 23.08),
+      role: "supporting",
+    }]),
+  });
+  assert.equal(
+    findings.some((finding) => finding.code === "opening_visual_gap"),
+    true,
+  );
+});
+
+test("allows a gap exactly at the configured maximum and rejects a longer gap", () => {
+  const plan = makeCoveragePlan([coverageState("opening", 0, 23.08)]);
+  const exact = verifyVisualSync({
+    plan,
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 1_000_000,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 6),
+      focalBinding("opening", 6.5, 23.08, "#opening-later"),
+    ]),
+  });
+  assert.equal(exact.some((finding) => finding.code === "mid_scene_visual_gap"), false);
+
+  const longer = verifyVisualSync({
+    plan,
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 1_000_000,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 6),
+      focalBinding("opening", 6.500001, 23.08, "#opening-later"),
+    ]),
+  });
+  assert.equal(longer.some((finding) => finding.code === "mid_scene_visual_gap"), true);
+});
+
+test("unions overlapping, arithmetic-adjacent, and multiple focal target intervals", () => {
+  const plan = makeCoveragePlan([coverageState("opening", 0, 23.08)]);
+  const findings = verifyVisualSync({
+    plan,
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 8),
+      focalBinding("opening", 7.9, 16, "#opening-overlap"),
+      focalBinding("opening", 16 + (0.25 / 30), 23.08, "#opening-adjacent"),
+    ]),
+  });
+  assert.deepEqual(findings, []);
+});
+
+test("reports invalid coverage evidence without treating it as coverage", () => {
+  const findings = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("opening", 0, 23.08)]),
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 8, Number.POSITIVE_INFINITY),
+      focalBinding("opening", 12, 11, "#opening-inverted"),
+    ]),
+  });
+  assert.equal(
+    findings.some((finding) => finding.code === "invalid_visual_coverage_evidence"),
+    true,
+  );
+  assert.equal(
+    findings.some((finding) => finding.code === "opening_visual_gap"),
+    true,
+  );
+});
+
+test("starts required coverage at the first spoken word after leading silence", () => {
+  const plan = makeCoveragePlan([{
+    ...coverageState("opening", 2.95, 23.08),
+    cueWordIndex: 0,
+    cueText: "Late",
+  }]);
+  plan.frames[0].words = [{ text: "Late", start: 2.95, end: 3.2 }];
+  assert.deepEqual(verifyVisualSync({
+    plan,
+    policy: COVERAGE_POLICY,
+    fps: 30,
+    manifest: makeV2Manifest([focalBinding("opening", 2.95, 23.08)]),
+  }), []);
+});
+
+test("reports full and partial coverage exemptions without hiding unapproved gaps", () => {
+  const fullExemption: ResolvedCoverageExemption = {
+    id: "full-pause",
+    start: 0.07,
+    end: 23.08,
+    reason: "Intentional audio-only frame",
+    approvedBy: "storyboard-review:42",
+  };
+  const fullyExempt = verifyVisualSync({
+    plan: makeCoveragePlan([], [fullExemption]),
+    policy: { ...COVERAGE_POLICY, mode: "off" },
+    fps: 30,
+    manifest: makeV2Manifest([]),
+  });
+  assert.equal(
+    fullyExempt.some((finding) => finding.code === "visual_coverage_exemption"),
+    true,
+  );
+  assert.equal(
+    fullyExempt.some((finding) => finding.code === "opening_visual_gap"),
+    false,
+  );
+
+  const partialExemption: ResolvedCoverageExemption = {
+    id: "partial-pause",
+    start: 6,
+    end: 8,
+    reason: "Intentional audio-only pause",
+    approvedBy: "storyboard-review:43",
+  };
+  const partiallyExempt = verifyVisualSync({
+    plan: makeCoveragePlan(undefined, [partialExemption]),
+    policy: { ...COVERAGE_POLICY, mode: "off" },
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 6),
+      focalBinding("solution", 10, 23.08),
+    ]),
+  });
+  assert.equal(
+    partiallyExempt.some((finding) => finding.code === "visual_coverage_exemption"),
+    true,
+  );
+  assert.equal(
+    partiallyExempt.some((finding) => finding.code === "mid_scene_visual_gap"),
+    true,
+  );
+});
+
+test("downgrades coverage gaps in warn mode and skips them when coverage is off", () => {
+  const warnFindings = verifyVisualSync({
+    plan: makeCoveragePlan(),
+    policy: { ...COVERAGE_POLICY, mode: "off", coverageMode: "warn" },
+    fps: 30,
+    manifest: makeV2Manifest([focalBinding("solution", 18.26, 23.08)]),
+  });
+  assert.equal(
+    warnFindings.find((finding) => finding.code === "opening_visual_gap")?.level,
+    "warn",
+  );
+
+  assert.deepEqual(verifyVisualSync({
+    plan: makeCoveragePlan(),
+    policy: { ...COVERAGE_POLICY, coverageMode: "off" },
+    fps: 30,
+    manifest: makeV2Manifest([focalBinding("solution", 18.26, 23.08)]),
+  }), [
+    { level: "error", msg: 'frame "overview" beat "opening" has no visual binding' },
+  ]);
+});
 
 test("accepts covered cue-aligned workflow bindings", () => {
   assert.deepEqual(verifyVisualSync({
@@ -267,10 +610,10 @@ test("downgrades semantic failures to warnings in warn mode", () => {
   assert.deepEqual(findings, [{ level: "warn", msg: "visual binding manifest is missing" }]);
 });
 
-test("skips semantic verification in off mode", () => {
+test("skips semantic verification only when reveal and coverage modes are off", () => {
   assert.deepEqual(verifyVisualSync({
     plan: makePlan(),
-    policy: { ...POLICY, mode: "off" },
+    policy: { ...POLICY, mode: "off", coverageMode: "off" },
     fps: 0,
   }), []);
 });

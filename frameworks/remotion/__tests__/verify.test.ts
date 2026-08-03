@@ -5,7 +5,12 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import adapter from "../index.ts";
 import { verify, verifyRemotionCaptionArtifact, resolveVerificationFps, REMOTION_COMPOSITION_FPS } from "../verify.ts";
-import type { AdapterVerifyContext, BuildPlan, VisualBindingManifest } from "../../../engine/types.ts";
+import type {
+  AdapterVerifyContext,
+  BuildPlan,
+  VisualBindingManifest,
+  VisualBindingManifestV1,
+} from "../../../engine/types.ts";
 
 function goodProject(): string {
   const tmp = mkdtempSync(join(tmpdir(), "remotion-verify-"));
@@ -168,7 +173,9 @@ function semanticPlan(): BuildPlan {
   };
 }
 
-function manifest(bindings: VisualBindingManifest["bindings"]): VisualBindingManifest {
+function manifest(
+  bindings: VisualBindingManifestV1["bindings"],
+): VisualBindingManifestV1 {
   return {
     version: 1,
     framework: "remotion",

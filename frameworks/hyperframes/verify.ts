@@ -24,6 +24,8 @@ import type {
   VerifyOptions,
   VideoConfig,
   VisualBindingManifest,
+  VisualBindingManifestV1,
+  VisualBindingManifestV2,
 } from "../../engine/types.ts";
 import { verifyVisualSync } from "../../engine/visual_sync.ts";
 import { verifyEmittedVoiceSnapshots } from "../../engine/voice_assets.ts";
@@ -162,15 +164,21 @@ function withObservedOuterDurations(
     });
   }
 
-  return {
-    ...manifest,
-    frames: [...durations.values()],
-    bindings: manifest.bindings.map((binding) => (
+  const frames = [...durations.values()];
+  if (manifest.version === 1) {
+    const bindings: VisualBindingManifestV1["bindings"] = manifest.bindings.map((binding) => (
       observed.has(binding.frameSlug)
         ? { ...binding, outerDuration: observed.get(binding.frameSlug)! }
         : binding
-    )),
-  };
+    ));
+    return { ...manifest, frames, bindings };
+  }
+  const bindings: VisualBindingManifestV2["bindings"] = manifest.bindings.map((binding) => (
+    observed.has(binding.frameSlug)
+      ? { ...binding, outerDuration: observed.get(binding.frameSlug)! }
+      : binding
+  ));
+  return { ...manifest, frames, bindings };
 }
 
 interface OutputConfigState {

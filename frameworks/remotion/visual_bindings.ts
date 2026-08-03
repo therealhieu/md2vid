@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
-import type { BuildPlan, VisualBindingManifest } from "../../engine/types.ts";
+import type {
+  BuildPlan,
+  VisualBindingManifest,
+  VisualBindingManifestV1,
+} from "../../engine/types.ts";
 import { REMOTION_COMPOSITION_FPS } from "./verify.ts";
 import { quantizeVisualTiming } from "./timing.ts";
 
@@ -110,7 +114,7 @@ export function resolveRemotionBindings(
 ): { runtimeBindings: RemotionBindingSpec["frames"]; manifest: VisualBindingManifest } {
   const frames = new Map(plan.frames.map((frame) => [frame.slug, frame]));
   const runtimeBindings: RemotionBindingSpec["frames"] = Object.create(null) as RemotionBindingSpec["frames"];
-  const bindings: VisualBindingManifest["bindings"] = [];
+  const bindings: VisualBindingManifestV1["bindings"] = [];
 
   for (const [frameSlug, authoredBindings] of Object.entries(spec.frames)) {
     const frame = frames.get(frameSlug);

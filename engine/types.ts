@@ -184,7 +184,7 @@ export interface BuildPlan {
   captionGroups: CaptionGroup[];
 }
 
-export interface VisualBinding {
+export interface VisualBindingV1 {
   frameSlug: string;
   beatId: string;
   target: string;
@@ -195,18 +195,46 @@ export interface VisualBinding {
   outerDuration?: number;
 }
 
+export interface VisualBindingV2 extends Omit<VisualBindingV1, "source"> {
+  role: VisualSemanticRole;
+  coverageStart: number;
+  coverageEnd: number;
+  source: "declarative" | "custom" | "static";
+}
+
+/** @deprecated Use the versioned binding types from a versioned manifest. */
+export type VisualBinding = VisualBindingV1;
+
 export interface VisualFrameDuration {
   frameSlug: string;
   authoredDuration?: number;
   outerDuration?: number;
 }
 
-export interface VisualBindingManifest {
+export interface VisualBindingInputDigest {
+  path: string;
+  sha256: string;
+}
+
+export interface VisualBindingManifestV1 {
   version: 1;
   framework: string;
-  bindings: VisualBinding[];
+  bindings: VisualBindingV1[];
   frames?: VisualFrameDuration[];
 }
+
+export interface VisualBindingManifestV2 {
+  version: 2;
+  framework: string;
+  planSha256: string;
+  authoredInputs: VisualBindingInputDigest[];
+  bindings: VisualBindingV2[];
+  frames?: VisualFrameDuration[];
+}
+
+export type VisualBindingManifest =
+  | VisualBindingManifestV1
+  | VisualBindingManifestV2;
 
 // ── Config (merged neutral video.config.json + local output.config.json) ─────
 export interface VideoConfig {
@@ -228,7 +256,12 @@ export interface VideoConfig {
 
 // ── Verification finding (const union, never a TS enum — erasable-only) ──────
 export type Level = "error" | "warn";
-export interface Finding { level: Level; msg: string; }
+export interface Finding {
+  level: Level;
+  msg: string;
+  code?: string;
+  details?: Record<string, unknown>;
+}
 
 // ── Scaffold and adapter contracts ──────────────────────────────────────────
 export interface FrameworkScaffoldSpec {

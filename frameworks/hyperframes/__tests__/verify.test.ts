@@ -9,7 +9,12 @@ import { tmpdir } from "node:os";
 import { DEFAULT_GSAP_SRC } from "../scaffold.ts";
 import { getAdapter } from "../../index.ts";
 import { resolveVerificationFps, verify, verifyFrameShell, verifyHyperframesCaptionArtifact } from "../verify.ts";
-import type { AdapterVerifyContext, BuildPlan, VisualBindingManifest } from "../../../engine/types.ts";
+import type {
+  AdapterVerifyContext,
+  BuildPlan,
+  VisualBindingManifest,
+  VisualBindingManifestV1,
+} from "../../../engine/types.ts";
 
 const errs = (findings: Array<{ level: string; msg: string }>) =>
   findings.filter((f) => f.level === "error").map((f) => f.msg);
@@ -132,7 +137,9 @@ function semanticIndex(fps: number, hostDuration = 2.5): string {
 ${embeddedCaptions(DEFAULT_GROUPS)}`;
 }
 
-function semanticManifest(overrides: Partial<VisualBindingManifest> = {}): VisualBindingManifest {
+function semanticManifest(
+  overrides: Partial<VisualBindingManifestV1> = {},
+): VisualBindingManifestV1 {
   return {
     version: 1,
     framework: "hyperframes",
