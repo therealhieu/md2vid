@@ -30,6 +30,8 @@ import { makeWavForSafeDuration } from "../helpers/wav.ts";
 import { DEFAULT_GSAP_SRC } from "../../scripts/dependency_versions.ts";
 import { run as buildRun } from "../../scripts/build.ts";
 import { run as planRun } from "../../scripts/plan.ts";
+import { verifyVisualSync } from "../../engine/visual_sync.ts";
+import type { BuildPlan, ResolvedVisualSyncPolicy, VisualBindingManifestV2, VisualBindingV2 } from "../../engine/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -114,6 +116,117 @@ for (const slug of SLUGS) {
   });
 }
 
+function buildContinuousCoverageVariant(variant: string) {
+  const fixture = join(FIXTURES, "continuous-visual-coverage");
+  const root = mkdtempSync(join(tmpdir(), `golden-continuous-coverage-${variant}-`));
+  const shared = join(root, "shared");
+  const output = join(root, "hyperframes");
+  mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+  mkdirSync(output, { recursive: true });
+  for (const name of ["audio_meta.json", "video.config.json"]) {
+    copyFileSync(join(fixture, "inputs", name), join(shared, name));
+  }
+  copyFileSync(
+    join(fixture, "inputs", `${variant}.visual_beats.json`),
+    join(shared, "visual_beats.json"),
+  );
+  copyFileSync(join(fixture, "inputs", "output.config.json"), join(output, "output.config.json"));
+  const meta = JSON.parse(readFileSync(join(shared, "audio_meta.json"), "utf8"));
+  for (const voice of meta.voices) {
+    writeFileSync(join(shared, voice.path), makeWavForSafeDuration(voice.duration_s));
+  }
+  assert.equal(planRun([output]), 0);
+  const plan = JSON.parse(readFileSync(join(shared, "build", "build_plan.json"), "utf8")) as BuildPlan;
+  return { root, plan };
+}
+
+function manifestForPlan(plan: BuildPlan): VisualBindingManifestV2 {
+  const bindings: VisualBindingV2[] = [];
+  for (const frame of plan.frames) {
+    for (const beat of frame.visualBeats ?? []) {
+      if (beat.version !== 2) continue;
+      bindings.push({
+        frameSlug: frame.slug,
+        beatId: beat.id,
+        target: `#${beat.id}`,
+        role: beat.role,
+        revealStart: beat.start,
+        revealDuration: 0,
+        coverageStart: beat.start,
+        coverageEnd: beat.end,
+        source: "static",
+      });
+    }
+  }
+  return {
+    version: 2,
+    framework: "hyperframes",
+    planSha256: "golden-synthetic-not-used",
+    authoredInputs: [],
+    bindings,
+  };
+}
+
+const REQUIRED_COVERAGE_POLICY: ResolvedVisualSyncPolicy = {
+  mode: "required",
+  coverageMode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  maxUncoveredGap: 0.5,
+  minLanding: 1,
+};
+
+test("golden: synthetic continuous coverage fixture classifies opening, middle, ending, shell, and static cases", () => {
+  const cases = [
+    ["late-focal-opening-gap", "opening_visual_gap", false],
+    ["frame-start-opening-pass", undefined, false],
+    ["middle-gap", "mid_scene_visual_gap", false],
+    ["ending-gap", "ending_visual_gap", false],
+    ["static-focal-pass", undefined, false],
+  ] as const;
+
+  for (const [variant, expectedCode, extendsThroughFrameEnd] of cases) {
+    const { root, plan } = buildContinuousCoverageVariant(variant);
+    try {
+      const manifest = manifestForPlan(plan);
+      const findings = verifyVisualSync({ plan, manifest, policy: REQUIRED_COVERAGE_POLICY, fps: 30 });
+      if (expectedCode === undefined) {
+        assert.deepEqual(findings, [], variant);
+        continue;
+      }
+      const finding = findings.find((entry) => entry.code === expectedCode);
+      assert.ok(finding, `${variant}: ${JSON.stringify(findings)}`);
+      assert.equal(finding.details?.frameSlug, "continuous-coverage", variant);
+      if (extendsThroughFrameEnd) {
+        assert.equal(finding.details?.extendsThroughFrameEnd, true, variant);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const { root, plan } = buildContinuousCoverageVariant("static-focal-pass");
+  try {
+    const supportingOnly = manifestForPlan(plan);
+    supportingOnly.bindings = supportingOnly.bindings.map((binding) => ({
+      ...binding,
+      role: "supporting" as const,
+    }));
+    for (const [label, manifest] of [
+      ["supporting-only", supportingOnly],
+      ["captions-only", { ...supportingOnly, bindings: [] as VisualBindingV2[] }],
+      ["shell-only", { ...supportingOnly, bindings: [] as VisualBindingV2[] }],
+    ] as const) {
+      const findings = verifyVisualSync({ plan, manifest, policy: REQUIRED_COVERAGE_POLICY, fps: 30 });
+      const finding = findings.find((entry) => entry.code === "opening_visual_gap");
+      assert.ok(finding, `${label}: ${JSON.stringify(findings)}`);
+      assert.equal(finding.details?.extendsThroughFrameEnd, true, label);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("golden: visual timing plan and build artifacts are byte-identical", () => {
   const fixture = join(FIXTURES, "visual-timing-sync");
   const root = mkdtempSync(join(tmpdir(), "golden-visual-timing-sync-"));
@@ -135,6 +248,11 @@ test("golden: visual timing plan and build artifacts are byte-identical", () => 
     assert.equal(planRun([output]), 0);
     const plannedBuild = readFileSync(join(shared, "build", "build_plan.json"), "utf8");
     const plannedVisualTiming = readFileSync(join(shared, "build", "visual_timing.json"), "utf8");
+    const result = JSON.parse(plannedBuild) as BuildPlan;
+    assert.equal(result.frames[0].visualBeats?.[0]?.start, 2.95);
+    assert.equal(result.frames[0].visualBeats?.[0]?.end, 11.06);
+    assert.equal(result.frames[0].words[0].start, 2.95);
+    assert.equal(result.frames[0].visualSpecVersion, 2);
 
     assert.equal(buildRun([output]), 0);
     assert.equal(readFileSync(join(shared, "build", "build_plan.json"), "utf8"), plannedBuild);

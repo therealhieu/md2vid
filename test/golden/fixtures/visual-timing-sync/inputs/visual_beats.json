@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "frames": {
     "reserve-flow": {
       "kind": "workflow",
@@ -7,22 +7,29 @@
         {
           "id": "reserve",
           "text": "Reserve value",
+          "role": "focal",
           "cue": { "wordIndex": 0 },
+          "coverage": { "until": "next-state" },
           "workflowStep": 1
         },
         {
           "id": "execute",
           "text": "Execute operation",
+          "role": "focal",
           "cue": { "wordIndex": 1 },
+          "coverage": { "until": "next-state" },
           "workflowStep": 2
         },
         {
           "id": "settle",
           "text": "Settle result",
+          "role": "focal",
           "cue": { "wordIndex": 2 },
+          "coverage": { "until": "frame-end" },
           "workflowStep": 3
         }
-      ]
+      ],
+      "coverageExemptions": []
     }
   }
 }

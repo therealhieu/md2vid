@@ -127,6 +127,18 @@ test("packed source scaffold adapters import and execute from an unrelated cwd",
     }
     assertNoProductionAudioRunners(paths);
     assert.match(readFileSync(join(packageRoot, "skill", "md2vid", "SKILL.md"), "utf8"), /\/media-use/);
+    assert.match(
+      readFileSync(join(packageRoot, "dist", "docs", "standards", "frameworks", "hyperframes.md"), "utf8"),
+      /md2vid-continuous-visual-coverage: 2/,
+    );
+    assert.match(
+      readFileSync(join(packageRoot, "skill", "md2vid", "references", "standards", "frameworks", "remotion.md"), "utf8"),
+      /BeatState/,
+    );
+    assert.match(
+      readFileSync(join(packageRoot, "dist", "frameworks", "remotion", "templates", "src", "VisualBeats.tsx"), "utf8"),
+      /export const BeatState/,
+    );
 
     assert.equal(
       existsSync(join(packageRoot, "frameworks", "hyperframes", "templates")),

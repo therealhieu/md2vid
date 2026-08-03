@@ -1,7 +1,7 @@
 {
   "timing": {
-    "tail": 0.5,
-    "xfade": 0.5,
+    "tail": 1.0,
+    "xfade": 0,
     "gap": 0
   },
   "canvas": {
@@ -9,11 +9,14 @@
     "height": 1080
   },
   "slugs": {
-    "reserve-flow": "reserve-flow"
+    "continuous-coverage": "continuous-coverage"
   },
   "visualSync": {
     "mode": "required",
     "coverageMode": "required",
-    "maxUncoveredGap": 0.5
+    "maxLead": 0.25,
+    "maxLag": 0.75,
+    "maxUncoveredGap": 0.5,
+    "minLanding": 1
   }
 }

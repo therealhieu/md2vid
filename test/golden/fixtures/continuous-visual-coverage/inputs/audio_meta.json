@@ -1,0 +1,26 @@
+{
+  "voices": [
+    {
+      "id": "continuous-coverage",
+      "path": "assets/voice/continuous-coverage.wav",
+      "duration_s": 22.08,
+      "words": [
+        {
+          "text": "A",
+          "start": 0.07,
+          "end": 0.12
+        },
+        {
+          "text": "middle",
+          "start": 6.0,
+          "end": 6.2
+        },
+        {
+          "text": "solution",
+          "start": 18.26,
+          "end": 18.8
+        }
+      ]
+    }
+  ]
+}

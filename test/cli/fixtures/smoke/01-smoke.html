@@ -4,8 +4,8 @@
   <body>
     <template data-composition-id="01-smoke">
       <div id="smoke-root" data-composition-id="01-smoke" data-frame-theme="light" data-start="0" data-width="1920" data-height="1080" data-duration="3">
-        <div id="s01-title" class="clip" data-start="0" data-duration="3" data-track-index="0">Smoke test</div>
-        <div id="s01-future" class="clip" data-start="0" data-duration="3" data-track-index="1" data-md2vid-beat="reveal" data-md2vid-enter="rise" data-md2vid-duration="0.2">Staged reveal</div>
+        <div id="s01-title" class="clip" data-start="0" data-duration="3" data-track-index="0" data-md2vid-beat="opening-context" data-md2vid-enter="none" data-md2vid-coverage="planned">Smoke test</div>
+        <div id="s01-future" class="clip" data-start="0" data-duration="3" data-track-index="1" data-md2vid-beat="final-landing" data-md2vid-enter="none" data-md2vid-coverage="planned">Staged reveal</div>
         <div id="s01-late" class="clip" data-start="0" data-duration="3" data-track-index="2">Late handoff</div>
       </div>
       <style>
@@ -19,7 +19,6 @@
         (function () {
           window.__timelines = window.__timelines || {};
           const tl = gsap.timeline({ paused: true });
-          tl.set("#s01-future", { opacity: 0 }, 0);
           tl.set("#s01-late", { color: "rgb(20, 20, 19)" }, 0);
           tl.set("#s01-late", { color: "rgb(204, 120, 92)" }, 2.7);
           tl.to("#s01-title", { opacity: 1, duration: 3, ease: "none" }, 0);

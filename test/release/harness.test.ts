@@ -284,6 +284,11 @@ test("HyperFrames smoke coverage probes include every v2 binding", () => {
   ]);
 });
 
+test("HyperFrames smoke semantic visibility treats opacity-zero targets as hidden", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /Number\.parseFloat\(style\.opacity\)\s*>\s*0\.01/);
+});
+
 test("HyperFrames smoke coverage probes derive expectations from quantized seek time", () => {
   for (const fps of [24, 30, 60]) {
     const [check] = deriveSmokeCoverageChecks(
@@ -431,6 +436,8 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
 
 test("release smoke supplies required visual timing inputs and consumes draft render policy", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /coverageMode:\s*"required"/);
+  assert.match(source, /maxUncoveredGap:\s*0\.5/);
   assert.match(source, /visual_beats\.json/);
   assert.match(source, /data-md2vid-beat/);
   assert.match(source, /visual_bindings\.json/);
@@ -439,11 +446,13 @@ test("release smoke supplies required visual timing inputs and consumes draft re
   assert.match(source, /BeatReveal/);
   assert.match(source, /OpeningContext/);
   assert.match(source, /FinalLanding/);
+  assert.match(source, /target: "FinalLanding", enter: "none"/);
   assert.match(source, /smoke-opening/);
   assert.match(source, /smoke-landing/);
   assert.match(source, /MD2VID_REMOTION_PROBE/);
   assert.match(source, /assertRemotionRuntimeProbe/);
   assert.match(source, /openBrowser/);
+  assert.match(source, /browser\.close\(\{ silent: true \}\)/);
   assert.match(source, /held-landing/);
   assert.match(source, /--profile",\s*"draft"/);
   assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
@@ -454,10 +463,12 @@ test("release smoke supplies required visual timing inputs and consumes draft re
 test("retained Kokoro smoke uses exact coverage states and transcript indexes", () => {
   const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
   assert.match(source, /id: "opening-context"/);
+  assert.doesNotMatch(source, /id: "opening-context"[\s\S]{0,240}?coverage: \{ until: "next-state" \}/);
   assert.match(source, /id: "final-landing"/);
   assert.match(source, /cue: \{ frameStart: true \}/);
-  assert.match(source, /cue: \{ wordIndex: 2 \}/);
-  assert.match(source, /cue: \{ wordIndex: 3 \}/);
+  assert.match(source, /cue: \{ wordIndex: 1 \}/);
+  assert.match(source, /cue: \{ wordIndex: 0 \}/);
+  assert.doesNotMatch(source, /cue: \{ wordIndex: [23] \}/);
   assert.doesNotMatch(source, /id: "reveal"/);
 });
 
@@ -796,10 +807,15 @@ test("extracts canonical local GSAP URLs from generated and authored HTML", () =
 
 test("HyperFrames smoke leaves beat-bound target scheduling to the generated helper", () => {
   const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
-  for (const [frameSlug, target] of [["01-smoke", "s01-future"], ["02-smoke", "s02-future"]] as const) {
+  for (const [frameSlug, titleTarget, futureTarget] of [
+    ["01-smoke", "s01-title", "s01-future"],
+    ["02-smoke", "s02-title", "s02-future"],
+  ] as const) {
     const frame = readFileSync(join(fixtureRoot, `${frameSlug}.html`), "utf8");
-    assert.match(frame, new RegExp(`id="${target}"[^>]*data-md2vid-beat="reveal"`));
-    assert.doesNotMatch(frame, new RegExp(`tl\\.to\\("#${target}"`));
+    assert.match(frame, new RegExp(`id="${titleTarget}"[^>]*data-md2vid-beat="opening-context"[^>]*data-md2vid-enter="none"[^>]*data-md2vid-coverage="planned"`));
+    assert.match(frame, new RegExp(`id="${futureTarget}"[^>]*data-md2vid-beat="final-landing"[^>]*data-md2vid-enter="none"[^>]*data-md2vid-coverage="planned"`));
+    assert.doesNotMatch(frame, /data-md2vid-beat="reveal"/);
+    assert.doesNotMatch(frame, new RegExp(`tl\\.(?:set|to|from|fromTo)\\("#${futureTarget}"`));
   }
 });
 

@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "frames": {
+    "continuous-coverage": {
+      "kind": "focal",
+      "beats": [
+        {
+          "id": "static-diagram",
+          "text": "Static explanatory diagram",
+          "role": "focal",
+          "cue": {
+            "frameStart": true
+          },
+          "coverage": {
+            "until": "frame-end"
+          }
+        }
+      ],
+      "coverageExemptions": []
+    }
+  }
+}

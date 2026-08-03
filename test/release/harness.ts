@@ -1311,14 +1311,14 @@ function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixtu
               text: "Introduce the topic",
               role: "focal",
               cue: { frameStart: true },
-              coverage: { until: "next-state" },
+              coverage: { until: "frame-end" },
               sourceRefs: ["smoke.md:1-1"],
             },
             {
               id: "final-landing",
               text: "The topic",
               role: "focal",
-              cue: { wordIndex: 2 },
+              cue: { wordIndex: 1 },
               coverage: { until: "frame-end" },
               sourceRefs: ["smoke.md:1-1"],
             },
@@ -1333,14 +1333,14 @@ function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixtu
               text: "Recap the key idea",
               role: "focal",
               cue: { frameStart: true },
-              coverage: { until: "next-state" },
+              coverage: { until: "frame-end" },
               sourceRefs: ["smoke.md:2-2"],
             },
             {
               id: "final-landing",
               text: "The key idea",
               role: "focal",
-              cue: { wordIndex: 3 },
+              cue: { wordIndex: 0 },
               coverage: { until: "frame-end" },
               sourceRefs: ["smoke.md:2-2"],
             },
@@ -1519,7 +1519,12 @@ function assertCompleteScaffold(
     visualSync?: unknown;
   };
   assert.deepEqual(neutralConfig.visualSync, {
-    mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 1,
+    mode: "required",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
   });
   const standard = readFileSync(join(project, ".md2vid", "standards", `${framework}.md`), "utf8");
   if (framework === "hyperframes") {
@@ -2177,9 +2182,10 @@ async function assertHyperframesBrowserExecution(
               const element = pageDocument.querySelector(selector) as any;
               if (!element) throw new Error(`missing semantic coverage target ${selector}`);
               const style = pageGetComputedStyle(element);
-              const visible = typeof element.checkVisibility === "function"
+              const structurallyVisible = typeof element.checkVisibility === "function"
                 ? element.checkVisibility()
                 : style.display !== "none" && style.visibility !== "hidden";
+              const visible = structurallyVisible && Number.parseFloat(style.opacity) > 0.01;
               return {
                 opacity: style.opacity,
                 visibility: style.visibility,
@@ -2575,7 +2581,7 @@ try {
     }
   }
 } finally {
-  await browser.close();
+  await browser.close({ silent: true });
 }
 console.log(\`OK Remotion runtime probe: \${samples.length} samples x 3 routes\`);
 `);
@@ -2823,11 +2829,11 @@ export async function runFrameworkSmoke(
         frames: {
           "01-smoke": [
             { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
-            { beat: "final-landing", target: "FinalLanding", enter: "rise", duration: 0.5, coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "none", coverage: "planned" },
           ],
           "02-smoke": [
             { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
-            { beat: "final-landing", target: "FinalLanding", enter: "rise", duration: 0.5, coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "none", coverage: "planned" },
           ],
         },
       }, null, 2)}\n`,
