@@ -28,6 +28,34 @@ const POLICY: ResolvedVisualSyncPolicy = {
   minLanding: 1,
 };
 
+const V2_SPEC = {
+  version: 2,
+  frames: {
+    "reserve-flow": {
+      kind: "workflow",
+      beats: [
+        {
+          id: "opening",
+          text: "Reserve before external work",
+          role: "focal",
+          cue: { frameStart: true },
+          coverage: { until: "next-state" },
+          workflowStep: 1,
+        },
+        {
+          id: "execute",
+          text: "Execute the operation",
+          role: "focal",
+          cue: { phrase: "execute", occurrence: 1 },
+          coverage: { until: "frame-end" },
+          workflowStep: 2,
+        },
+      ],
+      coverageExemptions: [],
+    },
+  },
+} as const;
+
 test("resolves word index and phrase occurrence to original word timing", () => {
   const spec: VisualBeatSpec = {
     version: 1,
@@ -171,10 +199,97 @@ test("merges only supplied beat tolerance keys over the policy", () => {
   assert.deepEqual(beat.tolerance, { maxLead: 0.25, maxLag: 1.25 });
 });
 
+test("accepts strict visual-beats v2 coverage input", () => {
+  const result = validateVisualBeatSpec(V2_SPEC, "visual_beats.json");
+  assert.equal(result.version, 2);
+  assert.deepEqual(result.frames["reserve-flow"], V2_SPEC.frames["reserve-flow"]);
+});
+
+for (const [name, mutate, pattern] of [
+  [
+    "states alias",
+    () => ({ version: 2, frames: { "reserve-flow": { states: [] } } }),
+    /frames\.reserve-flow\.states.*not supported/,
+  ],
+  [
+    "false frame-start",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{ ...V2_SPEC.frames["reserve-flow"].beats[0], cue: { frameStart: false } }],
+        },
+      },
+    }),
+    /cue\.frameStart.*true/,
+  ],
+  [
+    "mixed cue branches",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{
+            ...V2_SPEC.frames["reserve-flow"].beats[0],
+            cue: { frameStart: true, wordIndex: 0 },
+          }],
+        },
+      },
+    }),
+    /cue.*exactly one/,
+  ],
+  [
+    "invalid role",
+    () => ({
+      ...V2_SPEC,
+      frames: {
+        "reserve-flow": {
+          ...V2_SPEC.frames["reserve-flow"],
+          beats: [{ ...V2_SPEC.frames["reserve-flow"].beats[0], role: "shell" }],
+        },
+      },
+    }),
+    /role.*focal.*supporting/,
+  ],
+] as const) {
+  test(`rejects v2 ${name}`, () => {
+    assert.throws(
+      () => validateVisualBeatSpec(mutate(), "visual_beats.json"),
+      pattern,
+    );
+  });
+}
+
+test("rejects an exemption without review metadata", () => {
+  const value = structuredClone(V2_SPEC) as Record<string, unknown>;
+  const frame = (value.frames as Record<string, Record<string, unknown>>)["reserve-flow"];
+  frame.coverageExemptions = [{
+    id: "pause",
+    from: { wordIndex: 1 },
+    until: "voice-end",
+    reason: "Intentional audio-only pause",
+  }];
+  assert.throws(
+    () => validateVisualBeatSpec(value, "visual_beats.json"),
+    /coverageExemptions\[0\]\.approvedBy/,
+  );
+});
+
+test("accepts an empty v2 beat list for policy-aware planning", () => {
+  const result = validateVisualBeatSpec({
+    version: 2,
+    frames: { "reserve-flow": { beats: [] } },
+  }, "visual_beats.json");
+  assert.equal(result.version, 2);
+  assert.deepEqual(result.frames["reserve-flow"].beats, []);
+});
+
 test("rejects malformed visual beat specification structure", () => {
   const cases: Array<[unknown, RegExp]> = [
     [null, /visual_beats\.json.*expected an object/],
-    [{ version: 2, frames: {} }, /visual_beats\.json\.version.*expected 1/],
+    [{ version: 3, frames: {} }, /visual_beats\.json\.version.*must be 1 or 2/],
     [{ version: 1, frames: [] }, /visual_beats\.json\.frames.*expected an object/],
     [{ version: 1, frames: { "reserve-flow": { beats: [] } } }, /beats.*non-empty array/],
     [{ version: 1, frames: { "reserve-flow": { kind: "grid", beats: [] } } }, /kind/],

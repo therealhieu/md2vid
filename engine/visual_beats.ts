@@ -1,11 +1,19 @@
 import { readFileSync } from "node:fs";
 import type {
-  AuthoredVisualBeat,
-  AuthoredVisualFrame,
+  AuthoredCoverageExemption,
+  AuthoredVisualBeatV1,
+  AuthoredVisualBeatV2,
+  AuthoredVisualFrameV1,
+  AuthoredVisualFrameV2,
   PlanFrame,
   ResolvedVisualBeat,
   ResolvedVisualSyncPolicy,
   VisualBeatSpec,
+  VisualBeatSpecV1,
+  VisualBeatSpecV2,
+  VisualCoverageEnd,
+  VisualCueAnchorV1,
+  VisualCueAnchorV2,
 } from "./types.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -21,7 +29,27 @@ interface PhraseMatch {
 }
 
 const VISUAL_KINDS = new Set(["focal", "workflow", "comparison", "sequence"]);
-const BEAT_FIELDS = new Set(["id", "text", "cue", "sourceRefs", "workflowStep", "tolerance"]);
+const V1_FRAME_FIELDS = new Set(["kind", "beats"]);
+const V1_BEAT_FIELDS = new Set(["id", "text", "cue", "sourceRefs", "workflowStep", "tolerance"]);
+const V2_FRAME_FIELDS = new Set(["kind", "beats", "coverageExemptions"]);
+const V2_BEAT_FIELDS = new Set([
+  "id",
+  "text",
+  "role",
+  "cue",
+  "coverage",
+  "sourceRefs",
+  "workflowStep",
+  "tolerance",
+]);
+const V2_COVERAGE_FIELDS = new Set(["until"]);
+const V2_EXEMPTION_FIELDS = new Set([
+  "id",
+  "from",
+  "until",
+  "reason",
+  "approvedBy",
+]);
 const TOLERANCE_FIELDS = new Set(["maxLead", "maxLag"]);
 const DIAGNOSTIC_TRANSCRIPT_WORD_LIMIT = 12;
 const DIAGNOSTIC_CANDIDATE_LIMIT = 8;
@@ -47,7 +75,7 @@ function requireNonEmptyString(value: unknown, path: string): string {
   return value;
 }
 
-function validateCue(value: unknown, path: string): AuthoredVisualBeat["cue"] {
+function validateCueV1(value: unknown, path: string): VisualCueAnchorV1 {
   if (!isRecord(value)) fail(path, "must be an object");
 
   const hasWordIndex = Object.hasOwn(value, "wordIndex");
@@ -74,18 +102,32 @@ function validateCue(value: unknown, path: string): AuthoredVisualBeat["cue"] {
   return { phrase, occurrence: value.occurrence as number };
 }
 
+function validateCueV2(value: unknown, path: string): VisualCueAnchorV2 {
+  if (!isRecord(value)) fail(path, "must be an object");
+  if (Object.hasOwn(value, "frameStart")) {
+    if (Object.keys(value).length !== 1) {
+      fail(path, "must contain exactly one cue branch");
+    }
+    if (value.frameStart !== true) {
+      fail(`${path}.frameStart`, "must be true");
+    }
+    return { frameStart: true };
+  }
+  return validateCueV1(value, path);
+}
+
 function validateSourceRefs(value: unknown, path: string): string[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) fail(path, "must be an array");
   return value.map((sourceRef, index) => requireNonEmptyString(sourceRef, `${path}[${index}]`));
 }
 
-function validateTolerance(value: unknown, path: string): AuthoredVisualBeat["tolerance"] {
+function validateTolerance(value: unknown, path: string): AuthoredVisualBeatV1["tolerance"] {
   if (value === undefined) return undefined;
   if (!isRecord(value)) fail(path, "must be an object");
   ensureOnlyFields(value, TOLERANCE_FIELDS, path);
 
-  const tolerance: AuthoredVisualBeat["tolerance"] = {};
+  const tolerance: AuthoredVisualBeatV1["tolerance"] = {};
   for (const field of ["maxLead", "maxLag"] as const) {
     const setting = value[field];
     if (setting === undefined) continue;
@@ -97,13 +139,13 @@ function validateTolerance(value: unknown, path: string): AuthoredVisualBeat["to
   return tolerance;
 }
 
-function validateBeat(value: unknown, path: string): AuthoredVisualBeat {
+function validateBeatV1(value: unknown, path: string): AuthoredVisualBeatV1 {
   if (!isRecord(value)) fail(path, "must be an object");
-  ensureOnlyFields(value, BEAT_FIELDS, path);
+  ensureOnlyFields(value, V1_BEAT_FIELDS, path);
 
   const id = requireNonEmptyString(value.id, `${path}.id`);
   const text = requireNonEmptyString(value.text, `${path}.text`);
-  const cue = validateCue(value.cue, `${path}.cue`);
+  const cue = validateCueV1(value.cue, `${path}.cue`);
   const sourceRefs = validateSourceRefs(value.sourceRefs, `${path}.sourceRefs`);
   const tolerance = validateTolerance(value.tolerance, `${path}.tolerance`);
 
@@ -125,7 +167,81 @@ function validateBeat(value: unknown, path: string): AuthoredVisualBeat {
   };
 }
 
-function validateWorkflowSteps(beats: readonly AuthoredVisualBeat[], path: string, kind?: AuthoredVisualFrame["kind"]): void {
+function validateCoverageEnd(value: unknown, path: string): VisualCoverageEnd {
+  if (value === "next-state" || value === "voice-end" || value === "frame-end") {
+    return value;
+  }
+  if (!isRecord(value)) fail(path, "must be a coverage endpoint");
+  ensureOnlyFields(value, new Set(["cue"]), path);
+  if (!Object.hasOwn(value, "cue")) fail(`${path}.cue`, "is required");
+  return { cue: validateCueV2(value.cue, `${path}.cue`) };
+}
+
+function validateCoverage(
+  value: unknown,
+  path: string,
+): AuthoredVisualBeatV2["coverage"] {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) fail(path, "must be an object");
+  ensureOnlyFields(value, V2_COVERAGE_FIELDS, path);
+  if (value.until === undefined) return {};
+  return { until: validateCoverageEnd(value.until, `${path}.until`) };
+}
+
+function validateBeatV2(value: unknown, path: string): AuthoredVisualBeatV2 {
+  if (!isRecord(value)) fail(path, "must be an object");
+  ensureOnlyFields(value, V2_BEAT_FIELDS, path);
+
+  const id = requireNonEmptyString(value.id, `${path}.id`);
+  const text = requireNonEmptyString(value.text, `${path}.text`);
+  if (value.role !== "focal" && value.role !== "supporting") {
+    fail(`${path}.role`, 'must be one of "focal" or "supporting"');
+  }
+  const cue = validateCueV2(value.cue, `${path}.cue`);
+  const coverage = validateCoverage(value.coverage, `${path}.coverage`);
+  const sourceRefs = validateSourceRefs(value.sourceRefs, `${path}.sourceRefs`);
+  const tolerance = validateTolerance(value.tolerance, `${path}.tolerance`);
+
+  let workflowStep: number | undefined;
+  if (value.workflowStep !== undefined) {
+    if (!Number.isInteger(value.workflowStep) || (value.workflowStep as number) <= 0) {
+      fail(`${path}.workflowStep`, "must be a positive integer");
+    }
+    workflowStep = value.workflowStep as number;
+  }
+
+  return {
+    id,
+    text,
+    role: value.role,
+    cue,
+    ...(coverage === undefined ? {} : { coverage }),
+    ...(sourceRefs === undefined ? {} : { sourceRefs }),
+    ...(workflowStep === undefined ? {} : { workflowStep }),
+    ...(tolerance === undefined ? {} : { tolerance }),
+  };
+}
+
+function validateCoverageExemption(
+  value: unknown,
+  path: string,
+): AuthoredCoverageExemption {
+  if (!isRecord(value)) fail(path, "must be an object");
+  ensureOnlyFields(value, V2_EXEMPTION_FIELDS, path);
+  return {
+    id: requireNonEmptyString(value.id, `${path}.id`),
+    from: validateCueV2(value.from, `${path}.from`),
+    until: validateCoverageEnd(value.until, `${path}.until`),
+    reason: requireNonEmptyString(value.reason, `${path}.reason`),
+    approvedBy: requireNonEmptyString(value.approvedBy, `${path}.approvedBy`),
+  };
+}
+
+function validateWorkflowSteps(
+  beats: readonly (AuthoredVisualBeatV1 | AuthoredVisualBeatV2)[],
+  path: string,
+  kind?: AuthoredVisualFrameV1["kind"],
+): void {
   const workflowBeats = beats.filter((beat) => beat.workflowStep !== undefined);
   if (workflowBeats.length === 0) {
     if (kind === "workflow") fail(`${path}.beats`, "workflowStep is required for every beat in a workflow frame");
@@ -152,22 +268,22 @@ function validateWorkflowSteps(beats: readonly AuthoredVisualBeat[], path: strin
   }
 }
 
-function validateFrame(value: unknown, path: string): AuthoredVisualFrame {
+function validateFrameV1(value: unknown, path: string): AuthoredVisualFrameV1 {
   if (!isRecord(value)) fail(path, "must be an object");
-  ensureOnlyFields(value, new Set(["kind", "beats"]), path);
+  ensureOnlyFields(value, V1_FRAME_FIELDS, path);
 
-  let kind: AuthoredVisualFrame["kind"];
+  let kind: AuthoredVisualFrameV1["kind"];
   if (value.kind !== undefined) {
     if (typeof value.kind !== "string" || !VISUAL_KINDS.has(value.kind)) {
       fail(`${path}.kind`, 'must be one of "focal", "workflow", "comparison", or "sequence"');
     }
-    kind = value.kind as AuthoredVisualFrame["kind"];
+    kind = value.kind as AuthoredVisualFrameV1["kind"];
   }
 
   if (!Array.isArray(value.beats) || value.beats.length === 0) {
     fail(`${path}.beats`, "must be a non-empty array");
   }
-  const beats = value.beats.map((beat, index) => validateBeat(beat, `${path}.beats[${index}]`));
+  const beats = value.beats.map((beat, index) => validateBeatV1(beat, `${path}.beats[${index}]`));
 
   const idPaths = new Map<string, string>();
   for (const [index, beat] of beats.entries()) {
@@ -183,17 +299,74 @@ function validateFrame(value: unknown, path: string): AuthoredVisualFrame {
   return { ...(kind === undefined ? {} : { kind }), beats };
 }
 
+function validateFrameV2(value: unknown, path: string): AuthoredVisualFrameV2 {
+  if (!isRecord(value)) fail(path, "must be an object");
+  ensureOnlyFields(value, V2_FRAME_FIELDS, path);
+
+  let kind: AuthoredVisualFrameV2["kind"];
+  if (value.kind !== undefined) {
+    if (typeof value.kind !== "string" || !VISUAL_KINDS.has(value.kind)) {
+      fail(`${path}.kind`, 'must be one of "focal", "workflow", "comparison", or "sequence"');
+    }
+    kind = value.kind as AuthoredVisualFrameV2["kind"];
+  }
+
+  if (!Array.isArray(value.beats)) {
+    fail(`${path}.beats`, "must be an array");
+  }
+  const beats = value.beats.map((beat, index) => validateBeatV2(beat, `${path}.beats[${index}]`));
+  const idPaths = new Map<string, string>();
+  for (const [index, beat] of beats.entries()) {
+    const idPath = `${path}.beats[${index}].id`;
+    const firstPath = idPaths.get(beat.id);
+    if (firstPath !== undefined) {
+      fail(idPath, `duplicate beat id "${beat.id}"; first declared at ${firstPath}`);
+    }
+    idPaths.set(beat.id, idPath);
+  }
+  validateWorkflowSteps(beats, path, kind);
+
+  let coverageExemptions: AuthoredCoverageExemption[] | undefined;
+  if (value.coverageExemptions !== undefined) {
+    if (!Array.isArray(value.coverageExemptions)) {
+      fail(`${path}.coverageExemptions`, "must be an array");
+    }
+    coverageExemptions = value.coverageExemptions.map((exemption, index) =>
+      validateCoverageExemption(exemption, `${path}.coverageExemptions[${index}]`),
+    );
+  }
+
+  return {
+    ...(kind === undefined ? {} : { kind }),
+    beats,
+    ...(coverageExemptions === undefined ? {} : { coverageExemptions }),
+  };
+}
+
+function validateV1Spec(value: JsonRecord, path: string): VisualBeatSpecV1 {
+  if (!isRecord(value.frames)) fail(`${path}.frames`, "expected an object");
+  const frames: Record<string, AuthoredVisualFrameV1> = Object.create(null);
+  for (const [slug, frameValue] of Object.entries(value.frames)) {
+    frames[slug] = validateFrameV1(frameValue, `${path}.frames.${slug}`);
+  }
+  return { version: 1, frames };
+}
+
+function validateV2Spec(value: JsonRecord, path: string): VisualBeatSpecV2 {
+  if (!isRecord(value.frames)) fail(`${path}.frames`, "expected an object");
+  const frames: Record<string, AuthoredVisualFrameV2> = Object.create(null);
+  for (const [slug, frameValue] of Object.entries(value.frames)) {
+    frames[slug] = validateFrameV2(frameValue, `${path}.frames.${slug}`);
+  }
+  return { version: 2, frames };
+}
+
 export function validateVisualBeatSpec(value: unknown, path: string): VisualBeatSpec {
   if (!isRecord(value)) fail(path, "expected an object");
   ensureOnlyFields(value, new Set(["version", "frames"]), path);
-  if (value.version !== 1) fail(`${path}.version`, "expected 1");
-  if (!isRecord(value.frames)) fail(`${path}.frames`, "expected an object");
-
-  const frames: Record<string, AuthoredVisualFrame> = Object.create(null);
-  for (const [slug, frameValue] of Object.entries(value.frames)) {
-    frames[slug] = validateFrame(frameValue, `${path}.frames.${slug}`);
-  }
-  return { version: 1, frames };
+  if (value.version === 1) return validateV1Spec(value, path);
+  if (value.version === 2) return validateV2Spec(value, path);
+  fail(`${path}.version`, "must be 1 or 2");
 }
 
 export function readVisualBeatSpec(path: string): VisualBeatSpec {
@@ -268,7 +441,7 @@ function resolvedStart(frame: PlanFrame, wordIndex: number, path: string): numbe
 }
 
 function resolveBeat(
-  beat: AuthoredVisualBeat,
+  beat: AuthoredVisualBeatV1,
   frame: PlanFrame,
   defaults: ResolvedVisualSyncPolicy,
   path: string,
@@ -336,13 +509,13 @@ export function resolveVisualBeats(
   frames: readonly PlanFrame[],
   defaults: ResolvedVisualSyncPolicy,
   path = "visual_beats.json",
-): Map<string, { visualKind?: AuthoredVisualFrame["kind"]; visualBeats: ResolvedVisualBeat[] }> {
+): Map<string, { visualKind?: AuthoredVisualFrameV1["kind"]; visualBeats: ResolvedVisualBeat[] }> {
   const validatedSpec = validateVisualBeatSpec(spec, path);
   if (validatedSpec.version !== 1) {
     fail(`${path}.version`, "expected 1");
   }
   const bySlug = new Map(frames.map((frame) => [frame.slug, frame]));
-  const resolved = new Map<string, { visualKind?: AuthoredVisualFrame["kind"]; visualBeats: ResolvedVisualBeat[] }>();
+  const resolved = new Map<string, { visualKind?: AuthoredVisualFrameV1["kind"]; visualBeats: ResolvedVisualBeat[] }>();
 
   for (const [slug, authored] of Object.entries(validatedSpec.frames)) {
     const frame = bySlug.get(slug);
