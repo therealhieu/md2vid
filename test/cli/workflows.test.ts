@@ -671,30 +671,36 @@ function enableIntroVisualBeat(project: WorkflowProject): void {
   }, null, 2)}\n`);
 }
 
-function writeIntroRemotionBindings(outputDir: string): void {
+function writeIntroRemotionBindings(outputDir: string, target = "Intro:reveal"): void {
   writeFileSync(join(outputDir, "visual_bindings.json"), `${JSON.stringify({
     version: 1,
     frames: {
-      "01-intro": [{ beat: "intro", target: "Intro:reveal", enter: "fade", duration: 0.5 }],
+      "01-intro": [{ beat: "intro", target, enter: "fade", duration: 0.5 }],
     },
   }, null, 2)}\n`);
 }
 
-test("regroup preserves resolved visual beats in Remotion output", () => {
+test("regroup preserves Remotion semantic plan and manifest evidence", () => {
   const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
   try {
     enableIntroVisualBeat(project);
     writeIntroRemotionBindings(project.outputDir);
     assert.equal(buildRun([project.outputDir]), 0);
-    const before = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+    const planPath = join(project.outputDir, "build_plan.json");
+    const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+    const before = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifestBefore = readFileSync(manifestPath);
+    writeIntroRemotionBindings(project.outputDir, "Intro:changed-after-build");
 
     assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
-    const after = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+    const after = JSON.parse(readFileSync(planPath, "utf8"));
 
     assert.deepEqual(
       after.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
       before.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
     );
+    assert.deepEqual(after.visualBindings, before.visualBindings);
+    assert.deepEqual(readFileSync(manifestPath), manifestBefore);
   } finally {
     rmSync(project.root, { recursive: true, force: true });
   }
@@ -1941,7 +1947,7 @@ test("fresh HyperFrames captions-only build updates captions without binding evi
   }
 });
 
-test("captions-only Remotion build atomically promotes refreshed binding evidence", () => {
+test("only a full Remotion build publishes updated semantic evidence", () => {
   const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
   try {
     const configPath = join(project.sharedDir, "video.config.json");
@@ -1971,23 +1977,32 @@ test("captions-only Remotion build atomically promotes refreshed binding evidenc
     const voicePath = join(project.outputDir, "public", "assets", "voice", "intro.wav");
     const sourceBefore = readFileSync(sourcePath, "utf8");
     const voiceBefore = readFileSync(voicePath);
+    const planBeforeCaptionsOnly = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifestBeforeCaptionsOnly = readFileSync(manifestPath, "utf8");
 
     writeFileSync(registryPath, `${JSON.stringify(registry("Target:updated"), null, 2)}\n`);
     const captionsOnly = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
     assert.equal(captionsOnly.code, 0, captionsOnly.stderr);
+    const captionsOnlyPlan = JSON.parse(readFileSync(planPath, "utf8"));
+    assert.deepEqual(captionsOnlyPlan.frames, planBeforeCaptionsOnly.frames);
+    assert.deepEqual(captionsOnlyPlan.visualBindings, planBeforeCaptionsOnly.visualBindings);
+    assert.equal(readFileSync(manifestPath, "utf8"), manifestBeforeCaptionsOnly);
+    assert.equal(readFileSync(sourcePath, "utf8"), sourceBefore);
+    assert.equal(readFileSync(voicePath).equals(voiceBefore), true);
+
+    const refreshed = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(refreshed.code, 0, refreshed.stderr);
     const plan = JSON.parse(readFileSync(planPath, "utf8"));
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     assert.equal(plan.visualBindings["01-intro"][0].target, "Target:updated");
     assert.equal(manifest.bindings[0].target, "Target:updated");
-    assert.equal(readFileSync(sourcePath, "utf8"), sourceBefore);
-    assert.equal(readFileSync(voicePath).equals(voiceBefore), true);
 
     const planBeforeFailure = readFileSync(planPath, "utf8");
     const manifestBeforeFailure = readFileSync(manifestPath, "utf8");
     writeFileSync(registryPath, `${JSON.stringify(registry("Target:rollback"), null, 2)}\n`);
     const failed = captureConsole(() => buildRun(
       [project.outputDir, "--captions-only"],
-      failingBuildDependencies("remotion", 2),
+      failingBuildDependencies("remotion", 1),
     ));
     assert.equal(failed.code, 1, failed.stderr);
     assert.equal(readFileSync(planPath, "utf8"), planBeforeFailure);

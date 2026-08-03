@@ -31,6 +31,18 @@ import {
   resolveRemotionBindings,
 } from "./visual_bindings.ts";
 
+type EmittedRemotionPlan = BuildPlan & { visualBindings?: Record<string, unknown> };
+
+function readExistingOutputPlan(outputDir: string): EmittedRemotionPlan | undefined {
+  const path = join(outputDir, "build_plan.json");
+  if (!existsSync(path)) return undefined;
+  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path}: expected a generated build plan object`);
+  }
+  return value as EmittedRemotionPlan;
+}
+
 export function preflight(
   plan: BuildPlan,
   sharedDir: string,
@@ -63,6 +75,15 @@ export function emit(
   const groups: CaptionGroup[] = existsSync(groupsPath)
     ? JSON.parse(readFileSync(groupsPath, "utf8")).groups
     : plan.captionGroups;
+
+  if (captionsOnly) {
+    const existingOutputPlan = readExistingOutputPlan(runtimeSourceDir ?? outputDir);
+    const captionsOnlyPlan: EmittedRemotionPlan = existingOutputPlan === undefined
+      ? { ...plan, captionGroups: groups }
+      : { ...existingOutputPlan, captionGroups: groups };
+    writeFileSync(join(outputDir, "build_plan.json"), `${JSON.stringify(captionsOnlyPlan, null, 2)}\n`);
+    return;
+  }
 
   if (!captionsOnly) {
     // Fill only missing runtime files. Authored src files are preserved.
