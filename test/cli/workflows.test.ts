@@ -205,12 +205,45 @@ function createCoverageProject(): { project: WorkflowProject; adapter: Framework
   const adapter: FrameworkAdapter = {
     ...base,
     name: "fixture",
-    collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.map((frame) => ({
-      path: `compositions/frames/${frame.slug}.html`,
-      bytes: readFileSync(join(videoDir, "compositions", "frames", `${frame.slug}.html`)),
-    })),
+    collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.flatMap((frame) => {
+      const path = `compositions/frames/${frame.slug}.html`;
+      const absolutePath = join(videoDir, "compositions", "frames", `${frame.slug}.html`);
+      return existsSync(absolutePath) ? [{ path, bytes: readFileSync(absolutePath) }] : [];
+    }),
   };
   return { project, adapter };
+}
+
+function createRemotionCoverageProject(): { project: WorkflowProject; adapter: FrameworkAdapter } {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = {
+    mode: "off",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 0.5,
+  };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, {
+      beats: [{
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        cue: { frameStart: true },
+        coverage: { until: "frame-end" },
+      }],
+    }])),
+  }, null, 2)}\n`);
+  writeFileSync(join(project.outputDir, "visual_bindings.json"), `${JSON.stringify({
+    version: 1,
+    frames: {},
+  }, null, 2)}\n`);
+  return { project, adapter: getAdapter("remotion") };
 }
 
 function writeFreshV2Manifest(project: WorkflowProject, adapter: FrameworkAdapter): void {
@@ -241,7 +274,7 @@ function writeFreshV2Manifest(project: WorkflowProject, adapter: FrameworkAdapte
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, `${JSON.stringify({
     version: 2,
-    framework: "hyperframes",
+    framework: adapter.name,
     planSha256: hashCoveragePlan(planning.plan),
     authoredInputs,
     bindings,
@@ -280,6 +313,123 @@ test("verify rejects stale coverage plan and authored-source evidence", () => {
     }));
     assert.equal(result.code, 1);
     assert.match(result.stderr, /compositions\/frames\/01-intro\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify reports missing HyperFrames authored frame input as stale visual evidence", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    rmSync(join(project.outputDir, "compositions", "frames", "01-intro.html"));
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /missing authored input compositions\/frames\/01-intro\.html/);
+    assert.match(result.stderr, /md2vid build/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify reports missing Remotion registry input as stale visual evidence", () => {
+  const { project, adapter } = createRemotionCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    rmSync(join(project.outputDir, "visual_bindings.json"));
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /missing authored input visual_bindings\.json/);
+    assert.match(result.stderr, /md2vid build/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion authored input collection rejects symlinks and excludes generated source subtrees", () => {
+  const { project, adapter } = createRemotionCoverageProject();
+  try {
+    assert.ok(adapter.collectVisualBindingInputs);
+    mkdirSync(join(project.outputDir, "src", "node_modules"), { recursive: true });
+    mkdirSync(join(project.outputDir, "src", "build"), { recursive: true });
+    mkdirSync(join(project.outputDir, "src", "dist"), { recursive: true });
+    writeFileSync(join(project.outputDir, "src", "node_modules", "ignored.ts"), "export const ignored = true;\n");
+    writeFileSync(join(project.outputDir, "src", "build", "ignored.ts"), "export const ignored = true;\n");
+    writeFileSync(join(project.outputDir, "src", "dist", "ignored.ts"), "export const ignored = true;\n");
+    const planning = createProjectPlan(project.outputDir);
+
+    const paths = adapter.collectVisualBindingInputs({
+      plan: planning.plan,
+      videoDir: planning.layout.outputDir,
+      sharedDir: planning.layout.sharedDir,
+      config: planning.adapterConfig,
+    }).map((input) => input.path);
+
+    assert.equal(paths.includes("src/node_modules/ignored.ts"), false);
+    assert.equal(paths.includes("src/build/ignored.ts"), false);
+    assert.equal(paths.includes("src/dist/ignored.ts"), false);
+
+    const registryPath = join(project.outputDir, "visual_bindings.json");
+    const registryBytes = readFileSync(registryPath);
+    rmSync(registryPath);
+    const linkedRegistry = join(project.root, "linked-visual-bindings.json");
+    writeFileSync(linkedRegistry, registryBytes);
+    symlinkSync(linkedRegistry, registryPath);
+    assert.throws(
+      () => adapter.collectVisualBindingInputs!({
+        plan: planning.plan,
+        videoDir: planning.layout.outputDir,
+        sharedDir: planning.layout.sharedDir,
+        config: planning.adapterConfig,
+      }),
+      /visual_bindings\.json.*symlink/i,
+    );
+    rmSync(registryPath);
+    writeFileSync(registryPath, registryBytes);
+
+    const sourcePath = join(project.outputDir, "src", "Video.tsx");
+    const sourceBytes = readFileSync(sourcePath);
+    rmSync(sourcePath);
+    const linkedSource = join(project.root, "LinkedVideo.tsx");
+    writeFileSync(linkedSource, sourceBytes);
+    symlinkSync(linkedSource, sourcePath);
+    assert.throws(
+      () => adapter.collectVisualBindingInputs!({
+        plan: planning.plan,
+        videoDir: planning.layout.outputDir,
+        sharedDir: planning.layout.sharedDir,
+        config: planning.adapterConfig,
+      }),
+      /src\/Video\.tsx.*symlink/i,
+    );
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion verify rejects preserved v2 evidence without runtime visual bindings", () => {
+  const { project, adapter } = createRemotionCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /missing Remotion semantic runtime bindings/i);
+    assert.match(result.stderr, /md2vid build/);
   } finally {
     rmSync(project.root, { recursive: true, force: true });
   }
@@ -1942,6 +2092,24 @@ test("fresh HyperFrames captions-only build updates captions without binding evi
     assert.match(readFileSync(indexPath, "utf8"), /id="captions-template"/, "captions-only must write embedded captions");
     assert.notEqual(readFileSync(indexPath, "utf8"), indexBefore, "captions-only must replace the embedded caption artifact");
     assert.equal(existsSync(bindingPath), false, "captions-only must not promote absent binding evidence");
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion captions-only requires an existing full-build runtime plan", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    enableIntroVisualBeat(project);
+    writeIntroRemotionBindings(project.outputDir);
+    assert.equal(buildRun([project.outputDir]), 0);
+    rmSync(join(project.outputDir, "build_plan.json"));
+
+    const result = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /run md2vid build/i);
+    assert.match(result.stderr, /build_plan\.json/);
   } finally {
     rmSync(project.root, { recursive: true, force: true });
   }

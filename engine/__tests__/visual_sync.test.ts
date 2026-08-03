@@ -8,6 +8,7 @@ import type {
   VisualBinding,
   VisualBindingManifest,
   VisualBindingManifestV2,
+  VisualBindingV1,
   VisualBindingV2,
 } from "../types.ts";
 import { verifyVisualSync } from "../visual_sync.ts";
@@ -81,8 +82,8 @@ function binding(
   beatId: string,
   revealStart: number,
   target = `#${beatId}`,
-  overrides: Partial<VisualBinding> = {},
-): VisualBinding {
+  overrides: Partial<VisualBindingV1> = {},
+): VisualBindingV1 {
   return {
     frameSlug: "reserve-flow",
     beatId,
@@ -94,7 +95,7 @@ function binding(
   };
 }
 
-function manifest(bindings: VisualBinding[]): VisualBindingManifest {
+function manifest(bindings: VisualBindingV1[]): VisualBindingManifest {
   return { version: 1, framework: "hyperframes", bindings };
 }
 
@@ -201,13 +202,18 @@ function makeV2Manifest(bindings: VisualBindingV2[]): VisualBindingManifestV2 {
   };
 }
 
-function alignedBindings(): VisualBinding[] {
+function alignedBindings(): VisualBindingV1[] {
   return [
     binding("reserve", 2.95),
     binding("execute", 11.06),
     binding("settle", 14.35),
   ];
 }
+
+test("public VisualBinding accepts v2 coverage bindings", () => {
+  const publicBinding: VisualBinding = focalBinding("opening", 0, 23.08);
+  assert.equal("coverageStart" in publicBinding, true);
+});
 
 test("reports an opening semantic coverage gap", () => {
   const findings = verifyVisualSync({
@@ -372,6 +378,85 @@ test("starts required coverage at the first spoken word after leading silence", 
     fps: 30,
     manifest: makeV2Manifest([focalBinding("opening", 2.95, 23.08)]),
   }), []);
+});
+
+test("rejects v1 evidence for narrated v2 coverage plans", () => {
+  const v1Manifest: VisualBindingManifest = {
+    version: 1,
+    framework: "fixture",
+    bindings: [{
+      frameSlug: "overview",
+      beatId: "opening",
+      target: "#opening",
+      revealStart: 0,
+      revealDuration: 0,
+      source: "declarative",
+    }],
+  };
+
+  const required = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("opening", 0, 23.08)]),
+    policy: COVERAGE_ONLY_POLICY,
+    fps: 30,
+    manifest: v1Manifest,
+  });
+  assert.equal(required.length > 0, true);
+  assert.equal(required[0]?.level, "error");
+  assert.equal(required[0]?.code, "missing_visual_coverage_evidence");
+  assert.match(required[0]?.msg ?? "", /manifest v2.*required/i);
+
+  const warning = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("opening", 0, 23.08)]),
+    policy: { ...COVERAGE_ONLY_POLICY, coverageMode: "warn" },
+    fps: 30,
+    manifest: v1Manifest,
+  });
+  assert.equal(warning[0]?.level, "warn");
+  assert.equal(warning[0]?.code, "missing_visual_coverage_evidence");
+
+  const off = verifyVisualSync({
+    plan: makeCoveragePlan([coverageState("opening", 0, 23.08)]),
+    policy: { ...COVERAGE_ONLY_POLICY, coverageMode: "off", mode: "required" },
+    fps: 30,
+    manifest: v1Manifest,
+  });
+  assert.equal(off.some((finding) => finding.code === "missing_visual_coverage_evidence"), false);
+});
+
+test("evaluates low-threshold gaps instead of hiding them behind frame epsilon", () => {
+  const plan = makeCoveragePlan([coverageState("opening", 0, 23.08)]);
+  const tinyGap = verifyVisualSync({
+    plan,
+    policy: { ...COVERAGE_ONLY_POLICY, maxUncoveredGap: 0 },
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 1),
+      focalBinding("opening", 1.001, 23.08, "#opening-resume"),
+    ]),
+  });
+  assert.equal(tinyGap.some((finding) => finding.code === "mid_scene_visual_gap"), true);
+
+  const configuredGap = verifyVisualSync({
+    plan,
+    policy: { ...COVERAGE_ONLY_POLICY, maxUncoveredGap: 0.010 },
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 1),
+      focalBinding("opening", 1.015, 23.08, "#opening-resume"),
+    ]),
+  });
+  assert.equal(configuredGap.some((finding) => finding.code === "mid_scene_visual_gap"), true);
+
+  const floatingEquivalent = verifyVisualSync({
+    plan,
+    policy: { ...COVERAGE_ONLY_POLICY, maxUncoveredGap: 0 },
+    fps: 30,
+    manifest: makeV2Manifest([
+      focalBinding("opening", 0, 0.1 + 0.2),
+      focalBinding("opening", 0.3, 23.08, "#opening-resume"),
+    ]),
+  });
+  assert.deepEqual(floatingEquivalent, []);
 });
 
 test("reports full and partial coverage exemptions without hiding unapproved gaps", () => {

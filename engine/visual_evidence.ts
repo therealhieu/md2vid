@@ -16,7 +16,6 @@ import type {
 type JsonRecord = Record<string, unknown>;
 
 const SHA256 = /^[a-f0-9]{64}$/;
-const MANIFEST_V1_FIELDS = new Set(["version", "framework", "bindings", "frames"]);
 const MANIFEST_V2_FIELDS = new Set([
   "version",
   "framework",
@@ -39,9 +38,21 @@ const V2_BINDING_FIELDS = new Set([
   "outerDuration",
 ]);
 const INPUT_DIGEST_FIELDS = new Set(["path", "sha256"]);
+const FRAME_DURATION_FIELDS = new Set(["frameSlug", "authoredDuration", "outerDuration"]);
 
 function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isPlainRecord(value: unknown): value is JsonRecord {
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function requireOwn(value: JsonRecord, key: string, path: string): unknown {
+  if (!Object.hasOwn(value, key)) fail(`${path}.${key}`, "must be an own property");
+  return value[key];
 }
 
 function fail(path: string, message: string): never {
@@ -200,14 +211,26 @@ function validateOptionalDuration(
   return requireFiniteNumber(value, path);
 }
 
-function validateFrameDurations(value: unknown, path: string): VisualFrameDuration[] | undefined {
+function validateFrameDurations(
+  value: unknown,
+  path: string,
+  exact: boolean,
+): VisualFrameDuration[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) fail(path, "must be an array");
   return value.map((raw, index) => {
-    if (!isRecord(raw)) fail(`${path}[${index}]`, "must be an object");
-    const frameSlug = requireString(raw.frameSlug, `${path}[${index}].frameSlug`);
-    const authoredDuration = validateOptionalDuration(raw.authoredDuration, `${path}[${index}].authoredDuration`);
-    const outerDuration = validateOptionalDuration(raw.outerDuration, `${path}[${index}].outerDuration`);
+    const itemPath = `${path}[${index}]`;
+    if (!(exact ? isPlainRecord(raw) : isRecord(raw))) fail(itemPath, "must be a plain object");
+    if (exact) ensureOnlyFields(raw, FRAME_DURATION_FIELDS, itemPath);
+    const frameSlug = requireString(exact ? requireOwn(raw, "frameSlug", itemPath) : raw.frameSlug, `${itemPath}.frameSlug`);
+    const authoredDuration = validateOptionalDuration(
+      exact && !Object.hasOwn(raw, "authoredDuration") ? undefined : raw.authoredDuration,
+      `${itemPath}.authoredDuration`,
+    );
+    const outerDuration = validateOptionalDuration(
+      exact && !Object.hasOwn(raw, "outerDuration") ? undefined : raw.outerDuration,
+      `${itemPath}.outerDuration`,
+    );
     return {
       frameSlug,
       ...(authoredDuration === undefined ? {} : { authoredDuration }),
@@ -241,31 +264,39 @@ function ensureOnlyFields(value: JsonRecord, fields: ReadonlySet<string>, path: 
 }
 
 function validateV2Binding(value: unknown, path: string): VisualBindingV2 {
-  if (!isRecord(value)) fail(path, "must be an object");
+  if (!isPlainRecord(value)) fail(path, "must be a plain object");
   ensureOnlyFields(value, V2_BINDING_FIELDS, path);
-  if (value.role !== "focal" && value.role !== "supporting") {
+  const role = requireOwn(value, "role", path);
+  const source = requireOwn(value, "source", path);
+  if (role !== "focal" && role !== "supporting") {
     fail(`${path}.role`, 'must be "focal" or "supporting"');
   }
-  if (value.source !== "declarative" && value.source !== "custom" && value.source !== "static") {
+  if (source !== "declarative" && source !== "custom" && source !== "static") {
     fail(`${path}.source`, 'must be "declarative", "custom", or "static"');
   }
-  const coverageStart = requireFiniteNumber(value.coverageStart, `${path}.coverageStart`);
-  const coverageEnd = requireFiniteNumber(value.coverageEnd, `${path}.coverageEnd`);
+  const coverageStart = requireFiniteNumber(requireOwn(value, "coverageStart", path), `${path}.coverageStart`);
+  const coverageEnd = requireFiniteNumber(requireOwn(value, "coverageEnd", path), `${path}.coverageEnd`);
   if (coverageEnd < coverageStart) {
     fail(`${path}.coverageStart`, "must be less than or equal to coverageEnd");
   }
-  const authoredDuration = validateOptionalDuration(value.authoredDuration, `${path}.authoredDuration`);
-  const outerDuration = validateOptionalDuration(value.outerDuration, `${path}.outerDuration`);
+  const authoredDuration = validateOptionalDuration(
+    Object.hasOwn(value, "authoredDuration") ? value.authoredDuration : undefined,
+    `${path}.authoredDuration`,
+  );
+  const outerDuration = validateOptionalDuration(
+    Object.hasOwn(value, "outerDuration") ? value.outerDuration : undefined,
+    `${path}.outerDuration`,
+  );
   return {
-    frameSlug: requireString(value.frameSlug, `${path}.frameSlug`),
-    beatId: requireString(value.beatId, `${path}.beatId`),
-    target: requireString(value.target, `${path}.target`),
-    role: value.role,
-    revealStart: requireFiniteNumber(value.revealStart, `${path}.revealStart`),
-    revealDuration: requireFiniteNumber(value.revealDuration, `${path}.revealDuration`),
+    frameSlug: requireString(requireOwn(value, "frameSlug", path), `${path}.frameSlug`),
+    beatId: requireString(requireOwn(value, "beatId", path), `${path}.beatId`),
+    target: requireString(requireOwn(value, "target", path), `${path}.target`),
+    role,
+    revealStart: requireFiniteNumber(requireOwn(value, "revealStart", path), `${path}.revealStart`),
+    revealDuration: requireFiniteNumber(requireOwn(value, "revealDuration", path), `${path}.revealDuration`),
     coverageStart,
     coverageEnd,
-    source: value.source,
+    source,
     ...(authoredDuration === undefined ? {} : { authoredDuration }),
     ...(outerDuration === undefined ? {} : { outerDuration }),
   };
@@ -275,14 +306,14 @@ function validateInputDigests(value: unknown, path: string): VisualBindingInputD
   if (!Array.isArray(value)) fail(path, "must be an array");
   const inputs = value.map((raw, index) => {
     const itemPath = `${path}[${index}]`;
-    if (!isRecord(raw)) fail(itemPath, "must be an object");
+    if (!isPlainRecord(raw)) fail(itemPath, "must be a plain object");
     ensureOnlyFields(raw, INPUT_DIGEST_FIELDS, itemPath);
     const normalizedPath = normalizeProjectRelativePath(
-      requireString(raw.path, `${itemPath}.path`),
+      requireString(requireOwn(raw, "path", itemPath), `${itemPath}.path`),
       `${itemPath}.path`,
       false,
     );
-    const digest = requireString(raw.sha256, `${itemPath}.sha256`);
+    const digest = requireString(requireOwn(raw, "sha256", itemPath), `${itemPath}.sha256`);
     if (!SHA256.test(digest)) fail(`${itemPath}.sha256`, "must be a lowercase SHA-256 digest");
     return { path: normalizedPath, sha256: digest };
   });
@@ -302,7 +333,7 @@ function validateInputDigests(value: unknown, path: string): VisualBindingInputD
 function validateV1Manifest(value: JsonRecord, path: string): VisualBindingManifestV1 {
   const bindings = value.bindings;
   if (!Array.isArray(bindings)) fail(`${path}.bindings`, "must be an array");
-  const frames = validateFrameDurations(value.frames, `${path}.frames`);
+  const frames = validateFrameDurations(value.frames, `${path}.frames`, false);
   return {
     version: 1,
     framework: requireString(value.framework, `${path}.framework`),
@@ -312,17 +343,18 @@ function validateV1Manifest(value: JsonRecord, path: string): VisualBindingManif
 }
 
 function validateV2Manifest(value: JsonRecord, path: string): VisualBindingManifestV2 {
+  if (!isPlainRecord(value)) fail(path, "must be a plain object");
   ensureOnlyFields(value, MANIFEST_V2_FIELDS, path);
-  const planSha256 = requireString(value.planSha256, `${path}.planSha256`);
+  const planSha256 = requireString(requireOwn(value, "planSha256", path), `${path}.planSha256`);
   if (!SHA256.test(planSha256)) fail(`${path}.planSha256`, "must be a lowercase SHA-256 digest");
-  const bindings = value.bindings;
+  const bindings = requireOwn(value, "bindings", path);
   if (!Array.isArray(bindings)) fail(`${path}.bindings`, "must be an array");
-  const frames = validateFrameDurations(value.frames, `${path}.frames`);
+  const frames = validateFrameDurations(value.frames, `${path}.frames`, true);
   return {
     version: 2,
-    framework: requireString(value.framework, `${path}.framework`),
+    framework: requireString(requireOwn(value, "framework", path), `${path}.framework`),
     planSha256,
-    authoredInputs: validateInputDigests(value.authoredInputs, `${path}.authoredInputs`),
+    authoredInputs: validateInputDigests(requireOwn(value, "authoredInputs", path), `${path}.authoredInputs`),
     bindings: bindings.map((binding, index) => validateV2Binding(binding, `${path}.bindings[${index}]`)),
     ...(frames === undefined ? {} : { frames }),
   };
@@ -333,7 +365,8 @@ export function validateVisualBindingManifest(
   path: string,
 ): VisualBindingManifest {
   if (!isRecord(value)) fail(path, "expected an object");
-  if (value.version === 1) return validateV1Manifest(value, path);
-  if (value.version === 2) return validateV2Manifest(value, path);
+  const version = requireOwn(value, "version", path);
+  if (version === 1) return validateV1Manifest(value, path);
+  if (version === 2) return validateV2Manifest(value, path);
   fail(`${path}.version`, "must be 1 or 2");
 }

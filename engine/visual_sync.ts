@@ -48,6 +48,13 @@ export function verifyVisualSync(input: {
 
   if (!input.manifest) {
     if (!revealEnabled && coverageFrames.length === 0) return [];
+    if (coverageEnabled && coverageFrames.length > 0) {
+      return [missingCoverageEvidenceFinding(
+        coverageLevel,
+        "missing",
+        coverageFrames,
+      )];
+    }
     return [{
       level: revealEnabled ? revealLevel : coverageLevel,
       msg: "visual binding manifest is missing",
@@ -75,7 +82,10 @@ export function verifyVisualSync(input: {
     }
   }
   const durationTolerance = Math.max(0.001, 0.5 / input.fps);
-  const coverageEpsilon = 0.5 / input.fps;
+  const coverageEpsilon = Math.max(
+    1e-9,
+    Math.min(0.5 / input.fps, input.policy.maxUncoveredGap),
+  );
   const frames = new Map(input.plan.frames.map((frame) => [frame.slug, frame]));
   const byKey = new Map<string, BindingEvidence[]>();
   const coverageByFrame = new Map<string, CoverageBinding[]>();
@@ -86,6 +96,14 @@ export function verifyVisualSync(input: {
     msg: string,
     details: Record<string, unknown>,
   ): void => { findings.push({ level: coverageLevel, code, msg, details }); };
+
+  if (coverageEnabled && coverageFrames.length > 0 && manifest.version !== 2) {
+    findings.push(missingCoverageEvidenceFinding(
+      coverageLevel,
+      `manifest version ${manifest.version}`,
+      coverageFrames,
+    ));
+  }
 
   if (revealEnabled) {
     for (const evidence of manifest.frames ?? []) {
@@ -219,6 +237,24 @@ export function verifyVisualSync(input: {
     );
   }
   return findings;
+}
+
+function missingCoverageEvidenceFinding(
+  level: Finding["level"],
+  evidence: string,
+  frames: readonly PlanFrame[],
+): Finding {
+  const frameSlugs = frames.map((frame) => frame.slug);
+  return {
+    level,
+    code: "missing_visual_coverage_evidence",
+    msg: `manifest v2 coverage evidence is required for narrated v2 visual coverage frames; got ${evidence}. Run \`md2vid build\` to regenerate semantic visual evidence.`,
+    details: {
+      frameSlugs,
+      evidence,
+      recovery: "md2vid build",
+    },
+  };
 }
 
 function isVisualBindingV2(binding: BindingEvidence): binding is VisualBindingV2 {

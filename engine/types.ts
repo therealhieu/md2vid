@@ -203,7 +203,7 @@ export interface VisualBindingV2 extends Omit<VisualBindingV1, "source"> {
 }
 
 /** @deprecated Use the versioned binding types from a versioned manifest. */
-export type VisualBinding = VisualBindingV1;
+export type VisualBinding = VisualBindingV1 | VisualBindingV2;
 
 export interface VisualFrameDuration {
   frameSlug: string;

@@ -24,6 +24,7 @@ import type {
   FrameworkPreparation,
   VideoConfig,
   VisualBindingManifest,
+  VisualBindingV1,
 } from "../../engine/types.ts";
 import {
   captureVoiceWavSnapshots,
@@ -351,10 +352,20 @@ export function preflight(
         : { frameSlug: frame.slug, authoredDuration: prepared.authoredDuration },
     };
   });
+  const bindings: VisualBindingV1[] = preparedFrames.flatMap((frame) => frame.bindings).map((binding) => ({
+    frameSlug: binding.frameSlug,
+    beatId: binding.beatId,
+    target: binding.target,
+    revealStart: binding.revealStart,
+    revealDuration: binding.revealDuration,
+    source: binding.source === "static" ? "declarative" : binding.source,
+    ...(binding.authoredDuration === undefined ? {} : { authoredDuration: binding.authoredDuration }),
+    ...(binding.outerDuration === undefined ? {} : { outerDuration: binding.outerDuration }),
+  }));
   const manifest: VisualBindingManifest = {
     version: 1,
     framework: "hyperframes",
-    bindings: preparedFrames.flatMap((frame) => frame.bindings),
+    bindings,
     frames: preparedFrames.flatMap((frame) => frame.duration ? [frame.duration] : []),
   };
   return {

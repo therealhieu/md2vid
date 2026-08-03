@@ -78,9 +78,14 @@ export function emit(
 
   if (captionsOnly) {
     const existingOutputPlan = readExistingOutputPlan(runtimeSourceDir ?? outputDir);
-    const captionsOnlyPlan: EmittedRemotionPlan = existingOutputPlan === undefined
-      ? { ...plan, captionGroups: groups }
-      : { ...existingOutputPlan, captionGroups: groups };
+    if (existingOutputPlan === undefined) {
+      throw new Error("Remotion captions-only build requires an existing full-build build_plan.json; run md2vid build to regenerate semantic runtime evidence");
+    }
+    const hasSemanticStates = existingOutputPlan.frames.some((frame) => frame.visualBeats?.length);
+    if (hasSemanticStates && existingOutputPlan.visualBindings === undefined) {
+      throw new Error("Remotion captions-only build cannot preserve semantic runtime bindings from an incomplete build_plan.json; run md2vid build to regenerate semantic runtime evidence");
+    }
+    const captionsOnlyPlan: EmittedRemotionPlan = { ...existingOutputPlan, captionGroups: groups };
     writeFileSync(join(outputDir, "build_plan.json"), `${JSON.stringify(captionsOnlyPlan, null, 2)}\n`);
     return;
   }

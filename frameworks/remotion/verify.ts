@@ -84,7 +84,12 @@ export function verify(
     return findings;
   }
 
-  let plan: { totalDuration?: number; canvas?: { width?: number; height?: number }; frames?: unknown[] };
+  let plan: {
+    totalDuration?: number;
+    canvas?: { width?: number; height?: number };
+    frames?: unknown[];
+    visualBindings?: unknown;
+  };
   try {
     plan = JSON.parse(readFileSync(planPath, "utf8"));
   } catch (e) {
@@ -116,6 +121,20 @@ export function verify(
   }
   if (voiceSnapshots) {
     findings.push(...verifyEmittedVoiceSnapshots(join(videoDir, "public"), voiceSnapshots));
+  }
+  if (context && context.policy.coverageMode !== "off") {
+    const requiresRuntimeBindings = context.bindings?.version === 2
+      && context.plan.frames.some((frame) =>
+        frame.visualSpecVersion === 2 && frame.words.length > 0,
+      );
+    if (requiresRuntimeBindings && plan.visualBindings === undefined) {
+      findings.push({
+        level: context.policy.coverageMode === "required" ? "error" : "warn",
+        code: "missing_visual_coverage_evidence",
+        msg: "missing Remotion semantic runtime bindings in build_plan.json; run md2vid build to regenerate semantic visual evidence",
+        details: { recovery: "md2vid build" },
+      });
+    }
   }
   if (context && (context.policy.mode !== "off" || context.policy.coverageMode !== "off")) {
     findings.push(...verifyVisualSync({

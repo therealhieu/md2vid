@@ -172,6 +172,10 @@ test("manifest v2 requires exact digests and normalized bindings", () => {
         { ...V2_MANIFEST.authoredInputs[0] },
       ],
     }, /duplicate.*authoredInputs/],
+    ["unknown frame duration field", {
+      ...V2_MANIFEST,
+      frames: [{ frameSlug: "overview", unexpected: true }],
+    }, /frames\[0\]\.unexpected/],
   ];
 
   for (const [name, value, expected] of cases) {
@@ -181,6 +185,23 @@ test("manifest v2 requires exact digests and normalized bindings", () => {
       name,
     );
   }
+});
+
+test("manifest v2 validation rejects inherited structural fields", () => {
+  const inheritedManifest = Object.create(V2_MANIFEST) as Record<string, unknown>;
+  assert.throws(
+    () => validateVisualBindingManifest(inheritedManifest, "build/visual_bindings.json"),
+    /plain object|own property|version/,
+  );
+
+  const inheritedBinding = Object.create(V2_MANIFEST.bindings[0]) as Record<string, unknown>;
+  assert.throws(
+    () => validateVisualBindingManifest({
+      ...V2_MANIFEST,
+      bindings: [inheritedBinding],
+    }, "build/visual_bindings.json"),
+    /plain object|own property|frameSlug/,
+  );
 });
 
 test("manifest validation requires authored inputs in sorted path order", () => {

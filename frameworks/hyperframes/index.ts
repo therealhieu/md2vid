@@ -3,7 +3,7 @@
 // An adapter is { name, emit, scaffold, verify }. The registry (frameworks/index.mjs)
 // maps a framework name to one of these; scripts dispatch off config.framework.
 //
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { emit, preflight } from "./emit.ts";
 import { resolveVerificationFps, verify, verifyHyperframesCaptionArtifact } from "./verify.ts";
@@ -22,10 +22,11 @@ const adapter: FrameworkAdapter = {
   managedVoiceArtifactPath: "assets/voice",
   verifyCaptionArtifact: verifyHyperframesCaptionArtifact,
   bindingManifestPath: "build/visual_bindings.json",
-  collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.map((frame) => ({
-    path: `compositions/frames/${frame.slug}.html`,
-    bytes: readFileSync(join(videoDir, "compositions", "frames", `${frame.slug}.html`)),
-  })),
+  collectVisualBindingInputs: ({ plan, videoDir }) => plan.frames.flatMap((frame) => {
+    const path = `compositions/frames/${frame.slug}.html`;
+    const absolutePath = join(videoDir, "compositions", "frames", `${frame.slug}.html`);
+    return existsSync(absolutePath) ? [{ path, bytes: readFileSync(absolutePath) }] : [];
+  }),
   resolveVerificationFps,
   verify(context, sharedDir, options) {
     if (typeof context === "string") return verify(context, sharedDir, options);
