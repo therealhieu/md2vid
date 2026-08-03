@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 333,
-  "hash": "sha256:ee8f5772230e3fef02f34594340ee42af710be2bdc026109cfcdbb4cfc532378",
+  "hash": "sha256:51361e4156c16cf051b102b3d35df04ee477ba96186e7396aa1129620626f2e7",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -114,14 +114,14 @@
     {
       "path": "docs/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 15294,
-      "sha256": "c5614404248985e524707a51b67d577c1629c6bf09e45ad25cc53b9f9f65a48b"
+      "bytes": 15661,
+      "sha256": "84b5f4bb4ea604382656f424cda4e87edafe6e524610572513a26c78e1a665b9"
     },
     {
       "path": "docs/standards/frameworks/remotion.md",
       "mode": "100644",
-      "bytes": 5977,
-      "sha256": "20c0938c03127b087ff598014aba26c13145fd85b8659918646410509f76a80b"
+      "bytes": 6358,
+      "sha256": "25895a7ec8d30c28e8deff417e47b7cd4c27d4e85cc4374a867a751c1bba7aa5"
     },
     {
       "path": "docs/standards/git.md",
@@ -132,8 +132,8 @@
     {
       "path": "docs/standards/video-generation.md",
       "mode": "100644",
-      "bytes": 20402,
-      "sha256": "4d84aaaa2e4658e8a577da98aaa57c25bd0400ce6ef3ad362a477b9dda1e6994"
+      "bytes": 20879,
+      "sha256": "e72d2c76afaa7fd37606c44f0045db553aa2fc48a8d6a3c1257e2a19148b968f"
     },
     {
       "path": "engine/__tests__/captions.test.ts",
@@ -660,8 +660,8 @@
     {
       "path": "README.md",
       "mode": "100644",
-      "bytes": 16773,
-      "sha256": "281ace8bc478044f0ce11a2792aaacf651b7670785c40200a1153623a3a01608"
+      "bytes": 17736,
+      "sha256": "bc9139e9db45e858c21908fcf2eb08cd46a9bca05462dac8ec6bf3145445fd52"
     },
     {
       "path": "scripts/build.ts",
@@ -876,14 +876,14 @@
     {
       "path": "skill/md2vid/references/standards/frameworks/hyperframes.md",
       "mode": "100644",
-      "bytes": 15294,
-      "sha256": "c5614404248985e524707a51b67d577c1629c6bf09e45ad25cc53b9f9f65a48b"
+      "bytes": 15661,
+      "sha256": "84b5f4bb4ea604382656f424cda4e87edafe6e524610572513a26c78e1a665b9"
     },
     {
       "path": "skill/md2vid/references/standards/frameworks/remotion.md",
       "mode": "100644",
-      "bytes": 5977,
-      "sha256": "20c0938c03127b087ff598014aba26c13145fd85b8659918646410509f76a80b"
+      "bytes": 6358,
+      "sha256": "25895a7ec8d30c28e8deff417e47b7cd4c27d4e85cc4374a867a751c1bba7aa5"
     },
     {
       "path": "skill/md2vid/references/standards/git.md",
@@ -894,14 +894,14 @@
     {
       "path": "skill/md2vid/references/standards/video-generation.md",
       "mode": "100644",
-      "bytes": 20402,
-      "sha256": "4d84aaaa2e4658e8a577da98aaa57c25bd0400ce6ef3ad362a477b9dda1e6994"
+      "bytes": 20879,
+      "sha256": "e72d2c76afaa7fd37606c44f0045db553aa2fc48a8d6a3c1257e2a19148b968f"
     },
     {
       "path": "skill/md2vid/SKILL.md",
       "mode": "100644",
-      "bytes": 31955,
-      "sha256": "de0e8f5b3339023854a6882b039cbeae6a09b69ef2abb132a08c2d9e0da82792"
+      "bytes": 32783,
+      "sha256": "4a4add4e038a6a37d40cc260c409b90be02fe8d4c398300b739d68173ac1c1d2"
     },
     {
       "path": "test/boundaries.test.ts",
@@ -1032,8 +1032,8 @@
     {
       "path": "test/cli/package-meta.test.ts",
       "mode": "100644",
-      "bytes": 24645,
-      "sha256": "43122c26203b82b3da5cfce3a8e57641c484b062a5c429106a85231dda85f659"
+      "bytes": 24739,
+      "sha256": "d753ef690a53fab3876a9f0d9ab4ec8a39fae0ce054b9779799a0a39b8a55cdf"
     },
     {
       "path": "test/cli/plan-project.test.ts",
@@ -1098,8 +1098,8 @@
     {
       "path": "test/cli/skill-commands.test.ts",
       "mode": "100644",
-      "bytes": 12743,
-      "sha256": "b6e3cab9e417ff5661b99d7b3ea18efab5f03bbedf2d9f0847b293adf3f8cdb3"
+      "bytes": 12773,
+      "sha256": "9579a036e8167da97e0f769e8f386f6893640104aa338780e09f6d0c6a297ab4"
     },
     {
       "path": "test/cli/skill-media-contract.test.ts",
@@ -1110,8 +1110,8 @@
     {
       "path": "test/cli/skill-references.test.ts",
       "mode": "100644",
-      "bytes": 21762,
-      "sha256": "e646e03bfcb3257d7d679b770cfa7d5dbb7057d8692f9b3af470b65b7ff246c6"
+      "bytes": 23371,
+      "sha256": "087a40a7ba77b6398a0a409773be4da20d3bb1e7351b5a47ad049ae09cbfc17d"
     },
     {
       "path": "test/cli/upgrade.test.ts",
@@ -1272,8 +1272,8 @@
     {
       "path": "test/golden/golden.test.ts",
       "mode": "100644",
-      "bytes": 11668,
-      "sha256": "62c42c54570793b396820dc7698f0323c5ceca2469253104eae4ad07d7e9ae61"
+      "bytes": 12911,
+      "sha256": "43d20a95cfb12741cfe52e30e27505a7942303483876180fdcaa99e0eaa95a2c"
     },
     {
       "path": "test/golden/README.md",
@@ -1344,14 +1344,14 @@
     {
       "path": "test/release/harness.test.ts",
       "mode": "100644",
-      "bytes": 84182,
-      "sha256": "9be0053cd1c826704f52553bf817dcfae43fcf1d477d7c29963090b085c03669"
+      "bytes": 84587,
+      "sha256": "c88b413ec4f9d64ec668360ecd3cacf84fd285189348adf733d304ff260d5b57"
     },
     {
       "path": "test/release/harness.ts",
       "mode": "100644",
-      "bytes": 119431,
-      "sha256": "45d610a3487ace30487cd03a634bd2d30e1d4417be3d76c6951c97d248ca3860"
+      "bytes": 122325,
+      "sha256": "157c4611c44ac939b660494858452df8b4ebbafec7ac7cefc13d8ee3c6acd00c"
     },
     {
       "path": "test/release/manifest.ts",
