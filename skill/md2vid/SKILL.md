@@ -263,15 +263,25 @@ node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs" \
 
 Run `md2vid transcribe` immediately after successful synthesis (normally through `npm run transcribe`). It is unconditional: Kokoro output needs waveform-derived word timings and exact WAV duration before visual planning. Any request change invalidates generated audio, transcript timings, captions, cues, bindings, and render evidence; re-synthesize and transcribe before authoring or rebuilding downstream visuals.
 
-Complete the normative narration workflow in this order:
+Complete the normative narration and continuous coverage workflow in this order:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 → npm run plan
+  → inspect resolved coverage intervals → bind framework visibility → full build
+  → continuous verify → preview/manual semantic review → render
+```
 
 1. Author the spoken narration script, then materialize and review the effective request.
 2. Run `md2vid narration-check` and resolve every error; inspect and explicitly account for every warning before synthesis.
 3. Verify readiness, then synthesize with the explicit Kokoro request through the marked `/media-use` contract above. Do not use `say`, automatic provider selection, or a cloud fallback.
 4. Run `md2vid transcribe` immediately after synthesis.
-5. Author `visual_beats.json` from the measured transcript, then run `npm run plan` before framework visual authoring.
-6. Run `npm run build`, then `npm run check`. Fresh `narration_evidence.json` is required before plan, build, regroup, or verify for a versioned request.
-7. Perform listening and visual review at sentence transitions; render only after review and the requested approval.
+5. Author `visual_beats.json` v2 from the measured transcript, including an opening focal state, body semantic states, and a final frame-end landing state for every narrated frame.
+6. Run `npm run plan`, then inspect resolved coverage intervals in `build/visual_timing.json` before framework visual authoring.
+7. Bind framework visibility through owned HyperFrames or Remotion paths, then run a full build and continuous verify with `npm run build` and `npm run check`. Fresh `narration_evidence.json` is required before plan, build, regroup, or verify for a versioned request.
+8. Perform listening and preview/manual semantic review at sentence transitions; render only after review and the requested approval.
+
+Captions, visible titles, backgrounds, shell chrome, and logos are insufficient by themselves unless a title is explicitly authored as the active semantic focal. Static focal states are valid; no fixed motion cadence is required, and authors should not add movement just to satisfy verification. Manual review judges semantic honesty and treatment quality; machine verification proves declared/bound continuity and freshness.
 
 <!-- md2vid-narration-workflow:end -->
 
@@ -298,7 +308,7 @@ Use this for the default HyperFrames workflow or one explicitly requested Remoti
 
 2. Put all neutral authoring files directly in that scaffold:
 
-   - `<slug>/STORYBOARD.md` — coverage map, knowledge type → treatment, focal, coral moment, narration-cued reveals, and held landing per frame.
+   - `<slug>/STORYBOARD.md` — source coverage → storyboard semantic coverage map: opening focal, body semantic states, state-to-narration intent, final held state, knowledge type → treatment, focal, coral moment, and any reviewed exemption per frame.
    - `<slug>/SCRIPT.md` — one timed narration block per frame.
    - Review `<slug>/audio_request.json.example`, then prepare `<slug>/audio_request.json`.
    - Use the narration media contract above to generate `<slug>/audio_meta.json` and `<slug>/assets/voice/*.wav`.
@@ -309,11 +319,11 @@ Use this for the default HyperFrames workflow or one explicitly requested Remoti
    ```bash
    cd <slug>
    npm run transcribe
-   # author <slug>/visual_beats.json with beat IDs, transcript anchors, and source refs
+   # author <slug>/visual_beats.json v2 with opening/body/final focal intervals
    npm run plan
    ```
 
-   `npm run plan` writes the shared resolved timing authority without framework emission. Do not start framework motion until the plan resolves; it is the source of beat IDs and cue times.
+   `npm run plan` writes the shared resolved timing authority without framework emission. Inspect resolved coverage intervals in `build/visual_timing.json` before framework motion; it is the source of beat IDs, cue times, and coverage endpoints.
 
 4. **Author framework visuals** in the same flat project against resolved beat IDs:
 
@@ -355,7 +365,7 @@ Use this only when the user requests both frameworks or a shared-neutral multi-f
 
 3. Put shared authoring only under the canonical neutral root:
 
-   - `outputs/<slug>/shared/STORYBOARD.md`
+   - `outputs/<slug>/shared/STORYBOARD.md` — source coverage → storyboard semantic coverage map with opening/body/final coverage intent for every narrated frame.
    - `outputs/<slug>/shared/SCRIPT.md`
    - Review the example, then prepare `outputs/<slug>/shared/audio_request.json`.
    - Set `NARRATION_ROOT=outputs/<slug>/shared`, then run the marked narration media contract above to generate `outputs/<slug>/shared/audio_meta.json` and `outputs/<slug>/shared/assets/voice/*.wav`.
@@ -366,11 +376,11 @@ Use this only when the user requests both frameworks or a shared-neutral multi-f
    ```bash
    cd outputs/<slug>/hyperframes
    npm run transcribe
-   # author outputs/<slug>/shared/visual_beats.json with beat IDs, anchors, and source refs
+   # author outputs/<slug>/shared/visual_beats.json v2 with opening/body/final focal intervals
    npm run plan
    ```
 
-   The sibling output resolves the same neutral plan. Legacy projects may migrate from actionable `warn` mode; scaffolded projects remain `required` and need binding evidence.
+   Inspect resolved coverage intervals in `outputs/<slug>/shared/build/visual_timing.json` before either framework visual. The sibling output resolves the same neutral plan. Legacy v1 projects may migrate from actionable `warn` mode; scaffolded projects remain `required` and need binding evidence.
 
 5. **Author framework visuals** only in their output directories against those resolved IDs:
 
@@ -401,10 +411,10 @@ The canonical direct commands target framework outputs, never `shared/`: `md2vid
 
 1. `md2vid plan` resolves `visual_beats.json` against transcript words and writes neutral IR (`cues.json`, `caption_groups.json`, `build/build_plan.json`, `build/visual_timing.json`) beside neutral inputs: the flat project root for Branch A or `shared/` for Branch B. It does not emit framework output or mutate authored frames/scenes.
 2. `md2vid build` reuses that same planner, then adapter `emit()` writes framework files and stages real WAVs transactionally (HyperFrames: `index.html`, `compositions/captions.html`, `assets/voice/**`, `build/visual_bindings.json`; Remotion: `build_plan.json`, `public/assets/voice/**`, `build/visual_bindings.json`) without clobbering authored frames or `src/**`.
-3. HyperFrames binds through declarative `data-md2vid-beat` attributes or inert `data-md2vid-custom-bindings` declarations plus its owned helper. Remotion binds through static `visual_bindings.json`, `VisualBeatProvider`, and `BeatReveal`; neither path copies semantic seconds.
+3. HyperFrames binds through declarative `data-md2vid-beat` attributes or inert `data-md2vid-custom-bindings` declarations plus its owned helper. Remotion binds through static `visual_bindings.json`, `VisualBeatProvider`, `BeatState`, and `BeatReveal`; neither path copies semantic seconds.
 4. Caption regrouping targets ~50–56 characters and re-bakes HyperFrames `var GROUPS` so JSON and HTML stay synchronized.
 
-Do not hand-write emitted `index.html`, `compositions/captions.html`, or `build/visual_bindings.json`. Fix every failed check. Machine checks enforce declared beat coverage, reveal timing, order, landing, and duration. Manual review judges source interpretation, treatment quality, hierarchy, and polish; it cannot waive the objective timing contract.
+Do not hand-write emitted `index.html`, `compositions/captions.html`, or `build/visual_bindings.json`. Fix every failed check. Machine checks enforce declared beat coverage, reveal timing, order, landing, and duration. Continuous focal coverage and manifest freshness are additional gates. Manual review judges source interpretation, treatment quality, hierarchy, and polish; it cannot waive the objective timing contract. Long static focal visuals are valid; do not impose a fixed motion cadence.
 
 ## The four hard gates
 
@@ -439,6 +449,7 @@ Final is the default: 30 FPS, with a 24 FPS floor for MP4/MOV unless `--allow-lo
 | Mistake | Fix |
 |---|---|
 | Cold-dumping a full table/list/diagram at t=0 | Author a beat ID, run `npm run plan`, then bind the row/node/item to its VO cue; pre-place dim structure only. |
+| Letting narration run on captions, title, background, or shell only | Add a bound focal semantic state; those elements are insufficient unless the title is the active semantic focal. |
 | Copying numeric visual offsets into GSAP or TSX | Use `data-md2vid-beat` or the framework-owned helper/registry; beat IDs are the timing authority. |
 | Treating manual review as a timing substitute | Machine checks prove coverage/timing/order/landing/duration; review treatment, hierarchy, and polish after they pass. |
 | Low-FPS final render | Final defaults to 30 FPS and needs 24+ FPS; use `--profile draft`, `--profile gif`, or explicit `--allow-low-fps` only when intended. |

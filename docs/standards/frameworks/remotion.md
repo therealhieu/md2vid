@@ -38,23 +38,29 @@ Run all generated-project commands from the Remotion output directory. The insta
 Resolve neutral timing before scene authoring:
 
 ```text
-prepare/transcribe audio → author visual_beats.json → npm run plan
-  → author cue-bound scenes → npm run build → npm run check → review → render
+prepare/transcribe audio → author visual_beats.json v2 → npm run plan
+  → inspect resolved coverage intervals → author cue-bound scenes
+  → npm run build → continuous verify → review → render
 ```
 
-Each output authors a static `visual_bindings.json` registry. The adapter validates this pure data, produces normalized binding evidence, and never parses or executes arbitrary TSX to infer timing. Registry targets are consumed by the scene template rather than copied into a second cue array.
+Each output authors a static `visual_bindings.json` registry. Registry v2 records pure data for static and cue-bound targets, including `coverage: "planned"`. The adapter validates this pure data, produces normalized binding evidence, and never parses or executes arbitrary TSX to infer timing. Registry targets are consumed by the scene template rather than copied into a second cue array.
 
 Use the generated timing through the provider and components:
 
 ```tsx
 <VisualBeatProvider frame={frame}>
+  <BeatState target="OpeningContext">
+    <OpeningContext />
+  </BeatState>
   <BeatReveal target="WorkflowStep:execute">
     <WorkflowStep>Execute operation</WorkflowStep>
   </BeatReveal>
 </VisualBeatProvider>
 ```
 
-`BeatReveal` resolves its static target to a beat, converts the resolved seconds to frames using the active composition FPS, and owns standard reveal progress. Custom interpolation uses an owned helper with the same registered target; it cannot accept a copied numeric semantic offset. The authored scene semantic duration must match `voiceDur`; its outer `<Sequence>` duration must match `frameDur`.
+`BeatState` keeps static frame-start focal content visible for the resolved interval. `BeatReveal` resolves its static target to a beat, converts the resolved seconds to frames using the active composition FPS, and owns interval-aware reveal progress. Both components reuse shared boundary quantization so a boundary's previous end and next start are identical after frame rounding. Custom interpolation uses an owned helper with the same registered target; it cannot accept a copied numeric semantic offset. The authored scene semantic duration must match `voiceDur`; its outer `<Sequence>` duration must match `frameDur`.
+
+The v2 manifest records the canonical plan digest plus authored input digest entries for `visual_bindings.json` and sorted relevant `src/**/*.{ts,tsx,js,jsx}` sources. Verification rejects changed, added, removed, or missing authored inputs before trusting semantic intervals.
 
 Remotion compositions run at 30 FPS by default. Keep duration calculations and reveal progress frame-derived and seek-safe; do not use CSS transitions, wall-clock state, or playback callbacks.
 

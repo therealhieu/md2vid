@@ -97,23 +97,29 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 Plan narration cues before authoring visual motion:
 
 ```text
-prepare/transcribe audio → author visual_beats.json → npm run plan
-  → bind cue-bound visuals → npm run build → npm run check → review → render
+prepare/transcribe audio → author visual_beats.json v2 → npm run plan
+  → inspect resolved coverage intervals → bind cue-bound visuals → npm run build
+  → continuous verify → review → render
 ```
 
-`visual_beats.json` is neutral input. `npm run plan` resolves its phrase or word-index anchors before HTML authoring. Every narrated node, row, card, code line, and workflow station binds to a beat ID; authored frames never copy the resolved seconds.
+`visual_beats.json` is neutral input. `npm run plan` resolves its phrase, word-index, or frame-start anchors before HTML authoring. Every narrated node, row, card, code line, workflow station, opening state, and final landing binds to a beat ID; authored frames never copy the resolved seconds. Continuous coverage requires a focal semantic state from the first spoken word through `frameDur`. Long static focal states are valid; captions, shell, background, logos, and headings are not focal coverage by themselves.
+
+The v2 binding manifest records raw authored frame-source digests for every planned `compositions/frames/<slug>.html` plus the canonical neutral plan digest. Verification rejects stale evidence after authored HTML or coverage-relevant plan changes, so run a full build after semantic edits. HyperFrames authored semantic duration remains `voiceDur`; host retention through `frameDur` is what keeps the final focal visible during the held landing.
 
 ### Declarative bindings
 
 Use a supported declarative target for the standard path:
 
 ```html
-<li id="reserve-step" data-md2vid-beat="reserve" data-md2vid-enter="rise" data-md2vid-duration="0.48">
+<div data-md2vid-beat="opening-context" data-md2vid-enter="none" data-md2vid-coverage="planned">
+  Opening context
+</div>
+<li id="reserve-step" data-md2vid-beat="reserve" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">
   Reserve value
 </li>
 ```
 
-Supported entrance tokens are `fade`, `rise`, `slide-left`, `scale`, and `none`. md2vid owns the generated paused, seek-safe scheduling timeline and writes each observed reveal to `build/visual_bindings.json`.
+Supported entrance tokens are `fade`, `rise`, `slide-left`, `scale`, and `none`. md2vid owns the generated paused, seek-safe scheduling timeline and writes each observed reveal plus `coverageStart`/`coverageEnd` to `build/visual_bindings.json`. `data-md2vid-coverage="planned"` means the target remains semantically visible until the resolved state end unless an owned semantic exit shortens it.
 
 ### Custom bindings
 
@@ -129,9 +135,9 @@ A custom motion path declares inert JSON and uses the owned helper that schedule
 </script>
 ```
 
-The `data-md2vid-custom-bindings` script is inert machine-readable declaration, not executable scheduling code. The owned helper validates its declared beat/target/method, owns the actual timeline position, and records the same `build/visual_bindings.json` evidence. It must not return numeric semantic timestamps for authors to reuse freely.
+The `data-md2vid-custom-bindings` script is inert machine-readable declaration, not executable scheduling code. The owned helper validates its declared beat/target/method, owns the actual timeline position, and records the same `build/visual_bindings.json` evidence. It must not return numeric semantic timestamps for authors to reuse freely. If semantic visibility should end before the planned interval, use the framework-owned semantic exit helper so runtime visibility and manifest evidence agree.
 
-Keep one paused registered parent timeline per composition. Its authored and generated child timelines must seek to the same state whether playback is sequential, directly sought, or sought backward then forward. The semantic composition duration must match `voiceDur`; the emitted host duration must match `frameDur`.
+Keep one paused registered parent timeline per composition. Its authored and generated child timelines must seek to the same state whether playback is sequential, directly sought, or sought backward then forward. The semantic composition duration must match `voiceDur`; the emitted host duration must match `frameDur`. The outer host provides owned host retention through `frameDur`; do not freehand-hide the final focal during the held landing.
 
 ### Render profiles
 

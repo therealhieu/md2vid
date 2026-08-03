@@ -253,6 +253,78 @@ test("canonical and bundled standards require cue-bound visual timing", () => {
   }
 });
 
+test("canonical and bundled standards require continuous semantic visual coverage", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /continuous semantic visual coverage/i, label);
+    assert.match(body, /first spoken word.*held landing/is, label);
+    assert.match(body, /captions.*do not.*satisfy/is, label);
+    assert.match(body, /maxUncoveredGap/, label);
+    assert.match(body, /opening.*middle.*ending/is, label);
+    assert.match(body, /manifest.*freshness/is, label);
+    assert.match(body, /project-standard marker/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame.md")) {
+    assert.match(body, /active focal semantic state = narration concept = caption concept/i, label);
+    assert.match(body, /static focal state/i, label);
+    assert.match(body, /held landing/i, label);
+    assert.match(body, /shell.*not.*focal coverage/is, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/knowledge-expression.md")) {
+    assert.match(body, /At every narrated timestamp/i, label);
+    assert.match(body, /active focal semantic state = narration concept = caption concept/i, label);
+    assert.match(body, /static holds are valid/i, label);
+    assert.match(body, /concept change requires a new state/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
+    assert.match(body, /framework-owned binding paths/i, label);
+    assert.match(body, /owned semantic activation/i, label);
+    assert.match(body, /owned semantic exit/i, label);
+    assert.match(body, /generated evidence matches runtime behavior/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /md2vid-continuous-visual-coverage: 2/, label);
+    assert.match(body, /data-md2vid-coverage="planned"/, label);
+    assert.match(body, /owned semantic exit/i, label);
+    assert.match(body, /raw authored.*digest/i, label);
+    assert.match(body, /host retention.*frameDur/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /md2vid-continuous-visual-coverage: 2/, label);
+    assert.match(body, /BeatState/, label);
+    assert.match(body, /BeatReveal/, label);
+    assert.match(body, /registry v2/i, label);
+    assert.match(body, /authored input digest/i, label);
+    assert.match(body, /shared boundary quantization/i, label);
+  }
+});
+
+test("skill and README document the continuous coverage workflow and migration", () => {
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+  const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+
+  for (const [label, body] of [["skill", skill], ["README", readme]] as const) {
+    assert.match(body, /source coverage.*storyboard semantic coverage map.*script/is, label);
+    assert.match(body, /visual_beats(?:\.json)? v2/i, label);
+    assert.match(body, /inspect resolved (?:coverage )?intervals/i, label);
+    assert.match(body, /continuous verify/i, label);
+    assert.match(body, /preview\/manual semantic review|manual semantic review/i, label);
+    assert.match(body, /captions.*(?:title|background).*insufficient|(?:title|background).*captions.*insufficient/is, label);
+    assert.match(body, /no fixed motion cadence|does not require.*fixed motion cadence/i, label);
+  }
+
+  assert.match(readme, /v1.*compatibility/i);
+  assert.match(readme, /"version"\s*:\s*2/);
+  assert.match(readme, /coverageMode/);
+  assert.match(readme, /manifest.*freshness/i);
+  assert.match(readme, /HyperFrames.*Remotion/is);
+  assert.match(readme, /manual.*refresh.*\.md2vid\/standards/i);
+});
+
 test("framework onboarding resolves visual timing before framework authoring", () => {
   for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
     const onboarding = sectionBetween(body, "## First run", "### Existing generated projects", label);

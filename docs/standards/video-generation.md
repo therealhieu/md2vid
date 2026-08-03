@@ -67,6 +67,21 @@ transcription
 - For MP4/MOV delivery, the final profile defaults to 30 FPS and rejects an effective rate below 24 FPS. Use `--profile draft` or `--profile gif` for intentionally low-rate work, or pass `--allow-low-fps` only as an explicit final-delivery override. `--quality` remains independent from the md2vid profile.
 - Review still judges source interpretation, treatment, hierarchy, and polish. Machine checks judge the declared timing contract; manual review does not waive it.
 
+### Continuous semantic visual coverage
+
+Every narrated frame maintains at least one bound focal semantic state from its first spoken word through its held landing. A state may remain completely static while narration continues to explain the same concept. Captions, backgrounds, logos, decoration, persistent headings, and shell chrome do not satisfy coverage by themselves. No unapproved uncovered interval may exceed `visualSync.maxUncoveredGap`; this applies before the first focal, between states, and through frame end.
+
+Use this workflow consistently:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 → npm run plan
+  → inspect resolved coverage intervals → bind framework visibility → full build
+  → continuous verify → preview/manual semantic review → render
+```
+
+Manual review judges semantic honesty and treatment quality: whether the declared focal actually explains the narrated concept, whether a title is true content rather than shell, and whether the expression triad is honest. Machine verification proves declared and bound continuity, manifest freshness, timing tolerance, workflow order, and duration. It does not create a fixed motion cadence; a static focal diagram is valid for a long explanation.
+
 ## Storyboard requirements
 
 - The storyboard must include a source coverage map from document sections to video frames.
@@ -260,6 +275,13 @@ Before rendering, verify:
 - [ ] No content sits under the reserved caption band (bottom ~14% / ~150px @1080).
 - [ ] Frame 1 is an intro with an agenda; the final frame is a recap.
 - [ ] Each frame ends on a >= 0.5s held landing.
+- [ ] Every narrated frame has a v2 focal semantic state covering the opening from the first spoken word.
+- [ ] Middle coverage is continuous: no unapproved gap between focal states exceeds `visualSync.maxUncoveredGap`.
+- [ ] Ending coverage holds the final focal through frame end, including the held landing.
+- [ ] Explicit coverage exemptions are reviewed, reasoned, and visible in verification output.
+- [ ] Captions, title-only shell, backgrounds, logos, and decoration are not counted as focal coverage unless explicitly authored as the active semantic focal.
+- [ ] `build/visual_bindings.json` is manifest v2 evidence with current plan/source manifest freshness; stale manifests are rebuilt with a full build.
+- [ ] Project-local framework standards contain the project-standard marker `md2vid-continuous-visual-coverage: 2`; refresh manually from the current canonical framework standard if missing.
 - [ ] The visual focal, narration, and caption carry the same beat (the expression triad).
 - [ ] The final duration matches the content needs, not a preset.
 - [ ] `CLAUDE.md` and `AGENTS.md` each @import `.md2vid/standards/hyperframes.md` (no pasted boilerplate).

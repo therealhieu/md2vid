@@ -117,6 +117,75 @@ transcription → visual_beats.json → md2vid plan <dir> → cue-bound visual a
 
 `md2vid plan <dir>` writes neutral resolved timing artifacts without framework emission or authored-source mutation. HyperFrames binds targets through `data-md2vid-beat` or a declared custom binding with an owned helper. Remotion binds its static `visual_bindings.json` registry through generated beat components. `md2vid verify` machine-checks beat coverage, timing tolerance, workflow order, landing, and duration; review still checks source interpretation, treatment, hierarchy, and polish.
 
+Continuous semantic visual coverage is verified from the first spoken word through the held landing: captions, title, background, shell chrome, logos, and decoration are insufficient by themselves. A static focal may cover a long explanation; there is no fixed motion cadence requirement.
+
+Use this workflow consistently:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 → md2vid plan <dir>
+  → inspect resolved coverage intervals → bind framework visibility → full build
+  → continuous verify → preview/manual semantic review → render
+```
+
+New scaffolds use this required policy:
+
+```json
+{
+  "visualSync": {
+    "mode": "required",
+    "coverageMode": "required",
+    "maxLead": 0.25,
+    "maxLag": 0.75,
+    "maxUncoveredGap": 0.5,
+    "minLanding": 1
+  }
+}
+```
+
+A minimal `visual_beats.json` v2 frame declares interval-capable focal states:
+
+```json
+{
+  "version": 2,
+  "frames": {
+    "frame-slug": {
+      "kind": "focal",
+      "beats": [
+        {
+          "id": "opening-context",
+          "text": "Opening context",
+          "role": "focal",
+          "cue": { "frameStart": true },
+          "coverage": { "until": "next-state" }
+        },
+        {
+          "id": "body-detail",
+          "text": "Body detail",
+          "role": "focal",
+          "cue": { "phrase": "body detail", "occurrence": 1 },
+          "coverage": { "until": "next-state" }
+        },
+        {
+          "id": "final-landing",
+          "text": "Final landing",
+          "role": "focal",
+          "cue": { "phrase": "final landing", "occurrence": 1 },
+          "coverage": { "until": "frame-end" }
+        }
+      ],
+      "coverageExemptions": []
+    }
+  }
+}
+```
+
+HyperFrames and Remotion both emit `build/visual_bindings.json` manifest v2 evidence with a canonical plan digest and authored-input digests. This manifest freshness check rejects stale evidence after changed neutral plans, changed HyperFrames frame HTML, or changed Remotion registry/source files; rerun a full build after semantic edits.
+
+Existing v1 projects remain in compatibility warning mode unless they opt into required coverage. Migrate by converting `visual_beats.json` to v2, adding opening/body/final focal states for every narrated frame, rebuilding framework binding evidence, then switching `coverageMode` to `required`.
+
+Project-local standards are snapshots. If `md2vid verify` says the marker is missing, perform a manual refresh of `.md2vid/standards/<framework>.md` from `docs/standards/frameworks/<framework>.md` without changing authored project files.
+
 Existing projects without `visual_beats.json` stay in **legacy warn vs scaffold required** mode: legacy projects warn until they migrate, while new scaffolds use required mode, include a `visual_beats.json.example`, and require cue-bound framework bindings.
 
 HyperFrames render profiles are md2vid policy flags:
