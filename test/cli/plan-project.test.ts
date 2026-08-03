@@ -61,6 +61,77 @@ const PLAN_WITH_BEATS: BuildPlan = {
   captionGroups: [],
 };
 
+const PLAN_WITH_COVERAGE: BuildPlan = {
+  version: 1,
+  canvas: { width: 1920, height: 1080 },
+  timing: { tail: 0.5, xfade: 0.5, gap: 0 },
+  totalDuration: 19,
+  frames: [{
+    id: "reserve-flow",
+    frameNum: 1,
+    slug: "reserve-flow",
+    voicePath: "assets/voice/reserve-flow.wav",
+    voiceDur: 18,
+    frameDur: 19,
+    start: 0,
+    words: [
+      { text: "First", start: 2.95, end: 3.2 },
+      { text: "execute", start: 11.06, end: 11.5 },
+    ],
+    visualSpecVersion: 2,
+    visualKind: "workflow",
+    visualBeats: [
+      {
+        version: 2,
+        id: "opening",
+        text: "Reserve before external work",
+        role: "focal",
+        start: 0,
+        end: 11.06,
+        cueText: "<frame-start>",
+        sourceRefs: [],
+        workflowStep: 1,
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+      {
+        version: 2,
+        id: "execute",
+        text: "Execute the operation",
+        role: "focal",
+        start: 11.06,
+        end: 19,
+        cueWordIndex: 1,
+        cueText: "execute",
+        sourceRefs: [],
+        workflowStep: 2,
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+    ],
+  }],
+  captionGroups: [],
+};
+
+test("serializes deterministic visual coverage timing", () => {
+  const serialized = serializeNeutralArtifacts(PLAN_WITH_COVERAGE);
+  assert.deepEqual(JSON.parse(serialized.visualTiming), {
+    version: 2,
+    frames: {
+      "reserve-flow": {
+        visualSpecVersion: 2,
+        voiceDuration: 18,
+        frameDuration: 19,
+        requiredCoverage: { start: 2.95, end: 19 },
+        kind: "workflow",
+        beats: [
+          { id: "opening", role: "focal", start: 0, end: 11.06, workflowStep: 1 },
+          { id: "execute", role: "focal", start: 11.06, end: 19, workflowStep: 2 },
+        ],
+        coverageExemptions: [],
+      },
+    },
+  });
+});
+
 test("serializes deterministic neutral artifacts with visual timing", () => {
   const artifacts = serializeNeutralArtifacts(PLAN_WITH_BEATS);
 
@@ -110,6 +181,51 @@ function planningProject(visualSync?: "off" | "warn" | "required"): string {
   }, null, 2)}\n`);
   return project;
 }
+
+test("planning resolves v2 coverage when reveal timing is off", () => {
+  const project = planningProject("off");
+  try {
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "required" },
+    }, null, 2)}\n`);
+    writeFileSync(join(project, "visual_beats.json"), `${JSON.stringify({
+      version: 2,
+      frames: {
+        "01-intro": {
+          beats: [{
+            id: "opening",
+            text: "Intro",
+            role: "focal",
+            cue: { frameStart: true },
+          }],
+        },
+      },
+    }, null, 2)}\n`);
+
+    const result = createProjectPlan(project);
+    assert.equal(result.plan.frames[0].visualSpecVersion, 2);
+    assert.equal(result.plan.frames[0].visualBeats?.[0].start, 0);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("coverage-required planning requires visual beats even when reveal timing is off", () => {
+  const project = planningProject("off");
+  try {
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "required" },
+    }, null, 2)}\n`);
+    assert.throws(
+      () => createProjectPlan(project),
+      /visual_beats\.json: required by visualSync policy/,
+    );
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
 
 function versionedFixture(): string {
   const project = planningProject("off");
@@ -170,9 +286,13 @@ test("createProjectPlan rejects changed spoken text before planning", () => {
   }
 });
 
-test("planning ignores malformed visual beats when visual sync is off", () => {
+test("planning ignores malformed visual beats when both modes are off", () => {
   const project = planningProject("off");
   try {
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "off" },
+    }, null, 2)}\n`);
     writeFileSync(join(project, "visual_beats.json"), "{ malformed JSON");
 
     const result = createProjectPlan(project);

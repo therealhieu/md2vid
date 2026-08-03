@@ -132,6 +132,49 @@ test("plan targets sibling shared in canonical layout", () => {
   }
 });
 
+test("flat and canonical projects serialize identical v2 coverage timing", () => {
+  const flat = mkdtempSync(join(tmpdir(), "md2vid-plan-v2-flat-"));
+  const root = mkdtempSync(join(tmpdir(), "md2vid-plan-v2-canonical-"));
+  const shared = join(root, "shared");
+  const output = join(root, "hyperframes");
+  const config = {
+    slugs: { intro: "01-intro" },
+    visualSync: { mode: "off", coverageMode: "required" },
+  };
+  const spec = {
+    version: 2,
+    frames: {
+      "01-intro": {
+        beats: [{
+          id: "opening",
+          text: "Intro",
+          role: "focal",
+          cue: { frameStart: true },
+        }],
+      },
+    },
+  };
+  try {
+    seedNeutralInputs(flat);
+    seedNeutralInputs(shared);
+    mkdirSync(output, { recursive: true });
+    for (const directory of [flat, shared]) {
+      writeFileSync(join(directory, "video.config.json"), `${JSON.stringify(config, null, 2)}\n`);
+      writeFileSync(join(directory, "visual_beats.json"), `${JSON.stringify(spec, null, 2)}\n`);
+    }
+
+    assert.equal(run([flat]), 0);
+    assert.equal(run([output]), 0);
+    assert.equal(
+      readFileSync(join(flat, "build", "visual_timing.json"), "utf8"),
+      readFileSync(join(shared, "build", "visual_timing.json"), "utf8"),
+    );
+  } finally {
+    rmSync(flat, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("plan rejects stale versioned narration before changing neutral outputs", () => {
   const project = mkdtempSync(join(tmpdir(), "md2vid-plan-stale-narration-"));
   try {
@@ -208,6 +251,34 @@ test("plan rolls back all four neutral artifacts after promotion failure", () =>
     assert.equal(result.code, 1);
     assert.match(result.stderr, /injected plan promotion failure/);
     for (const [path, contents] of originals) assert.equal(readFileSync(path, "utf8"), contents, path);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+});
+
+test("malformed v2 coverage leaves all neutral artifacts unchanged", () => {
+  const project = mkdtempSync(join(tmpdir(), "md2vid-plan-invalid-v2-"));
+  try {
+    seedNeutralInputs(project);
+    writeFileSync(join(project, "video.config.json"), `${JSON.stringify({
+      slugs: { intro: "01-intro" },
+      visualSync: { mode: "off", coverageMode: "required" },
+    }, null, 2)}\n`);
+    mkdirSync(join(project, "build"), { recursive: true });
+    const originals = new Map([
+      [join(project, "cues.json"), "OLD_CUES\n"],
+      [join(project, "caption_groups.json"), "OLD_CAPTIONS\n"],
+      [join(project, "build", "build_plan.json"), "OLD_PLAN\n"],
+      [join(project, "build", "visual_timing.json"), "OLD_VISUAL_TIMING\n"],
+    ]);
+    for (const [path, bytes] of originals) writeFileSync(path, bytes);
+    writeFileSync(join(project, "visual_beats.json"), "{ invalid JSON");
+
+    const result = captureRun([project]);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /visual_beats\.json: invalid JSON/);
+    for (const [path, bytes] of originals) assert.equal(readFileSync(path, "utf8"), bytes, path);
   } finally {
     rmSync(project, { recursive: true, force: true });
   }

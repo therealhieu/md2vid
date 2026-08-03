@@ -99,11 +99,15 @@ export function createProjectPlan(outputDir: string): ProjectPlanResult {
   const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
   const policy = resolveVisualSyncPolicy(loaded.neutral);
   const visualBeatsPath = join(layout.sharedDir, "visual_beats.json");
-  const visualSpec = policy.mode === "off" || !existsSync(visualBeatsPath)
+  const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+  const visualSpec = !visualPlanningEnabled || !existsSync(visualBeatsPath)
     ? undefined
     : readVisualBeatSpec(visualBeatsPath);
-  if (policy.mode === "required" && visualSpec === undefined) {
-    throw new Error(`${visualBeatsPath}: required by visualSync.mode=required`);
+  if (
+    visualSpec === undefined
+    && (policy.mode === "required" || policy.coverageMode === "required")
+  ) {
+    throw new Error(`${visualBeatsPath}: required by visualSync policy`);
   }
 
   return {
@@ -112,7 +116,7 @@ export function createProjectPlan(outputDir: string): ProjectPlanResult {
     adapterConfig: loaded.config,
     plan: plan(meta, loaded.neutral, visualSpec),
     voiceSnapshots,
-    warnings: policy.mode === "warn" && visualSpec === undefined
+    warnings: visualPlanningEnabled && visualSpec === undefined
       ? [`${visualBeatsPath}: no visual beat specification; semantic checks are skipped`]
       : [],
   };
@@ -129,17 +133,51 @@ export function serializeNeutralArtifacts(plan: BuildPlan): SerializedNeutralArt
     ...(frame.visualKind === undefined ? {} : { visualKind: frame.visualKind }),
     ...(frame.visualBeats === undefined ? {} : { visualBeats: frame.visualBeats }),
   }));
-  const visualFrames = Object.fromEntries(
-    plan.frames.flatMap((frame) => frame.visualBeats === undefined ? [] : [[frame.slug, {
-      duration: frame.voiceDur,
-      ...(frame.visualKind === undefined ? {} : { kind: frame.visualKind }),
-      beats: frame.visualBeats.map(({ id, start, workflowStep }) => ({
-        id,
-        start,
-        ...(workflowStep === undefined ? {} : { workflowStep }),
-      })),
-    }]]),
-  );
+  const hasCoverageV2 = plan.frames.some((frame) => frame.visualSpecVersion === 2);
+  const visualTiming = hasCoverageV2
+    ? {
+        version: 2,
+        frames: Object.fromEntries(
+          plan.frames
+            .filter((frame) => frame.visualSpecVersion === 2)
+            .map((frame) => [frame.slug, {
+              visualSpecVersion: 2,
+              voiceDuration: frame.voiceDur,
+              frameDuration: frame.frameDur,
+              requiredCoverage: {
+                start: frame.words[0].start,
+                end: frame.frameDur,
+              },
+              ...(frame.visualKind === undefined ? {} : { kind: frame.visualKind }),
+              beats: (frame.visualBeats ?? [])
+                .filter((beat) => beat.version === 2)
+                .map((beat) => ({
+                  id: beat.id,
+                  role: beat.role,
+                  start: beat.start,
+                  end: beat.end,
+                  ...(beat.workflowStep === undefined ? {} : { workflowStep: beat.workflowStep }),
+                })),
+              coverageExemptions: frame.visualCoverageExemptions ?? [],
+            }]),
+        ),
+      }
+    : {
+        version: 1,
+        frames: Object.fromEntries(
+          plan.frames.flatMap((frame) => frame.visualBeats === undefined ? [] : [[frame.slug, {
+            duration: frame.voiceDur,
+            ...(frame.visualKind === undefined ? {} : { kind: frame.visualKind }),
+            beats: frame.visualBeats
+              .filter((beat) => beat.version === 1)
+              .map(({ id, start, workflowStep }) => ({
+                id,
+                start,
+                ...(workflowStep === undefined ? {} : { workflowStep }),
+              })),
+          }]]),
+        ),
+      };
 
   return {
     cues: `${JSON.stringify(cues, null, 2)}\n`,
@@ -150,7 +188,7 @@ export function serializeNeutralArtifacts(plan: BuildPlan): SerializedNeutralArt
       groups: plan.captionGroups,
     }, null, 2)}\n`,
     buildPlan: `${JSON.stringify(plan, null, 2)}\n`,
-    visualTiming: `${JSON.stringify({ version: 1, frames: visualFrames }, null, 2)}\n`,
+    visualTiming: `${JSON.stringify(visualTiming, null, 2)}\n`,
   };
 }
 
