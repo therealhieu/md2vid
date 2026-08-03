@@ -30,6 +30,64 @@ const FRAME_WITH_EXECUTE_BEAT: PlanFrame = {
 
 const DOCUMENT_PATH = "compositions/frames/01-reserve-flow.html";
 
+const FRAME_V2: PlanFrame = {
+  id: "overview",
+  frameNum: 1,
+  slug: "overview",
+  voicePath: "assets/voice/overview.wav",
+  voiceDur: 22.08,
+  frameDur: 23.08,
+  start: 0,
+  words: [
+    { text: "A", start: 0.07, end: 0.12 },
+    { text: "solution", start: 18.26, end: 18.8 },
+  ],
+  visualSpecVersion: 2,
+  visualKind: "focal",
+  visualBeats: [
+    {
+      version: 2,
+      id: "opening",
+      text: "Opening context",
+      role: "focal",
+      start: 0,
+      end: 18.26,
+      cueText: "<frame-start>",
+      sourceRefs: [],
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+    {
+      version: 2,
+      id: "solution",
+      text: "Solution",
+      role: "focal",
+      start: 18.26,
+      end: 23.08,
+      cueWordIndex: 1,
+      cueText: "solution",
+      sourceRefs: [],
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+    {
+      version: 2,
+      id: "label",
+      text: "Supporting label",
+      role: "supporting",
+      start: 0,
+      end: 23.08,
+      cueText: "<frame-start>",
+      sourceRefs: [],
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+  ],
+};
+
+const AUTHORED_V2 = `
+  <article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article>
+  <article id="solution" data-md2vid-beat="solution" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">Solution</article>
+  <span id="label" data-md2vid-beat="label" data-md2vid-enter="none" data-md2vid-coverage="planned">Label</span>
+`;
+
 function frameHtml(inner: string, duration = 18): string {
   return `<template data-composition-id="reserve-flow">
   <div id="reserve-flow-root" data-composition-id="reserve-flow" data-duration="${duration}">
@@ -37,6 +95,211 @@ function frameHtml(inner: string, duration = 18): string {
   </div>
 </template>`;
 }
+
+function coverageFrameHtml(inner: string, duration = 22.08): string {
+  return `<template data-composition-id="overview">
+  <div id="overview-root" data-composition-id="overview" data-duration="${duration}">
+    ${inner}
+  </div>
+</template>`;
+}
+
+type TimelineCall = { method: string; target: string; vars: Record<string, unknown>; at: number };
+
+function generatedCalls(preparedHtml: string): TimelineCall[] {
+  const calls: TimelineCall[] = [];
+  const timeline = {
+    set(target: string, vars: Record<string, unknown>, at: number) {
+      calls.push({ method: "set", target, vars, at });
+      return timeline;
+    },
+    from(target: string, vars: Record<string, unknown>, at: number) {
+      calls.push({ method: "from", target, vars, at });
+      return timeline;
+    },
+    fromTo(target: string, fromVars: Record<string, unknown>, toVars: Record<string, unknown>, at: number) {
+      calls.push({ method: "fromTo", target, vars: { fromVars, toVars }, at });
+      return timeline;
+    },
+  };
+  const context = {
+    window: { __timelines: { overview: timeline } },
+  };
+  for (const match of preparedHtml.matchAll(/<script data-md2vid-generated="[^"]+">\n([\s\S]*?)\n<\/script>/g)) {
+    vm.runInNewContext(match[1], context);
+  }
+  return calls;
+}
+
+function activeAt(calls: readonly TimelineCall[], target: string, time: number): boolean {
+  let active = false;
+  for (const call of calls) {
+    if (call.target === target && call.method === "set" && call.at <= time && call.vars.autoAlpha !== undefined) {
+      active = call.vars.autoAlpha === 1;
+    }
+  }
+  return active;
+}
+
+test("emits v2 coverage evidence for static and animated targets", () => {
+  const result = prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml(AUTHORED_V2),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  });
+
+  assert.deepEqual(result.bindings.map((binding) => ({
+    beatId: binding.beatId,
+    role: "role" in binding ? binding.role : undefined,
+    revealStart: binding.revealStart,
+    coverageStart: "coverageStart" in binding ? binding.coverageStart : undefined,
+    coverageEnd: "coverageEnd" in binding ? binding.coverageEnd : undefined,
+    source: binding.source,
+  })), [
+    {
+      beatId: "opening",
+      role: "focal",
+      revealStart: 0,
+      coverageStart: 0,
+      coverageEnd: 18.26,
+      source: "static",
+    },
+    {
+      beatId: "solution",
+      role: "focal",
+      revealStart: 18.26,
+      coverageStart: 18.26,
+      coverageEnd: 23.08,
+      source: "declarative",
+    },
+    {
+      beatId: "label",
+      role: "supporting",
+      revealStart: 0,
+      coverageStart: 0,
+      coverageEnd: 23.08,
+      source: "static",
+    },
+  ]);
+});
+
+test("v2 declarative coverage uses owned visibility intervals without extending authored duration", () => {
+  const result = prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml(AUTHORED_V2),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  });
+  const calls = generatedCalls(result.html);
+
+  for (const time of [0, 5, 18.25]) {
+    assert.equal(activeAt(calls, "#opening", time), true, `opening active at ${time}`);
+  }
+  assert.equal(activeAt(calls, "#opening", 18.27), false);
+  assert.equal(activeAt(calls, "#solution", 18.27), true);
+  assert.equal(activeAt(calls, "#solution", 22.08), true);
+  assert.equal(activeAt(calls, "#solution", 23.08), true);
+  assert.equal(result.authoredDuration, 22.08);
+  assert.equal(calls.some((call) => call.target === "#solution" && call.at === 23.08 && call.vars.autoAlpha === 0), false);
+
+  const direct = [activeAt(calls, "#opening", 18.27), activeAt(calls, "#solution", 18.27)];
+  const sequential = [0, 5, 18.25, 18.27].at(-1) === 18.27
+    ? [activeAt(calls, "#opening", 18.27), activeAt(calls, "#solution", 18.27)]
+    : [];
+  const reverse = [23.08, 22.08, 18.27].at(-1) === 18.27
+    ? [activeAt(calls, "#opening", 18.27), activeAt(calls, "#solution", 18.27)]
+    : [];
+  assert.deepEqual(direct, sequential);
+  assert.deepEqual(direct, reverse);
+});
+
+test("v2 semantic targets require planned declarative coverage", () => {
+  assert.throws(() => prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml('<div id="opening" data-md2vid-beat="opening" data-md2vid-enter="none"></div>'),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  }), /data-md2vid-coverage.*planned/);
+  assert.throws(() => prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml('<div id="shell" data-md2vid-beat="shell" data-md2vid-coverage="planned"></div>'),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  }), /unknown beat "shell"/);
+});
+
+test("emits v2 coverage evidence for planned custom bindings", () => {
+  const result = prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml(`
+      <article id="solution">Solution</article>
+      <script type="application/json" data-md2vid-custom-bindings>{"bindings":[{"beat":"solution","target":"#solution","method":"from","duration":0.7,"coverage":"planned"}]}</script>
+    `),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  });
+
+  assert.deepEqual(result.bindings.map((binding) => ({
+    beatId: binding.beatId,
+    role: "role" in binding ? binding.role : undefined,
+    revealStart: binding.revealStart,
+    revealDuration: binding.revealDuration,
+    coverageStart: "coverageStart" in binding ? binding.coverageStart : undefined,
+    coverageEnd: "coverageEnd" in binding ? binding.coverageEnd : undefined,
+    source: binding.source,
+  })), [{
+    beatId: "solution",
+    role: "focal",
+    revealStart: 18.26,
+    revealDuration: 0.7,
+    coverageStart: 18.26,
+    coverageEnd: 23.08,
+    source: "custom",
+  }]);
+});
+
+test("v2 custom bindings require planned coverage and owned exits", () => {
+  assert.throws(() => prepareFrameVisualTiming({
+    frame: FRAME_V2,
+    authoredHtml: coverageFrameHtml(`
+      <article id="solution">Solution</article>
+      <script type="application/json" data-md2vid-custom-bindings>{"bindings":[{"beat":"solution","target":"#solution","method":"from","duration":0.7}]}</script>
+    `),
+    documentPath: "compositions/frames/overview.html",
+    mode: "required",
+  }), /custom binding coverage must be "planned"/);
+
+  const bindings = [{
+    frameSlug: "overview",
+    beatId: "opening",
+    target: "#opening",
+    role: "focal" as const,
+    revealStart: 0,
+    revealDuration: 0.7,
+    coverageStart: 0,
+    coverageEnd: 18.26,
+    source: "custom" as const,
+  }];
+  const context = { window: {} as Record<string, unknown> };
+  vm.runInNewContext(buildHyperframesTimingRuntime(FRAME_V2, bindings, [
+    { beat: "opening", target: "#opening", method: "from", duration: 0.7, coverage: "planned" },
+  ]), context);
+  const timing = (context.window.__md2vidTiming as { forFrame(slug: string): {
+    from(timeline: unknown, beatId: string, target: string, vars: { duration: number }): unknown;
+    exit(timeline: unknown, beatId: string, target: string, options?: { at: string }): unknown;
+  } }).forFrame("overview");
+  const calls: TimelineCall[] = [];
+  const timeline = {
+    from(target: string, vars: Record<string, unknown>, at: number) { calls.push({ method: "from", target, vars, at }); },
+    set(target: string, vars: Record<string, unknown>, at: number) { calls.push({ method: "set", target, vars, at }); },
+  };
+  timing.from(timeline, "opening", "#opening", { duration: 0.7 });
+  timing.exit(timeline, "opening", "#opening", { at: "coverage-end" });
+  assert.ok(calls.some((call) => call.target === "#opening" && call.at === 18.26 && call.vars.autoAlpha === 0));
+  assert.throws(() => timing.exit(timeline, "opening", "#other", { at: "coverage-end" }), /matching declaration/);
+  assert.throws(() => timing.exit(timeline, "opening", "#opening", { at: "voice-end" }), /supports only coverage-end/);
+});
 
 test("declarative rise binding schedules at the resolved beat", () => {
   const prepared = prepareFrameVisualTiming({

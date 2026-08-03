@@ -17,6 +17,7 @@ type CustomDeclaration = {
   target: string;
   method: CustomMethod;
   duration: number;
+  coverage?: "planned";
 };
 
 type PreparedTiming = {
@@ -118,6 +119,10 @@ function customScriptBody(tags: readonly HtmlTag[], html: string, index: number)
   return closing ? html.slice(opening.end, closing.start) : undefined;
 }
 
+function isV2Beat(beat: ResolvedVisualBeat): beat is Extract<ResolvedVisualBeat, { version: 2 }> {
+  return beat.version === 2;
+}
+
 function parseCustomDeclarations(
   tags: readonly HtmlTag[],
   html: string,
@@ -165,8 +170,16 @@ function parseCustomDeclarations(
     const target = declaration.target;
     const method = declaration.method;
     const duration = declaration.duration;
-    if (typeof beatId !== "string" || !beats.has(beatId)) {
+    const coverage = declaration.coverage;
+    const beat = typeof beatId === "string" ? beats.get(beatId) : undefined;
+    if (typeof beatId !== "string" || !beat) {
       return fail(mode, documentPath, `custom binding references unknown beat "${String(beatId)}"`);
+    }
+    if (coverage !== undefined && coverage !== "planned") {
+      return fail(mode, documentPath, `custom binding coverage must be "planned"`);
+    }
+    if (isV2Beat(beat) && coverage !== "planned") {
+      return fail(mode, documentPath, `custom binding coverage must be "planned"`);
     }
     if (typeof target !== "string" || !target.startsWith("#") || !SAFE_ID_SELECTOR.test(target.slice(1))) {
       return fail(mode, documentPath, `custom binding target must be an ID selector (got ${serializeScriptData(target)})`);
@@ -187,9 +200,58 @@ function parseCustomDeclarations(
     const key = `${beatId}:${target}:${method}`;
     if (seen.has(key)) return fail(mode, documentPath, `duplicate custom declaration "${key}"`);
     seen.add(key);
-    declarations.push({ beat: beatId, target, method: method as CustomMethod, duration });
+    declarations.push({
+      beat: beatId,
+      target,
+      method: method as CustomMethod,
+      duration,
+      ...(coverage === undefined ? {} : { coverage }),
+    });
   }
   return declarations;
+}
+
+function coverageStatements(target: string, beat: Extract<ResolvedVisualBeat, { version: 2 }>, frame: PlanFrame): string[] {
+  const statements: string[] = [];
+  if (beat.start > 0) {
+    statements.push(`timeline.set(${serializeScriptData(target)}, { autoAlpha: 0 }, 0);`);
+  }
+  statements.push(`timeline.set(${serializeScriptData(target)}, { autoAlpha: 1 }, ${beat.start});`);
+  if (beat.end <= frame.voiceDur) {
+    statements.push(`timeline.set(${serializeScriptData(target)}, { autoAlpha: 0 }, ${beat.end});`);
+  }
+  return statements;
+}
+
+function bindingEvidence(
+  frame: PlanFrame,
+  beatId: string,
+  beat: ResolvedVisualBeat,
+  target: string,
+  revealDuration: number,
+  source: VisualBinding["source"],
+): VisualBinding {
+  if (isV2Beat(beat)) {
+    return {
+      frameSlug: frame.slug,
+      beatId,
+      target,
+      role: beat.role,
+      revealStart: beat.start,
+      revealDuration,
+      coverageStart: beat.start,
+      coverageEnd: beat.end,
+      source,
+    };
+  }
+  return {
+    frameSlug: frame.slug,
+    beatId,
+    target,
+    revealStart: beat.start,
+    revealDuration,
+    source: source === "static" ? "declarative" : source,
+  };
 }
 
 function readDeclarativeBindings(
@@ -216,6 +278,13 @@ function readDeclarativeBindings(
     if ((ids.get(id)?.length ?? 0) !== 1) {
       return fail(mode, documentPath, `declarative visual target for beat "${beatId}" requires a unique non-empty id that matches exactly one element id`);
     }
+    const coverage = htmlAttribute(tag, "data-md2vid-coverage");
+    if (coverage !== undefined && coverage !== "planned") {
+      return fail(mode, documentPath, `data-md2vid-coverage must be "planned"`);
+    }
+    if (isV2Beat(beat) && coverage !== "planned") {
+      return fail(mode, documentPath, `data-md2vid-coverage must be "planned" for v2 semantic targets`);
+    }
     const token = (htmlAttribute(tag, "data-md2vid-enter") ?? "fade") as HyperframesEntranceToken;
     if (!Object.hasOwn(ENTRANCES, token)) {
       return fail(mode, documentPath, `unsupported entrance token "${token}"`);
@@ -227,15 +296,15 @@ function readDeclarativeBindings(
     }
     const entrance = ENTRANCES[token];
     const target = `#${id}`;
-    statements.push(entrance.statement(target, duration, beat.start));
-    bindings.push({
-      frameSlug: frame.slug,
-      beatId,
-      target,
-      revealStart: beat.start,
-      revealDuration: entrance.revealDuration(duration),
-      source: "declarative",
-    });
+    const revealDuration = entrance.revealDuration(duration);
+    const source = isV2Beat(beat) && token === "none" && revealDuration === 0 ? "static" : "declarative";
+    if (isV2Beat(beat)) {
+      statements.push(...coverageStatements(target, beat, frame));
+      if (token !== "none") statements.push(entrance.statement(target, duration, beat.start));
+    } else {
+      statements.push(entrance.statement(target, duration, beat.start));
+    }
+    bindings.push(bindingEvidence(frame, beatId, beat, target, revealDuration, source));
   }
   return { statements, bindings };
 }
@@ -305,14 +374,17 @@ export function prepareFrameVisualTiming(input: {
     input.documentPath,
   );
   if (customDeclarations === false) return { html: input.authoredHtml, bindings: [] };
-  const customBindings = customDeclarations.map((declaration) => ({
-    frameSlug: frame.slug,
-    beatId: declaration.beat,
-    target: declaration.target,
-    revealStart: beats.get(declaration.beat)!.start,
-    revealDuration: declaration.duration,
-    source: "custom" as const,
-  }));
+  const customBindings = customDeclarations.map((declaration) => {
+    const beat = beats.get(declaration.beat)!;
+    return bindingEvidence(
+      frame,
+      declaration.beat,
+      beat,
+      declaration.target,
+      declaration.duration,
+      "custom",
+    );
+  });
   const bindings = [...declarative.bindings, ...customBindings];
   if (!validateDuplicateTargets(bindings, input.mode, input.documentPath)) {
     return { html: input.authoredHtml, bindings: [] };
@@ -347,7 +419,14 @@ export function buildHyperframesTimingRuntime(
   bindings: readonly VisualBinding[],
   customDeclarations: readonly CustomDeclaration[] = [],
 ): string {
-  const beats = Object.fromEntries((frame.visualBeats ?? []).map((beat) => [beat.id, { start: beat.start }]));
+  const beats = Object.fromEntries((frame.visualBeats ?? []).map((beat) => [beat.id, beat.version === 2
+    ? {
+        version: 2,
+        start: beat.start,
+        end: beat.end,
+        role: beat.role,
+      }
+    : { version: 1, start: beat.start }]));
   const declarations = bindings
     .filter((binding) => binding.source === "custom")
     .map((binding) => {
@@ -361,6 +440,7 @@ export function buildHyperframesTimingRuntime(
         target: binding.target,
         method: declaration?.method ?? "from",
         duration: binding.revealDuration,
+        ...(declaration?.coverage === undefined ? {} : { coverage: declaration.coverage }),
       };
     });
   return `(function () {
@@ -382,6 +462,29 @@ export function buildHyperframesTimingRuntime(
       throw new Error("custom binding has no matching declaration for " + beatId + " / " + target + " / " + method);
     }
     return declaration;
+  }
+  function requireDeclaredBinding(slug, beatId, target) {
+    var frameBindings = FRAME_BINDINGS[slug] || [];
+    var declaration = frameBindings.find(function (candidate) {
+      return candidate.beat === beatId && candidate.target === target && candidate.coverage === "planned";
+    });
+    if (!declaration) {
+      throw new Error("custom binding has no matching declaration for " + beatId + " / " + target + " / coverage-end");
+    }
+    return declaration;
+  }
+  function requireV2Beat(slug, beatId) {
+    var beat = requireBeat(slug, beatId);
+    if (beat.version !== 2 || typeof beat.end !== "number") {
+      throw new Error("md2vid exit requires a v2 visual beat");
+    }
+    return beat;
+  }
+  function scheduleCoverage(timeline, target, beat) {
+    if (beat.version !== 2) return;
+    if (beat.start > 0) timeline.set(target, { autoAlpha: 0 }, 0);
+    timeline.set(target, { autoAlpha: 1 }, beat.start);
+    if (beat.end <= ${frame.voiceDur}) timeline.set(target, { autoAlpha: 0 }, beat.end);
   }
   function requireExplicitFiniteDuration(vars) {
     if (!vars || typeof vars.duration !== "number" || !Number.isFinite(vars.duration)) {
@@ -409,6 +512,7 @@ export function buildHyperframesTimingRuntime(
         var declaration = requireBinding(slug, beatId, target, "from");
         var duration = requireExplicitFiniteDuration(vars);
         if (duration !== declaration.duration) throw new Error("custom binding duration mismatch");
+        scheduleCoverage(timeline, target, beat);
         timeline.from(target, vars, beat.start);
         declaration.used = true;
         return timeline;
@@ -418,6 +522,7 @@ export function buildHyperframesTimingRuntime(
         var declaration = requireBinding(slug, beatId, target, "fromTo");
         var duration = requireExplicitFiniteDuration(toVars);
         if (duration !== declaration.duration) throw new Error("custom binding duration mismatch");
+        scheduleCoverage(timeline, target, beat);
         timeline.fromTo(target, fromVars, toVars, beat.start);
         declaration.used = true;
         return timeline;
@@ -426,8 +531,21 @@ export function buildHyperframesTimingRuntime(
         var beat = requireBeat(slug, beatId);
         var declaration = requireBinding(slug, beatId, target, "set");
         requireZeroSetDuration(vars);
+        scheduleCoverage(timeline, target, beat);
         timeline.set(target, vars, beat.start);
         declaration.used = true;
+        return timeline;
+      },
+      exit: function (timeline, beatId, target, options) {
+        var beat = requireV2Beat(slug, beatId);
+        requireDeclaredBinding(slug, beatId, target);
+        var at = options && Object.prototype.hasOwnProperty.call(options, "at") ? options.at : "coverage-end";
+        if (at !== "coverage-end") {
+          throw new Error("md2vid exit supports only coverage-end");
+        }
+        if (beat.end <= ${frame.voiceDur}) {
+          timeline.set(target, { autoAlpha: 0 }, beat.end);
+        }
         return timeline;
       }
     };
