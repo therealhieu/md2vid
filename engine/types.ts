@@ -164,8 +164,10 @@ export interface PlanFrame {
   id: string; frameNum: number; slug: string;
   voicePath: string; voiceDur: number; frameDur: number;
   start: number; words: Word[];
-  visualKind?: AuthoredVisualFrame["kind"];
+  visualSpecVersion?: 1 | 2;
+  visualKind?: AuthoredVisualFrameV1["kind"];
   visualBeats?: ResolvedVisualBeat[];
+  visualCoverageExemptions?: ResolvedCoverageExemption[];
 }
 
 export interface CaptionGroup {

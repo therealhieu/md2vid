@@ -112,7 +112,10 @@ test("attaches beats only to frames named by the visual specification", () => {
 test("plan mode off ignores supplied beat data and omits visual fields", () => {
   const result = plan(
     meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
-    { ...CFG({ slugs: { intro: "intro" } }), visualSync: { mode: "off" } },
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "off" },
+    },
     {
       version: 1,
       frames: {
@@ -122,6 +125,59 @@ test("plan mode off ignores supplied beat data and omits visual fields", () => {
   );
 
   assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
+test("required v2 coverage rejects missing narrated frames", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      { version: 2, frames: {} },
+    ),
+    /missing narrated frame "intro".*coverageMode=required/,
+  );
+});
+
+test("required v2 coverage rejects supporting-only narrated frames", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      {
+        version: 2,
+        frames: {
+          intro: {
+            beats: [{
+              id: "label",
+              text: "Supporting label",
+              role: "supporting",
+              cue: { frameStart: true },
+            }],
+          },
+        },
+      },
+    ),
+    /must contain at least one focal beat.*coverageMode=required/,
+  );
+});
+
+test("warn-mode v2 frames retain authored version without focal beats", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    { version: 2, frames: { intro: { beats: [] } } },
+  );
+  assert.equal(result.frames[0].visualSpecVersion, 2);
+  assert.deepEqual(result.frames[0].visualBeats, []);
 });
 
 test("legacy visual coverage defaults to warn", () => {

@@ -6,7 +6,9 @@ import type {
   AuthoredVisualFrameV1,
   AuthoredVisualFrameV2,
   PlanFrame,
+  ResolvedCoverageExemption,
   ResolvedVisualBeat,
+  ResolvedVisualStateV2,
   ResolvedVisualSyncPolicy,
   VisualBeatSpec,
   VisualBeatSpecV1,
@@ -440,46 +442,76 @@ function resolvedStart(frame: PlanFrame, wordIndex: number, path: string): numbe
   return word.start;
 }
 
+interface ResolvedCue {
+  start: number;
+  cueWordIndex?: number;
+  cueText: string;
+}
+
+function resolveTranscriptCue(
+  cue: VisualCueAnchorV1,
+  frame: PlanFrame,
+  path: string,
+): ResolvedCue {
+  let firstWordIndex: number;
+  let lastWordIndex: number;
+
+  if ("wordIndex" in cue) {
+    firstWordIndex = cue.wordIndex;
+    lastWordIndex = firstWordIndex;
+    if (firstWordIndex >= frame.words.length) {
+      fail(`${path}.wordIndex`, `is out of range for frame "${frame.slug}"`);
+    }
+  } else {
+    const phraseTokens = normalizedTextTokens(cue.phrase);
+    if (phraseTokens.length === 0) fail(`${path}.phrase`, "has no normalized tokens");
+    const matches = matchingPhraseLocations(normalizedTokens(frame.words), phraseTokens);
+    const recoveryContext = phraseRecoveryContext(frame, matches);
+    if (matches.length === 0) {
+      fail(`${path}.phrase`, `cue phrase "${cue.phrase}" was not found; ${recoveryContext}`);
+    }
+    if (cue.occurrence > matches.length) {
+      const matchLabel = matches.length === 1 ? "match" : "matches";
+      fail(
+        `${path}.occurrence`,
+        `occurrence ${cue.occurrence} is invalid; only ${matches.length} ${matchLabel}; ${recoveryContext}`,
+      );
+    }
+    ({ firstWordIndex, lastWordIndex } = matches[cue.occurrence - 1]);
+  }
+
+  return {
+    start: resolvedStart(frame, firstWordIndex, path),
+    cueWordIndex: firstWordIndex,
+    cueText: frame.words.slice(firstWordIndex, lastWordIndex + 1).map((word) => word.text).join(" "),
+  };
+}
+
+function resolveCueV2(
+  cue: VisualCueAnchorV2,
+  frame: PlanFrame,
+  path: string,
+): ResolvedCue {
+  if ("frameStart" in cue) {
+    return { start: 0, cueText: "<frame-start>" };
+  }
+  return resolveTranscriptCue(cue, frame, path);
+}
+
 function resolveBeat(
   beat: AuthoredVisualBeatV1,
   frame: PlanFrame,
   defaults: ResolvedVisualSyncPolicy,
   path: string,
 ): ResolvedVisualBeat {
-  let firstWordIndex: number;
-  let lastWordIndex: number;
-
-  if ("wordIndex" in beat.cue) {
-    firstWordIndex = beat.cue.wordIndex;
-    lastWordIndex = firstWordIndex;
-    if (firstWordIndex >= frame.words.length) {
-      fail(`${path}.cue.wordIndex`, `is out of range for frame "${frame.slug}"`);
-    }
-  } else {
-    const phraseTokens = normalizedTextTokens(beat.cue.phrase);
-    if (phraseTokens.length === 0) fail(`${path}.cue.phrase`, "has no normalized tokens");
-    const matches = matchingPhraseLocations(normalizedTokens(frame.words), phraseTokens);
-    const recoveryContext = phraseRecoveryContext(frame, matches);
-    if (matches.length === 0) {
-      fail(`${path}.cue.phrase`, `cue phrase "${beat.cue.phrase}" was not found; ${recoveryContext}`);
-    }
-    if (beat.cue.occurrence > matches.length) {
-      const matchLabel = matches.length === 1 ? "match" : "matches";
-      fail(
-        `${path}.cue.occurrence`,
-        `occurrence ${beat.cue.occurrence} is invalid; only ${matches.length} ${matchLabel}; ${recoveryContext}`,
-      );
-    }
-    ({ firstWordIndex, lastWordIndex } = matches[beat.cue.occurrence - 1]);
-  }
-
+  const resolved = resolveTranscriptCue(beat.cue, frame, `${path}.cue`);
   return {
     version: 1,
     id: beat.id,
     text: beat.text,
-    start: resolvedStart(frame, firstWordIndex, path),
-    cueWordIndex: firstWordIndex,
-    cueText: frame.words.slice(firstWordIndex, lastWordIndex + 1).map((word) => word.text).join(" "),
+    start: resolved.start,
+    cueWordIndex: resolved.cueWordIndex!,
+    cueText: resolved.cueText,
     sourceRefs: [...(beat.sourceRefs ?? [])],
     ...(beat.workflowStep === undefined ? {} : { workflowStep: beat.workflowStep }),
     tolerance: {
@@ -487,6 +519,96 @@ function resolveBeat(
       maxLag: beat.tolerance?.maxLag ?? defaults.maxLag,
     },
   };
+}
+
+function resolveCoverageEnd(
+  until: VisualCoverageEnd | undefined,
+  defaultEnd: number,
+  frame: PlanFrame,
+  path: string,
+): number {
+  if (until === undefined || until === "next-state") return defaultEnd;
+  if (until === "voice-end") return frame.voiceDur;
+  if (until === "frame-end") return frame.frameDur;
+  return resolveCueV2(until.cue, frame, `${path}.cue`).start;
+}
+
+function resolveV2Beats(
+  beats: readonly AuthoredVisualBeatV2[],
+  frame: PlanFrame,
+  defaults: ResolvedVisualSyncPolicy,
+  path: string,
+): ResolvedVisualStateV2[] {
+  const starts = beats.map((beat, index) => ({
+    beat,
+    resolved: resolveCueV2(beat.cue, frame, `${path}.beats[${index}].cue`),
+    index,
+  })).sort((left, right) => left.resolved.start - right.resolved.start || left.index - right.index);
+
+  return starts.map(({ beat, resolved, index: sourceIndex }, index) => {
+    const defaultEnd = starts[index + 1]?.resolved.start ?? frame.frameDur;
+    const end = resolveCoverageEnd(
+      beat.coverage?.until,
+      defaultEnd,
+      frame,
+      `${path}.beats[${sourceIndex}].coverage.until`,
+    );
+    if (!Number.isFinite(end) || end < resolved.start || end > frame.frameDur) {
+      fail(
+        `${path}.beats[${sourceIndex}]`,
+        `resolves to invalid interval ${resolved.start.toFixed(3)}s-${end.toFixed(3)}s within frame ${frame.frameDur.toFixed(3)}s`,
+      );
+    }
+    return {
+      version: 2,
+      id: beat.id,
+      text: beat.text,
+      role: beat.role,
+      start: resolved.start,
+      end,
+      ...(resolved.cueWordIndex === undefined ? {} : { cueWordIndex: resolved.cueWordIndex }),
+      cueText: resolved.cueText,
+      sourceRefs: [...(beat.sourceRefs ?? [])],
+      ...(beat.workflowStep === undefined ? {} : { workflowStep: beat.workflowStep }),
+      tolerance: {
+        maxLead: beat.tolerance?.maxLead ?? defaults.maxLead,
+        maxLag: beat.tolerance?.maxLag ?? defaults.maxLag,
+      },
+    };
+  });
+}
+
+function resolveCoverageExemptions(
+  exemptions: readonly AuthoredCoverageExemption[] | undefined,
+  frame: PlanFrame,
+  path: string,
+): ResolvedCoverageExemption[] {
+  return (exemptions ?? []).map((exemption, index) => {
+    const start = resolveCueV2(
+      exemption.from,
+      frame,
+      `${path}.coverageExemptions[${index}].from`,
+    ).start;
+    const end = resolveCoverageEnd(
+      exemption.until,
+      frame.frameDur,
+      frame,
+      `${path}.coverageExemptions[${index}].until`,
+    );
+    if (!Number.isFinite(end) || end < start || end > frame.frameDur) {
+      fail(
+        `${path}.coverageExemptions[${index}]`,
+        `resolves to invalid interval ${start.toFixed(3)}s-${end.toFixed(3)}s within frame ${frame.frameDur.toFixed(3)}s`,
+      );
+    }
+    return {
+      id: exemption.id,
+      start,
+      end,
+      reason: exemption.reason,
+      approvedBy: exemption.approvedBy,
+    };
+  });
 }
 
 function validateWorkflowOrder(beats: readonly ResolvedVisualBeat[], path: string): void {
@@ -504,18 +626,22 @@ function validateWorkflowOrder(beats: readonly ResolvedVisualBeat[], path: strin
   }
 }
 
+interface ResolvedVisualFrame {
+  visualSpecVersion: 1 | 2;
+  visualKind?: AuthoredVisualFrameV1["kind"];
+  visualBeats: ResolvedVisualBeat[];
+  visualCoverageExemptions?: ResolvedCoverageExemption[];
+}
+
 export function resolveVisualBeats(
   spec: VisualBeatSpec,
   frames: readonly PlanFrame[],
   defaults: ResolvedVisualSyncPolicy,
   path = "visual_beats.json",
-): Map<string, { visualKind?: AuthoredVisualFrameV1["kind"]; visualBeats: ResolvedVisualBeat[] }> {
+): Map<string, ResolvedVisualFrame> {
   const validatedSpec = validateVisualBeatSpec(spec, path);
-  if (validatedSpec.version !== 1) {
-    fail(`${path}.version`, "expected 1");
-  }
   const bySlug = new Map(frames.map((frame) => [frame.slug, frame]));
-  const resolved = new Map<string, { visualKind?: AuthoredVisualFrameV1["kind"]; visualBeats: ResolvedVisualBeat[] }>();
+  const resolved = new Map<string, ResolvedVisualFrame>();
 
   for (const [slug, authored] of Object.entries(validatedSpec.frames)) {
     const frame = bySlug.get(slug);
@@ -526,13 +652,39 @@ export function resolveVisualBeats(
         `unknown frame slug ${JSON.stringify(slug)}; available frame slugs: ${availableSlugs.join(", ") || "none"}`,
       );
     }
-    const visualBeats = authored.beats.map((beat, index) =>
-      resolveBeat(beat, frame, defaults, `${path}.frames.${slug}.beats[${index}]`),
+
+    if (validatedSpec.version === 1) {
+      const v1Authored = authored as AuthoredVisualFrameV1;
+      const visualBeats = v1Authored.beats.map((beat, index) =>
+        resolveBeat(beat, frame, defaults, `${path}.frames.${slug}.beats[${index}]`),
+      );
+      validateWorkflowOrder(visualBeats, `${path}.frames.${slug}`);
+      resolved.set(slug, {
+        visualSpecVersion: 1,
+        ...(v1Authored.kind === undefined ? {} : { visualKind: v1Authored.kind }),
+        visualBeats,
+      });
+      continue;
+    }
+
+    const v2Authored = authored as AuthoredVisualFrameV2;
+    const visualBeats = resolveV2Beats(
+      v2Authored.beats,
+      frame,
+      defaults,
+      `${path}.frames.${slug}`,
     );
     validateWorkflowOrder(visualBeats, `${path}.frames.${slug}`);
+    const visualCoverageExemptions = resolveCoverageExemptions(
+      v2Authored.coverageExemptions,
+      frame,
+      `${path}.frames.${slug}`,
+    );
     resolved.set(slug, {
-      ...(authored.kind === undefined ? {} : { visualKind: authored.kind }),
+      visualSpecVersion: 2,
+      ...(v2Authored.kind === undefined ? {} : { visualKind: v2Authored.kind }),
       visualBeats,
+      ...(visualCoverageExemptions.length === 0 ? {} : { visualCoverageExemptions }),
     });
   }
 

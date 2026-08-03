@@ -100,13 +100,35 @@ export function plan(meta: AudioMeta, config: VideoConfig, visualBeats?: VisualB
   const totalDuration = cursor;
 
   const policy = resolveVisualSyncPolicy(config);
-  if (visualBeats && policy.mode !== "off") {
+  const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+  if (visualBeats && visualPlanningEnabled) {
+    if (visualBeats.version === 2 && policy.coverageMode === "required") {
+      for (const frame of frames) {
+        if (frame.words.length === 0) continue;
+        const authoredFrame = visualBeats.frames[frame.slug];
+        if (!authoredFrame) {
+          throw new Error(
+            `visual_beats.json.frames is missing narrated frame "${frame.slug}" required by visualSync.coverageMode=required`,
+          );
+        }
+        if (!authoredFrame.beats.some((beat) => beat.role === "focal")) {
+          throw new Error(
+            `visual_beats.json.frames.${frame.slug}.beats must contain at least one focal beat required by visualSync.coverageMode=required`,
+          );
+        }
+      }
+    }
+
     const bySlug = resolveVisualBeats(visualBeats, frames, policy);
     for (const frame of frames) {
       const visual = bySlug.get(frame.slug);
       if (!visual) continue;
+      frame.visualSpecVersion = visual.visualSpecVersion;
       if (visual.visualKind !== undefined) frame.visualKind = visual.visualKind;
       frame.visualBeats = visual.visualBeats;
+      if (visual.visualCoverageExemptions !== undefined) {
+        frame.visualCoverageExemptions = visual.visualCoverageExemptions;
+      }
     }
   }
 

@@ -28,6 +28,20 @@ const POLICY: ResolvedVisualSyncPolicy = {
   minLanding: 1,
 };
 
+const COVERAGE_FRAME: PlanFrame = {
+  ...FRAME,
+  frameDur: 19,
+};
+
+const COVERAGE_POLICY: ResolvedVisualSyncPolicy = {
+  mode: "required",
+  coverageMode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  maxUncoveredGap: 0.5,
+  minLanding: 1,
+};
+
 const V2_SPEC = {
   version: 2,
   frames: {
@@ -284,6 +298,113 @@ test("accepts an empty v2 beat list for policy-aware planning", () => {
   }, "visual_beats.json");
   assert.equal(result.version, 2);
   assert.deepEqual(result.frames["reserve-flow"].beats, []);
+});
+
+test("resolves frame-start, next-state, and frame-end coverage", () => {
+  const resolved = resolveVisualBeats(
+    validateVisualBeatSpec(V2_SPEC, "visual_beats.json"),
+    [COVERAGE_FRAME],
+    COVERAGE_POLICY,
+    "visual_beats.json",
+  );
+  assert.deepEqual(resolved.get("reserve-flow")?.visualBeats, [
+    {
+      version: 2,
+      id: "opening",
+      text: "Reserve before external work",
+      role: "focal",
+      start: 0,
+      end: 11.06,
+      cueText: "<frame-start>",
+      sourceRefs: [],
+      workflowStep: 1,
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+    {
+      version: 2,
+      id: "execute",
+      text: "Execute the operation",
+      role: "focal",
+      start: 11.06,
+      end: 19,
+      cueWordIndex: 2,
+      cueText: "execute",
+      sourceRefs: [],
+      workflowStep: 2,
+      tolerance: { maxLead: 0.25, maxLag: 0.75 },
+    },
+  ]);
+});
+
+test("resolves voice-end and cue-end coverage plus exemptions", () => {
+  const spec = validateVisualBeatSpec({
+    version: 2,
+    frames: {
+      "reserve-flow": {
+        beats: [
+          {
+            id: "opening",
+            text: "Opening",
+            role: "focal",
+            cue: { frameStart: true },
+            coverage: { until: { cue: { wordIndex: 2 } } },
+          },
+          {
+            id: "execute",
+            text: "Execute",
+            role: "focal",
+            cue: { wordIndex: 2 },
+            coverage: { until: "voice-end" },
+          },
+        ],
+        coverageExemptions: [{
+          id: "pause",
+          from: { wordIndex: 1 },
+          until: { cue: { wordIndex: 2 } },
+          reason: "Intentional audio-only pause",
+          approvedBy: "storyboard-review:42",
+        }],
+      },
+    },
+  }, "visual_beats.json");
+  const frame = resolveVisualBeats(
+    spec,
+    [COVERAGE_FRAME],
+    COVERAGE_POLICY,
+    "visual_beats.json",
+  ).get("reserve-flow");
+  assert.deepEqual(frame?.visualBeats.map((beat) => [beat.start, beat.end]), [
+    [0, 11.06],
+    [11.06, 18],
+  ]);
+  assert.deepEqual(frame?.visualCoverageExemptions, [{
+    id: "pause",
+    start: 3.21,
+    end: 11.06,
+    reason: "Intentional audio-only pause",
+    approvedBy: "storyboard-review:42",
+  }]);
+});
+
+test("rejects inverted resolved v2 coverage intervals", () => {
+  const spec = validateVisualBeatSpec({
+    version: 2,
+    frames: {
+      "reserve-flow": {
+        beats: [{
+          id: "execute",
+          text: "Execute",
+          role: "focal",
+          cue: { wordIndex: 2 },
+          coverage: { until: { cue: { frameStart: true } } },
+        }],
+      },
+    },
+  }, "visual_beats.json");
+  assert.throws(
+    () => resolveVisualBeats(spec, [COVERAGE_FRAME], COVERAGE_POLICY, "visual_beats.json"),
+    /resolves to invalid interval/,
+  );
 });
 
 test("rejects malformed visual beat specification structure", () => {
