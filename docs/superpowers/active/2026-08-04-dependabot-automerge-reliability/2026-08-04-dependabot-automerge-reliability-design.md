@@ -61,7 +61,7 @@ The refresh workflow mints a short-lived installation token through official `ac
 - Introducing approvals, a merge queue, PAT, third-party merge action, or admin bypass.
 - Using the approved refresh GitHub App for reviews, approvals, direct merges, non-Dependabot branches, or any repository other than `therealhieu/md2vid`.
 - Refactoring unrelated release, audit, public-snapshot, or CI execution paths.
-- Automatically closing #49.
+- Automatically closing PR `#49`.
 
 ## Current Architecture
 
@@ -696,7 +696,7 @@ After the implementation PR merges to `main`:
 
 If normal CI/observer runs require approval, the new head fails provenance, or the fresh auto-merge actor/method differs from the contract, the branch-refresh design is operationally incompatible. Stop the rollout, disable or leave the scheduled workflow unused, revoke or remove the App credentials if appropriate, and use manual Dependabot recreation/rebase recovery. Do not alter the workflow-approval, one-commit, bot-author, signature, or exact auto-merge-actor requirements.
 
-#49 remains open/manual or is closed separately according to dependency compatibility decisions. Its expected no-op policy run is evidence that ineligibility no longer appears as an automation failure.
+PR `#49` remains open/manual or is closed separately according to dependency compatibility decisions. Its expected no-op policy run is evidence that ineligibility no longer appears as an automation failure.
 
 ## Acceptance Criteria
 

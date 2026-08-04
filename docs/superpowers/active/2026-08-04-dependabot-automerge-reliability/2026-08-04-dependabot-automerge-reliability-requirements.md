@@ -70,7 +70,7 @@ This work extends, rather than replaces, the architecture recorded in:
 |---|---|---|---|
 | #47 `runtime-patches` | Auto-merge enabled; dependency checks green; `pr-title` failed; branch `BEHIND` | CI accepts only the older grouped-title sentence | Accept the current canonical grouped title, refresh safely, rerun checks, then allow native auto-merge |
 | #48 `dev-patches` | Auto-merge enabled; dependency checks green; `pr-title` failed; branch `BEHIND` | Same title defect and stale branch | Process only after #47 completes to avoid repeated stale-branch CI |
-| #49 TypeScript 7 | No auto-merge request; `pr-title` and release smoke failed | Individual title is rejected; TypeScript 7 is incompatible with the current Remotion bundler | Policy workflow must no-op successfully; dependency upgrade remains manual or deferred |
+| PR `#49` TypeScript 7 | No auto-merge request; `pr-title` and release smoke failed | Individual title is rejected; TypeScript 7 is incompatible with the current Remotion bundler | Policy workflow must no-op successfully; dependency upgrade remains manual or deferred |
 | Historical React / React DOM PRs | Separate PRs failed repository version-family checks | Minor/major family updates were not grouped | Create atomic manual-review family groups |
 | Historical scoped package / Action PRs | Valid refs include dots and extra slash segments | Generic policy ref regex permits only `[a-z0-9-]+` | Accept valid Dependabot namespaces, then classify through exact group policies |
 
@@ -84,7 +84,7 @@ This work extends, rather than replaces, the architecture recorded in:
 - Preserve exact repository, base branch, head ref, head SHA, PR author, commit author, commit count, and signature verification.
 - Preserve the one-current-verified-Dependabot-commit auto-merge invariant.
 - Do not make minor or major dependency updates auto-merge eligible.
-- Do not change #49 into an eligible update or weaken the Remotion release smoke test.
+- Do not change PR `#49` into an eligible update or weaken the Remotion release smoke test.
 - Do not update multiple stale Dependabot branches concurrently.
 - Any branch refresh that cannot preserve the existing provenance invariant must stop and require manual recovery; the invariant must not be relaxed to make automation pass.
 
@@ -234,7 +234,7 @@ merge implementation to main
   → only after #47 merges, refresh #48
 ```
 
-#49 remains manual. It must not block processing #47 or #48.
+PR `#49` remains manual. It must not block processing #47 or #48.
 
 ## Security Requirements
 
@@ -314,4 +314,4 @@ merge implementation to main
 | Old auto-merge survives a head rewrite | Disable it before rebase and require a fresh observer/policy authorization for the new head |
 | Multiple stale PRs cause repeated CI churn | Serialize refreshes and stop behind an active refreshed PR |
 | Scheduled workflow receives unexpected GitHub API state | Treat malformed or ambiguous state as a no-mutation failure, with diagnostic summary |
-| #49 consumes Dependabot PR capacity | Keep it manual or close/defer separately; do not make it eligible in this scope |
+| PR `#49` consumes Dependabot PR capacity | Keep it manual or close/defer separately; do not make it eligible in this scope |

@@ -325,7 +325,7 @@ fi
 Accept individual titles only after the identity and namespace checks:
 
 ```bash
-if [[ "$PR_TITLE" =~ ^chore\(deps\):\ bump\ ([^[:space:]]+)\ from\ ([^[:space:]]+)\ to\ ([^[:space:]]+)$ ]]; then
+if [[ "$PR_TITLE" =~ ^chore\(deps\):\ bump\ ([^[:space:]]+)\ from\ ([^[:space:]]+)\ to\ ([^[:space:]]+)$ ]] && [[ ! "$PR_TITLE" =~ [[:punct:]]$ ]]; then
   exit 0
 fi
 

@@ -87,19 +87,34 @@ Retain exact assertions that the three patch-group regexes each occur once.
 Refactor the group assertion into `assertDependabotGroupPolicy(body)` and prove it rejects:
 
 ```ts
+const reactFamilyBlock = [
+  "      react-family:",
+  "        patterns:",
+  "          - \"react\"",
+  "          - \"react-dom\"",
+  "        update-types:",
+  "          - \"minor\"",
+  "          - \"major\"",
+].join("\n");
 const mutations = [
-  body.replace('          - "react-dom"', ""),
   body.replace(
-    '          - "react-dom"',
-    '          - "react-dom"\n          - "left-pad"',
+    reactFamilyBlock,
+    reactFamilyBlock.replace('\n          - "react-dom"', ""),
   ),
   body.replace(
-    '          - "major"',
-    '          - "major"\n          - "patch"',
+    reactFamilyBlock,
+    reactFamilyBlock.replace(
+      '          - "react-dom"',
+      '          - "react-dom"\n          - "left-pad"',
+    ),
   ),
   body.replace(
-    '          - "patch"',
-    '          - "patch"\n          - "minor"',
+    reactFamilyBlock,
+    `${reactFamilyBlock}\n          - "patch"`,
+  ),
+  body.replace(
+    '          - "patch"\n      dev-patches:',
+    '          - "patch"\n          - "minor"\n      dev-patches:',
   ),
   body.replace(
     "      react-family:",
