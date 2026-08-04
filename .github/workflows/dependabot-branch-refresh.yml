@@ -84,21 +84,33 @@ jobs:
             writeFileSync(process.env.SUMMARY_FILE, `${JSON.stringify(state)}\n`);
           }
 
+          function blocked(pr = "none", group = "none") {
+            writeSummary({
+              outcome: "blocked",
+              reason: "queue-head-invalid",
+              pr,
+              group,
+              expected_head: "none",
+            });
+            process.exit(1);
+          }
+
           const pages = JSON.parse(readFileSync(process.env.INVENTORY_FILE, "utf8"));
-          const pullRequests = Array.isArray(pages)
-            ? pages.flatMap((page) => Array.isArray(page) ? page : [])
-            : [];
+          if (!Array.isArray(pages)) blocked();
           const candidates = [];
-          for (const pr of pullRequests) {
-            if (!pr || pr.state !== "open") continue;
-            if (!Number.isInteger(pr.number) || pr.number < 1) continue;
-            const ref = pr.head?.ref;
-            if (typeof ref !== "string") continue;
-            const policy = policies.find((candidate) => candidate.branch.test(ref));
-            if (!policy) continue;
-            const createdAt = Date.parse(String(pr.created_at ?? ""));
-            if (!Number.isFinite(createdAt)) continue;
-            candidates.push({ number: pr.number, createdAt, group: policy.group });
+          for (const page of pages) {
+            if (!Array.isArray(page)) blocked();
+            for (const pr of page) {
+              if (!pr || pr.state !== "open") continue;
+              const ref = pr.head?.ref;
+              if (typeof ref !== "string") continue;
+              const policy = policies.find((candidate) => candidate.branch.test(ref));
+              if (!policy) continue;
+              if (!Number.isInteger(pr.number) || pr.number < 1) blocked("none", policy.group);
+              const createdAt = Date.parse(String(pr.created_at ?? ""));
+              if (!Number.isFinite(createdAt)) blocked(`#${pr.number}`, policy.group);
+              candidates.push({ number: pr.number, createdAt, group: policy.group });
+            }
           }
           candidates.sort((left, right) => left.createdAt - right.createdAt || left.number - right.number);
           const [queueHead] = candidates;
@@ -196,7 +208,7 @@ jobs:
           };
           const patchUpdateType = "version-update:semver-patch";
           const runtimeDependencies = new Set(["@remotion/google-fonts", "@remotion/media", "hyperframes", "react", "react-dom", "remotion"]);
-          const developmentDependencies = new Set(["@types/node", "@types/react", "@types/react-dom", "gsap", "typescript"]);
+          const developmentDependencies = new Set(["@types/node", "@types/react", "@types/react-dom", "gsap", "typescript", "yaml"]);
           const policies = [
             {
               group: "runtime-patches",
@@ -255,44 +267,46 @@ jobs:
           function scalar(value) {
             if (typeof value !== "string") throw new Error("metadata value must be scalar");
             const trimmed = value.trim();
-            if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-              return trimmed.slice(1, -1).replace(/''/g, "'");
+            let parsed;
+            if (trimmed.startsWith('"')) {
+              parsed = JSON.parse(trimmed);
+              if (typeof parsed !== "string") throw new Error("metadata value must be string");
+            } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+              parsed = trimmed.slice(1, -1).replaceAll("''", "'");
+            } else {
+              if (!/^[A-Za-z0-9@/_.:+-]+$/.test(trimmed)) throw new Error("metadata value has invalid characters");
+              parsed = trimmed;
             }
-            return trimmed;
+            if (parsed.trim().length === 0) throw new Error("metadata value must be nonempty");
+            return parsed;
           }
 
           function parseMetadata(message) {
-            const match = String(message).match(/(?:^|\n)updated-dependencies:\n([\s\S]*?)\n\.\.\.(?:\n|$)/);
-            if (!match) throw new Error("missing dependency metadata");
+            const fragment = String(message).match(/(?:^|\n)---\n([\s\S]*?)\n\.\.\.(?:\n|$)/)?.[1];
+            if (!fragment) throw new Error("missing dependency metadata");
+            const lines = fragment.split("\n");
+            if (lines.shift() !== "updated-dependencies:") throw new Error("missing updated-dependencies metadata");
             const dependencies = [];
             let current = null;
             const seenNames = new Set();
-            for (const rawLine of match[1].split("\n")) {
-              if (!rawLine.trim()) continue;
-              const first = rawLine.match(/^- ([^:]+):\s*(.+)$/);
+            for (const rawLine of lines) {
+              const first = rawLine.match(/^- dependency-name: (.+)$/);
               if (first) {
-                if (current) dependencies.push(current);
-                current = { values: {}, keys: new Set() };
-                const key = first[1];
-                if (current.keys.has(key)) throw new Error("duplicate metadata key");
-                current.keys.add(key);
-                current.values[key] = scalar(first[2]);
+                current = { values: { "dependency-name": scalar(first[1]) }, keys: new Set(["dependency-name"]) };
+                dependencies.push(current);
                 continue;
               }
-              const next = rawLine.match(/^  ([^:]+):\s*(.+)$/);
-              if (!next || !current) throw new Error("malformed metadata");
-              const key = next[1];
-              if (current.keys.has(key)) throw new Error("duplicate metadata key");
-              current.keys.add(key);
-              current.values[key] = scalar(next[2]);
+              const next = rawLine.match(/^  (dependency-version|dependency-type|update-type|dependency-group): (.+)$/);
+              if (!next || !current || current.keys.has(next[1])) throw new Error("malformed metadata");
+              current.keys.add(next[1]);
+              current.values[next[1]] = scalar(next[2]);
             }
-            if (current) dependencies.push(current);
             if (dependencies.length === 0) throw new Error("empty dependency metadata");
             return dependencies.map((entry) => {
               const expected = ["dependency-group", "dependency-name", "dependency-type", "dependency-version", "update-type"];
               if (JSON.stringify([...entry.keys].sort()) !== JSON.stringify(expected)) throw new Error("dependency metadata is incomplete");
               const name = entry.values["dependency-name"];
-              if (!name || seenNames.has(name)) throw new Error("dependency metadata contains duplicates");
+              if (seenNames.has(name)) throw new Error("dependency metadata contains duplicates");
               seenNames.add(name);
               return entry.values;
             });
@@ -460,10 +474,23 @@ jobs:
             const result = spawnSync("gh", args, { encoding: "utf8" });
             if (result.status !== 0) return { ok: false };
             try {
-              return { ok: true, value: JSON.parse(result.stdout) };
+              const value = JSON.parse(result.stdout);
+              if (Array.isArray(value.errors) && value.errors.length > 0) return { ok: false };
+              return { ok: true, value };
             } catch {
               return { ok: false };
             }
+          }
+
+          function disableMatches(response) {
+            return response?.data?.disablePullRequestAutoMerge?.pullRequest?.id === pullRequestId;
+          }
+
+          function rebaseMatches(response) {
+            const pullRequest = response?.data?.updatePullRequestBranch?.pullRequest;
+            return pullRequest?.id === pullRequestId
+              && typeof pullRequest?.headRefOid === "string"
+              && /^[a-f0-9]{40}$/.test(pullRequest.headRefOid);
           }
 
           function liveMatches(response) {
@@ -486,7 +513,7 @@ jobs:
             process.exit(1);
           }
           const disabled = callGraphql(disableMutation);
-          if (!disabled.ok) {
+          if (!disabled.ok || !disableMatches(disabled.value)) {
             writeSummary("failed", "auto-merge-disable-failed");
             process.exit(1);
           }
@@ -496,7 +523,7 @@ jobs:
             process.exit(1);
           }
           const rebased = callGraphql(rebaseMutation, { expectedHeadOid });
-          if (!rebased.ok) {
+          if (!rebased.ok || !rebaseMatches(rebased.value)) {
             writeSummary("failed", "rebase-failed");
             process.exit(1);
           }

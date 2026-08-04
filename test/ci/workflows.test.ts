@@ -2208,12 +2208,40 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
   assert.match(policy, /enabledBy\?\.login !== "github-actions"/);
   assert.match(policy, /enabledBy\?\.url !== "https:\/\/github\.com\/apps\/github-actions"/);
   assert.match(policy, /mergeStateStatus !== "BEHIND"/);
+  const setValues = (name: string): string[] => {
+    const match = policy.match(new RegExp(`const ${name} = new Set\\((\\[[^;]+\\])\\);`));
+    assert.ok(match, `missing ${name}`);
+    return JSON.parse(match[1]) as string[];
+  };
+  assert.deepEqual(
+    setValues("runtimeDependencies").sort(),
+    [
+      ...Object.keys(packageJson.dependencies),
+      ...Object.keys(packageJson.optionalDependencies),
+    ].sort(),
+  );
+  assert.deepEqual(
+    setValues("developmentDependencies").sort(),
+    Object.keys(packageJson.devDependencies).sort(),
+  );
 
+  const mutationStep = steps.find((step) => step.name === "Refresh queue-head branch");
+  assert.ok(mutationStep, "missing mutation step");
+  assert.equal(
+    asRecord(mutationStep.env, "mutation env").GH_TOKEN,
+    "${{ steps.app-token.outputs.token }}",
+  );
   const mutation = stepBody(yaml, "Refresh queue-head branch");
   assert.match(mutation, /if:\s*steps\.policy\.outputs\.selected == 'true'/);
   assert.match(mutation, /PULL_REQUEST_ID:\s*\$\{\{ steps\.policy\.outputs\.pull_request_id \}\}/);
   assert.match(mutation, /EXPECTED_HEAD_OID:\s*\$\{\{ steps\.policy\.outputs\.expected_head_oid \}\}/);
   assert.match(mutation, /disablePullRequestAutoMerge[\s\S]*updatePullRequestBranch/);
+  assert.match(mutation, /const disabled = callGraphql\(disableMutation\);/);
+  assert.ok(
+    mutation.indexOf("const disabled = callGraphql(disableMutation)") <
+      mutation.indexOf("const rebased = callGraphql(rebaseMutation"),
+    "disable mutation must execute before rebase mutation",
+  );
   assert.match(mutation, /updateMethod:\s*REBASE/);
   assert.match(mutation, /expectedHeadOid:\s*\$expectedHeadOid/);
   assert.doesNotMatch(mutation, /enablePullRequestAutoMerge|gh\s+pr\s+merge|--auto/);
@@ -2607,6 +2635,16 @@ test("Dependabot branch refresh selects only the oldest exact patch-group queue 
   assert.deepEqual(tied.queueValues, { candidate: "true", pr_number: "47", group: "runtime-patches" });
 });
 
+test("Dependabot branch refresh selects valid dev-patches yaml queue head", () => {
+  const yaml = workflow("dependabot-branch-refresh.yml");
+  const fixture = makeRefreshFixture({ group: "dev-patches", names: ["yaml"] });
+  const result = runRefreshPolicy(yaml, fixture);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.values.selected, "true");
+  assert.equal(result.values.group, "dev-patches");
+  assert.equal(result.summary.reason, "selected-for-rebase");
+});
+
 test("Dependabot branch refresh queue head blocks newer PRs when waiting or invalid", () => {
   const yaml = workflow("dependabot-branch-refresh.yml");
   const newer = makeRefreshFixture({ number: 48, group: "dev-patches", sha: "b".repeat(40), createdAt: "2026-07-29T00:00:00Z" });
@@ -2638,6 +2676,55 @@ test("Dependabot branch refresh queue head blocks newer PRs when waiting or inva
   assert.notEqual(invalidResult.status, 0);
   assertNoRefreshTarget(invalidResult);
   assert.deepEqual(invalidResult.queueValues, { candidate: "true", pr_number: "47", group: "runtime-patches" });
+});
+
+test("Dependabot branch refresh fails closed on malformed exact queue-head inventory", () => {
+  const yaml = workflow("dependabot-branch-refresh.yml");
+  const validNewer = makeRefreshFixture({ number: 48, group: "dev-patches", sha: "b".repeat(40), createdAt: "2026-07-29T00:00:00Z" });
+  const exactMalformed = {
+    number: 47,
+    created_at: "not-a-date",
+    state: "open",
+    head: { ref: "dependabot/npm_and_yarn/runtime-patches-abc123" },
+  };
+  const invalidTimestamp = makeRefreshFixture();
+  invalidTimestamp.inventory = [[exactMalformed, ...(validNewer.inventory[0])]];
+  const timestampResult = runRefreshPolicy(yaml, invalidTimestamp);
+  assert.notEqual(timestampResult.status, 0);
+  assert.deepEqual(timestampResult.queueValues, {});
+  assert.deepEqual(timestampResult.summary, {
+    outcome: "blocked",
+    reason: "queue-head-invalid",
+    pr: "#47",
+    group: "runtime-patches",
+    expected_head: "none",
+  });
+
+  const invalidNumber = makeRefreshFixture();
+  invalidNumber.inventory = [[{ ...exactMalformed, number: "47", created_at: "2026-07-27T00:00:00Z" }, ...(validNewer.inventory[0])]];
+  const numberResult = runRefreshPolicy(yaml, invalidNumber);
+  assert.notEqual(numberResult.status, 0);
+  assert.deepEqual(numberResult.queueValues, {});
+  assert.deepEqual(numberResult.summary, {
+    outcome: "blocked",
+    reason: "queue-head-invalid",
+    pr: "none",
+    group: "runtime-patches",
+    expected_head: "none",
+  });
+
+  const malformedPage = makeRefreshFixture();
+  malformedPage.inventory = [{ not: "a page" } as unknown as WorkflowRecord[]];
+  const pageResult = runRefreshPolicy(yaml, malformedPage);
+  assert.notEqual(pageResult.status, 0);
+  assert.deepEqual(pageResult.queueValues, {});
+  assert.deepEqual(pageResult.summary, {
+    outcome: "blocked",
+    reason: "queue-head-invalid",
+    pr: "none",
+    group: "none",
+    expected_head: "none",
+  });
 });
 
 test("Dependabot branch refresh excludes manual-family, near-prefix, and absent candidates", () => {
@@ -2724,6 +2811,53 @@ test("Dependabot branch refresh validates REST, GraphQL, provenance, metadata, g
   for (const [label, mutate] of mutations) {
     const fixture = makeRefreshFixture();
     mutate(fixture);
+    const result = runRefreshPolicy(yaml, fixture);
+    assert.notEqual(result.status, 0, label);
+    assertNoRefreshTarget(result);
+  }
+});
+
+test("Dependabot branch refresh rejects malformed Dependabot metadata framing and scalars", () => {
+  const yaml = workflow("dependabot-branch-refresh.yml");
+  const validQuoted = makeRefreshFixture();
+  (validQuoted.commits[0].commit as WorkflowRecord).message = [
+    "Bumps the runtime-patches group with 1 update.",
+    "",
+    "---",
+    "updated-dependencies:",
+    "- dependency-name: \"hyperframes\"",
+    "  dependency-version: '0.7.77''canary'",
+    "  dependency-type: direct:production",
+    "  update-type: version-update:semver-patch",
+    "  dependency-group: runtime-patches",
+    "...",
+  ].join("\n");
+  const validResult = runRefreshPolicy(yaml, validQuoted);
+  assert.equal(validResult.status, 0, validResult.stderr);
+  assert.equal(validResult.values.selected, "true");
+
+  const metadataLines = [
+    "updated-dependencies:",
+    "- dependency-name: hyperframes",
+    "  dependency-version: 1.2.3",
+    "  dependency-type: direct:production",
+    "  update-type: version-update:semver-patch",
+    "  dependency-group: runtime-patches",
+    "...",
+  ];
+  const malformed: Array<[string, string[]]> = [
+    ["missing delimiter", ["Bumps dependency.", "", ...metadataLines]],
+    ["empty double quoted version", ["---", ...metadataLines.map((line) => line === "  dependency-version: 1.2.3" ? "  dependency-version: \"\"" : line)]],
+    ["whitespace single quoted type", ["---", ...metadataLines.map((line) => line === "  dependency-type: direct:production" ? "  dependency-type: '   '" : line)]],
+    ["malformed quote", ["---", ...metadataLines.map((line) => line === "  dependency-version: 1.2.3" ? "  dependency-version: \"unterminated" : line)]],
+    ["invalid scalar characters", ["---", ...metadataLines.map((line) => line === "  dependency-version: 1.2.3" ? "  dependency-version: [1.2.3]" : line)]],
+    ["malformed dependency type", ["---", ...metadataLines.map((line) => line === "  dependency-type: direct:production" ? "  dependency-type: direct production" : line)]],
+    ["duplicate dependency-version", ["---", ...metadataLines.toSpliced(3, 0, "  dependency-version: 1.2.4")]],
+  ];
+
+  for (const [label, lines] of malformed) {
+    const fixture = makeRefreshFixture();
+    (fixture.commits[0].commit as WorkflowRecord).message = lines.join("\n");
     const result = runRefreshPolicy(yaml, fixture);
     assert.notEqual(result.status, 0, label);
     assertNoRefreshTarget(result);
@@ -2825,6 +2959,18 @@ test("Dependabot branch refresh mutation fails closed on live identity and mutat
   assert.deepEqual(disableFailed.trace.map((call) => call.operation), ["query", "disablePullRequestAutoMerge"]);
   assert.equal(disableFailed.summary.reason, "auto-merge-disable-failed");
 
+  for (const [label, response] of [
+    ["top-level errors", { errors: [{ message: "denied" }] }],
+    ["null disable", { data: { disablePullRequestAutoMerge: null } }],
+    ["missing disable id", { data: { disablePullRequestAutoMerge: { pullRequest: {} } } }],
+    ["wrong disable id", { data: { disablePullRequestAutoMerge: { pullRequest: { id: "wrong" } } } }],
+  ] as const) {
+    const result = runRefreshMutation(yaml, { selected, responses: [liveRefreshResponse(), response] });
+    assert.notEqual(result.status, 0, label);
+    assert.deepEqual(result.trace.map((call) => call.operation), ["query", "disablePullRequestAutoMerge"], label);
+    assert.equal(result.summary.reason, "auto-merge-disable-failed", label);
+  }
+
   const rebaseFailed = runRefreshMutation(yaml, {
     selected,
     responses: [
@@ -2837,6 +2983,59 @@ test("Dependabot branch refresh mutation fails closed on live identity and mutat
   assert.notEqual(rebaseFailed.status, 0);
   assert.deepEqual(rebaseFailed.trace.map((call) => call.operation), ["query", "disablePullRequestAutoMerge", "query", "updatePullRequestBranch"]);
   assert.equal(rebaseFailed.summary.reason, "rebase-failed");
+
+  for (const [label, response] of [
+    ["top-level rebase errors", { errors: [{ message: "rejected" }] }],
+    ["null rebase", { data: { updatePullRequestBranch: null } }],
+    ["missing rebase id", { data: { updatePullRequestBranch: { pullRequest: { headRefOid: "b".repeat(40) } } } }],
+    ["wrong rebase id", { data: { updatePullRequestBranch: { pullRequest: { id: "wrong", headRefOid: "b".repeat(40) } } } }],
+    ["invalid rebase head", { data: { updatePullRequestBranch: { pullRequest: { id: selected.pullRequestId, headRefOid: "not-a-sha" } } } }],
+  ] as const) {
+    const result = runRefreshMutation(yaml, {
+      selected,
+      responses: [
+        liveRefreshResponse(),
+        { data: { disablePullRequestAutoMerge: { pullRequest: { id: selected.pullRequestId } } } },
+        liveRefreshResponse(),
+        response,
+      ],
+    });
+    assert.notEqual(result.status, 0, label);
+    assert.deepEqual(result.trace.map((call) => call.operation), ["query", "disablePullRequestAutoMerge", "query", "updatePullRequestBranch"], label);
+    assert.equal(result.summary.reason, "rebase-failed", label);
+  }
+});
+
+test("Dependabot branch refresh executable harness rejects queue-skip and second-candidate mutations", () => {
+  const yaml = workflow("dependabot-branch-refresh.yml");
+  const older = makeRefreshFixture({ number: 47, createdAt: "2026-07-28T00:00:00Z" });
+  const newer = makeRefreshFixture({ number: 48, group: "dev-patches", sha: "b".repeat(40), createdAt: "2026-07-29T00:00:00Z" });
+  older.inventory = [[...(older.inventory[0]), ...(newer.inventory[0])]];
+
+  const secondCandidate = yaml.replace(
+    "const [queueHead] = candidates;",
+    "const queueHead = candidates[candidates.length - 1];",
+  );
+  assert.notEqual(secondCandidate, yaml);
+  assert.throws(() => {
+    assert.equal(runRefreshPolicy(secondCandidate, older).queueValues.pr_number, "47");
+  }, /strictly equal|Expected values/);
+
+  const skipBlocked = yaml.replace(
+    "if (!Number.isFinite(createdAt)) blocked(`#${pr.number}`, policy.group);",
+    "if (!Number.isFinite(createdAt)) continue;",
+  );
+  assert.notEqual(skipBlocked, yaml);
+  const invalidTimestamp = makeRefreshFixture();
+  invalidTimestamp.inventory = [[{
+    number: 47,
+    created_at: "not-a-date",
+    state: "open",
+    head: { ref: "dependabot/npm_and_yarn/runtime-patches-abc123" },
+  }, ...(newer.inventory[0])]];
+  assert.throws(() => {
+    assert.notEqual(runRefreshPolicy(skipBlocked, invalidTimestamp).queueValues.pr_number, "48");
+  }, /strictly unequal|notStrictEqual/);
 });
 
 test("Dependabot branch refresh structural policy rejects security mutations", () => {
@@ -2849,16 +3048,29 @@ test("Dependabot branch refresh structural policy rejects security mutations", (
     yaml.replace("fee1f7d63c2ff003460e3d139729b119787bc349", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
     yaml.replace(" # v2.2.2", ""),
     yaml.replace("${{ steps.app-token.outputs.token }}", "${{ github.token }}"),
+    yaml.replace("          GH_TOKEN: ${{ steps.app-token.outputs.token }}\n          SUMMARY_FILE", "          SUMMARY_FILE"),
     yaml.replace("${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}", "${{ secrets.PAT_TOKEN }}"),
     yaml.replace("      - name: Inventory open pull requests", "      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Inventory open pull requests"),
+    yaml.replace("      - name: Inventory open pull requests", "      - uses: actions/setup-node@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Inventory open pull requests"),
     yaml.replace("      - name: Inventory open pull requests", "      - uses: actions/cache@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Inventory open pull requests"),
+    yaml.replace("      - name: Inventory open pull requests", "      - uses: actions/upload-artifact@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Inventory open pull requests"),
+    yaml.replace("      - name: Inventory open pull requests", "      - uses: actions/download-artifact@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v4\n      - name: Inventory open pull requests"),
     yaml.replace("set -euo pipefail", "npm ci\n          set -euo pipefail"),
+    yaml.replace("set -euo pipefail", "node scripts/evil.ts\n          set -euo pipefail"),
     yaml.replace("cancel-in-progress: false", "cancel-in-progress: true"),
     yaml.replace("disablePullRequestAutoMerge", "enablePullRequestAutoMerge"),
+    yaml.replace("const disabled = callGraphql(disableMutation);", "const disabled = callGraphql(rebaseMutation, { expectedHeadOid });"),
     yaml.replace("updateMethod: REBASE", "updateMethod: MERGE"),
     yaml.replace(/expectedHeadOid/g, "staleHeadOid"),
     yaml.replace("login !== \"github-actions\"", "login === \"\""),
+    yaml.replaceAll("\"rebase-failed\"", "\"removed-rebase\""),
     yaml.replace("### Dependabot branch refresh", "### Dependabot branch refresh title"),
+    yaml.replace("`- Reason: ${state.reason}`", "`- Reason: ${state.reason} ${state.body}`"),
+    yaml.replace("process.stdout.write(summary);", "process.stdout.write(`${summary} ${state.html_url}`);"),
+    yaml.replace("process.stdout.write(summary);", "process.stdout.write(`${summary} raw API error`);"),
+    yaml.replace("      - name: Inventory open pull requests", "      - run: gh pr review \"$PR_NUMBER\" --approve\n      - name: Inventory open pull requests"),
+    yaml.replace("      - name: Inventory open pull requests", "      - run: gh api --method POST repos/therealhieu/md2vid/pulls/47/reviews -f event=APPROVE\n      - name: Inventory open pull requests"),
+    yaml.replace("      - name: Inventory open pull requests", "      - run: gh pr merge \"$PR_NUMBER\" --admin\n      - name: Inventory open pull requests"),
   ];
   for (const [index, mutated] of mutations.entries()) {
     assert.notEqual(mutated, yaml, `refresh mutation ${index} must modify workflow`);
