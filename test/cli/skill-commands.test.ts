@@ -8,10 +8,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import { isPublicSnapshotRepositoryCheckout } from "../../scripts/public_snapshot_checkout.ts";
+import { findStaleSkillGuidance } from "../../scripts/skill_references.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -69,16 +71,30 @@ test("frontmatter name is md2vid (invocation /md2vid)", () => {
 });
 
 test("installed skill tree contains only portable guidance", () => {
-  const markdown = readMarkdownTree(SKILL_ROOT);
-  const allText = markdown.map((file) => file.body).join("\n");
-
-  assert.doesNotMatch(allText, /(?:\.\.\/)*scripts\/\S+\.(?:ts|mjs)/);
-  assert.doesNotMatch(allText, /\.\.\/\.\.\/scripts/);
-  assert.doesNotMatch(allText, /@\.\.\/\.\.\/docs/);
-  assert.doesNotMatch(allText, /docs\/standards\//);
-  assert.doesNotMatch(allText, /outputs\/hash-table-example\//);
-  assert.doesNotMatch(allText, /frameworks\/[^/\s]+\/templates(?:\/\S+)?/);
+  assert.deepEqual(findStaleSkillGuidance(SKILL_ROOT), []);
   assert.match(readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8"), /compatibility:.*Node\.js >=22\.18/s);
+});
+
+test("skill portability permits only the exact non-executing media-use command", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-skill-portability-"));
+  const portable = 'node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs"';
+  try {
+    const path = join(root, "SKILL.md");
+    writeFileSync(path, `${portable}\n`);
+    assert.deepEqual(findStaleSkillGuidance(root), []);
+
+    for (const nearMatch of [
+      `${portable} --request audio_request.json`,
+      'node "$OTHER_ROOT/audio/scripts/audio.mjs"',
+      'node "$MEDIA_USE_ROOT/audio/scripts/other.mjs"',
+      'node "$MEDIA_USE_ROOT/audio/scripts/audio.ts"',
+    ]) {
+      writeFileSync(path, `${nearMatch}\n`);
+      assert.deepEqual(findStaleSkillGuidance(root), ["SKILL.md"], nearMatch);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("install-skill documents the configured Claude destination", () => {
@@ -134,10 +150,13 @@ test("single-framework branch is a complete flat-project workflow", () => {
     "<slug>/audio_meta.json",
     "<slug>/assets/voice/",
     "<slug>/video.config.json",
-    "<slug>/compositions/frames/",
-    "<slug>/src/scenes/",
     "cd <slug>",
     "npm run transcribe",
+    "<slug>/visual_beats.json",
+    "npm run plan",
+    "Author framework visuals",
+    "<slug>/compositions/frames/",
+    "<slug>/src/scenes/",
     "npm run build",
     "npm run check",
     "npm run dev",
@@ -147,12 +166,35 @@ test("single-framework branch is a complete flat-project workflow", () => {
   ]);
 });
 
+test("cue-bound timing precedes framework authoring in both skill workflows", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  assertOrder(flat, ["npm run transcribe", "visual_beats.json", "npm run plan", "Author framework visuals", "npm run build", "npm run check"]);
+
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+  assertOrder(canonical, ["npm run transcribe", "visual_beats.json", "npm run plan", "Author framework visuals", "npm run build", "npm run check"]);
+
+  for (const binding of ["data-md2vid-beat", "data-md2vid-custom-bindings"]) assert.match(body, new RegExp(binding));
+  assert.match(body, /machine checks enforce declared focal interval coverage, reveal timing, order, landing, duration, and manifest freshness/i);
+  assert.match(body, /manual review.*source interpretation, treatment quality, hierarchy, and polish/is);
+  assert.match(body, /--profile final\|draft\|gif/);
+  assert.match(body, /legacy.*warn.*required/i);
+});
+
 test("multi-framework branch is a complete canonical-project workflow", () => {
   const body = readFileSync(SKILL, "utf8");
   const canonical = sectionBetween(
     body,
     "### Branch B — Multiple frameworks (canonical)",
-    "## What build does",
+    "## What plan and build do",
   );
   assertOrder(canonical, [
     "md2vid new <slug>-hyperframes",
@@ -163,10 +205,13 @@ test("multi-framework branch is a complete canonical-project workflow", () => {
     "outputs/<slug>/shared/audio_meta.json",
     "outputs/<slug>/shared/assets/voice/",
     "outputs/<slug>/shared/video.config.json",
-    "outputs/<slug>/hyperframes/compositions/frames/",
-    "outputs/<slug>/remotion/src/scenes/",
     "cd outputs/<slug>/hyperframes",
     "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
+    "Author framework visuals",
+    "outputs/<slug>/hyperframes/compositions/frames/",
+    "outputs/<slug>/remotion/src/scenes/",
     "npm run build",
     "npm run check",
     "npm run dev",
@@ -176,6 +221,54 @@ test("multi-framework branch is a complete canonical-project workflow", () => {
     "npm run still",
     "npm run studio",
     "npm run render",
+  ]);
+});
+
+test("canonical workflow uses the marked media contract with its shared narration root", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+  assert.doesNotMatch(canonical, /\/hyperframes-media/);
+  assertOrder(canonical, [
+    "Set `NARRATION_ROOT=outputs/<slug>/shared`",
+    "marked narration media contract",
+    "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
+  ]);
+});
+
+test("both workflows require unconditional transcription after synthesis", () => {
+  const body = readFileSync(SKILL, "utf8");
+  const flat = sectionBetween(
+    body,
+    "### Branch A — Single framework (flat, default)",
+    "### Branch B — Multiple frameworks (canonical)",
+  );
+  const canonical = sectionBetween(
+    body,
+    "### Branch B — Multiple frameworks (canonical)",
+    "## What plan and build do",
+  );
+
+  for (const branch of [flat, canonical]) {
+    assert.doesNotMatch(branch, /npm run transcribe\s+# only when/);
+    assert.doesNotMatch(branch, /only when (?:shared )?audio_meta words\[\] timings are empty/);
+  }
+  assertOrder(flat, [
+    "narration media contract above",
+    "npm run transcribe",
+    "<slug>/visual_beats.json",
+    "npm run plan",
+  ]);
+  assertOrder(canonical, [
+    "marked narration media contract",
+    "npm run transcribe",
+    "outputs/<slug>/shared/visual_beats.json",
+    "npm run plan",
   ]);
 });
 

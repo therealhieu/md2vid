@@ -1,0 +1,19 @@
+{
+  "timing": {
+    "tail": 0.5,
+    "xfade": 0.5,
+    "gap": 0
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "slugs": {
+    "reserve-flow": "reserve-flow"
+  },
+  "visualSync": {
+    "mode": "required",
+    "coverageMode": "required",
+    "maxUncoveredGap": 0.5
+  }
+}

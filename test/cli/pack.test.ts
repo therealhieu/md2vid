@@ -16,8 +16,35 @@ import { join, relative, resolve } from "node:path";
 import {
   FORBIDDEN_PACKED_FILES,
   FORBIDDEN_PACKED_PREFIXES,
+  NARRATION_PACKED_FILES,
   REQUIRED_PACKED_FILES,
 } from "../release/manifest.ts";
+
+function packedFiles(root: string, relativeRoot = ""): Set<string> {
+  const paths = new Set<string>();
+  const directory = join(root, relativeRoot);
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativePath = join(relativeRoot, entry.name);
+    if (entry.isDirectory()) {
+      for (const nested of packedFiles(root, relativePath)) paths.add(nested);
+    } else {
+      paths.add(relativePath);
+    }
+  }
+  return paths;
+}
+
+const PRODUCTION_AUDIO_RUNNERS = [
+  "dist/scripts/audio.js",
+  "dist/scripts/audio.mjs",
+  "dist/scripts/audio.cjs",
+] as const;
+
+function assertNoProductionAudioRunners(paths: ReadonlySet<string>): void {
+  for (const path of PRODUCTION_AUDIO_RUNNERS) {
+    assert.equal(paths.has(path), false, `forbidden packed production audio runner ${path}`);
+  }
+}
 
 test("release package manifest covers executable, assets, postinstall, and all references", () => {
   assert.ok(REQUIRED_PACKED_FILES.includes("dist/bin/md2vid.js"));
@@ -28,10 +55,21 @@ test("release package manifest covers executable, assets, postinstall, and all r
     "dist/scripts/project_layout.js",
     "dist/scripts/managed_file_transaction.js",
     "dist/scripts/upgrade.js",
+    "dist/scripts/plan.js",
+    "dist/scripts/plan_project.js",
+    "dist/engine/visual_beats.js",
+    "dist/engine/visual_evidence.js",
+    "dist/engine/visual_sync.js",
+    "dist/frameworks/hyperframes/visual_timing.js",
+    "dist/frameworks/remotion/visual_bindings.js",
+    "dist/frameworks/remotion/templates/src/VisualBeats.tsx",
     "scripts/dependency_versions.ts",
     "scripts/package_root.ts",
   ]) {
     assert.ok(REQUIRED_PACKED_FILES.some((path) => path === helper), `missing packaged helper ${helper}`);
+  }
+  for (const path of NARRATION_PACKED_FILES) {
+    assert.ok(REQUIRED_PACKED_FILES.includes(path), `missing packaged narration artifact ${path}`);
   }
   assert.ok(REQUIRED_PACKED_FILES.includes("README.md"));
   assert.ok(REQUIRED_PACKED_FILES.includes("LICENSE"));
@@ -49,6 +87,13 @@ test("release package manifest covers executable, assets, postinstall, and all r
     `frameworks/hyperframes/templates/${removedGsapVendorFile}`,
     `dist/frameworks/hyperframes/templates/${removedGsapVendorFile}`,
   ]);
+});
+
+test("production audio runner variants are rejected from packed output", () => {
+  for (const path of PRODUCTION_AUDIO_RUNNERS) {
+    assert.throws(() => assertNoProductionAudioRunners(new Set([path])), /forbidden packed production audio runner/);
+  }
+  assert.doesNotThrow(() => assertNoProductionAudioRunners(new Set(["skill/md2vid/SKILL.md"])));
 });
 
 test("packed source scaffold adapters import and execute from an unrelated cwd", () => {
@@ -76,6 +121,24 @@ test("packed source scaffold adapters import and execute from an unrelated cwd",
     assert.equal(tarballs.length, 1, "npm pack must produce one tarball");
     execFileSync("tar", ["-xzf", join(temporary, tarballs[0]), "-C", temporary]);
     const packageRoot = join(temporary, "package");
+    const paths = packedFiles(packageRoot);
+    for (const required of NARRATION_PACKED_FILES) {
+      assert.equal(paths.has(required), true, `missing packed narration artifact ${required}`);
+    }
+    assertNoProductionAudioRunners(paths);
+    assert.match(readFileSync(join(packageRoot, "skill", "md2vid", "SKILL.md"), "utf8"), /\/media-use/);
+    assert.match(
+      readFileSync(join(packageRoot, "dist", "docs", "standards", "frameworks", "hyperframes.md"), "utf8"),
+      /md2vid-continuous-visual-coverage: 2/,
+    );
+    assert.match(
+      readFileSync(join(packageRoot, "skill", "md2vid", "references", "standards", "frameworks", "remotion.md"), "utf8"),
+      /BeatState/,
+    );
+    assert.match(
+      readFileSync(join(packageRoot, "dist", "frameworks", "remotion", "templates", "src", "VisualBeats.tsx"), "utf8"),
+      /export const BeatState/,
+    );
 
     assert.equal(
       existsSync(join(packageRoot, "frameworks", "hyperframes", "templates")),

@@ -1,5 +1,7 @@
 # Remotion
 
+<!-- md2vid-continuous-visual-coverage: 2 -->
+
 The Remotion adapter renders a neutral `build_plan.json` into a React/Remotion
 composition and out to MP4 via the SSR API. It shares the adapter lifecycle
 `{ name, scaffoldSpec, writeScaffoldRuntime, ensureRuntime, emit, verify }` with
@@ -8,22 +10,63 @@ HyperFrames, so the build/verify dispatch is unchanged: select it with
 
 ## Generated-project pipeline
 
+Both framework adapters consume the same neutral narration artifacts: `audio_request.json`, source WAVs, `audio_meta.json`, and (for versioned requests) `narration_evidence.json`. The neutral narration contract owns provider and voice policy; this adapter does not select or synthesize a voice. Matching evidence freshness is required before plan, build, regroup, or verify.
+
 ```text
 md2vid new <slug> --framework remotion
 cd <slug>
 npm install
-# Review audio_request.json.example; prepare audio_meta.json + assets/voice/*.wav.
-# Author and explicitly register any custom src/scenes/*.tsx.
+# source coverage → storyboard semantic coverage map → script
+# Review audio_request.json.example and author the spoken narration script.
+md2vid narration-check .        # before the neutral narration workflow synthesizes WAVs
+npm run transcribe               # unconditionally after synthesis
+# Author visual_beats.json v2 with opening/body/final focal states for every narrated frame.
+npm run plan                     # resolve anchors, then inspect build/visual_timing.json intervals
+# Bind framework visibility in visual_bindings.json and authored src/scenes/*.tsx.
 npm run build
-npm run check
+npm run check                    # continuous verify before preview/manual semantic review or render
 npm run still      # fast render smoke
-npm run studio     # interactive review
+npm run studio     # listening and visual review
 npm run render     # full MP4 only after review → out/video.mp4
 ```
 
-The scaffold creates the complete common md2vid contract and Remotion runtime before `npm install`. `npm run build` runs `md2vid build .` and caption regrouping: `engine.plan()` writes `shared/build/build_plan.json` in canonical layout, while `remotion.emit()` writes the output-local `build_plan.json` and stages shared WAV files under `public/assets/voice/`. `npm run check` runs `md2vid verify .` before strict TypeScript checking and is required before still, studio, or render. `md2vid verify .` remains available directly.
+The scaffold creates the complete common md2vid contract and Remotion runtime before `npm install`. Its generated scripts include `"plan": "md2vid plan ."`; run that command after authoring `visual_beats.json` and before scene authoring. `npm run build` runs `md2vid build .` and caption regrouping: `engine.plan()` writes `shared/build/build_plan.json` in canonical layout, while `remotion.emit()` writes the output-local `build_plan.json` and stages shared WAV files under `public/assets/voice/`. `npm run check` runs `md2vid verify .` before strict TypeScript checking and is required before still, studio, or render. `md2vid verify .` remains available directly.
 
 Run all generated-project commands from the Remotion output directory. The installed workflow does not require repository source paths.
+
+## Cue-bound visual timing
+
+Resolve neutral timing before scene authoring:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → prepare/transcribe audio → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility in registry and scenes
+  → npm run build → continuous npm run check
+  → preview/manual semantic review → render
+```
+
+Each output authors a static `visual_bindings.json` registry. Registry v2 records pure data for static and cue-bound targets, including `coverage: "planned"`. The adapter validates this pure data, produces normalized binding evidence, and never parses or executes arbitrary TSX to infer timing. Registry targets are consumed by the scene template rather than copied into a second cue array.
+
+Use the generated timing through the provider and components:
+
+```tsx
+<VisualBeatProvider frame={frame}>
+  <BeatState target="OpeningContext">
+    <OpeningContext />
+  </BeatState>
+  <BeatReveal target="WorkflowStep:execute">
+    <WorkflowStep>Execute operation</WorkflowStep>
+  </BeatReveal>
+</VisualBeatProvider>
+```
+
+`BeatState` keeps static frame-start focal content visible for the resolved interval. `BeatReveal` resolves its static target to a beat, converts the resolved seconds to frames using the active composition FPS, and owns interval-aware reveal progress. Both components reuse shared boundary quantization so a boundary's previous end and next start are identical after frame rounding. Custom interpolation uses an owned helper with the same registered target; it cannot accept a copied numeric semantic offset. The authored scene semantic duration must match `voiceDur`; its outer `<Sequence>` duration must match `frameDur`.
+
+The v2 manifest records the canonical plan digest plus authored input digest entries for `visual_bindings.json` and sorted relevant `src/**/*.{ts,tsx,js,jsx}` sources. Verification rejects changed, added, removed, or missing authored inputs before trusting semantic intervals.
+
+Remotion compositions run at 30 FPS by default. Keep duration calculations and reveal progress frame-derived and seek-safe; do not use CSS transitions, wall-clock state, or playback callbacks.
 
 ## Default and opt-in scenes
 

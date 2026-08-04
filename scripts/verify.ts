@@ -17,10 +17,20 @@ import {
   validateAudioMetaVoiceSnapshots,
 } from "../engine/voice_assets.ts";
 import { loadConfigFiles, type LoadedVideoConfig } from "../engine/config.ts";
-import type { CaptionGroup } from "../engine/types.ts";
+import { resolveVisualSyncPolicy } from "../engine/plan.ts";
+import type { BuildPlan, CaptionGroup, VisualBindingManifest } from "../engine/types.ts";
+import {
+  digestAuthoredInputs,
+  hashCoveragePlan,
+  validateVisualBindingManifest,
+} from "../engine/visual_evidence.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
+import {
+  createProjectPlan,
+  validateProjectNarrationFreshness,
+} from "./plan_project.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
 
 // Line-length target from docs/standards/video-generation.md (Captions). Advisory band
@@ -64,7 +74,25 @@ function readCaptionGroups(path: string): CaptionGroup[] {
   }
 }
 
-export function run(argv: string[]): number {
+export function readBindingManifest(path: string): VisualBindingManifest | undefined {
+  if (!isFile(path)) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error: unknown) {
+    throw new Error(`invalid visual binding manifest at ${path}: ${(error as Error).message}`);
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`invalid visual binding manifest at ${path}: expected an object`);
+  }
+  return validateVisualBindingManifest(value, path);
+}
+
+export interface VerifyDependencies {
+  getAdapter?: typeof getAdapter;
+}
+
+export function run(argv: string[], dependencies: VerifyDependencies = {}): number {
   const parsed = parseVerifyArgs(argv);
   if (parsed.kind === "help") {
     console.log(USAGE);
@@ -95,13 +123,50 @@ export function run(argv: string[]): number {
       meta.voices.map((voice) => voice.path),
     );
     validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
+    validateProjectNarrationFreshness(layout.sharedDir, meta, voiceSnapshots);
 
     const loaded = loadConfigFiles(layout.sharedDir, layout.outputDir);
-    const adapter = getAdapter(configuredFramework(loaded, layout.flat, layout.outputDir));
+    const policy = resolveVisualSyncPolicy(loaded.neutral);
+    const visualBeatsPath = join(layout.sharedDir, "visual_beats.json");
+    const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+    const requiresCurrentVisualPlanning = visualPlanningEnabled
+      && (
+        policy.mode === "required"
+        || policy.coverageMode === "required"
+        || isFile(visualBeatsPath)
+      );
+    const planning = requiresCurrentVisualPlanning ? createProjectPlan(layout.outputDir) : undefined;
+    const adapter = (dependencies.getAdapter ?? getAdapter)(
+      configuredFramework(loaded, layout.flat, layout.outputDir),
+    );
     const problems: string[] = [];
-    const warnings: string[] = [];
+    const warnings: string[] = planning?.warnings ?? (
+      policy.mode === "warn" || policy.coverageMode === "warn"
+        ? [`${visualBeatsPath}: no visual beat specification; semantic checks are skipped`]
+        : []
+    );
+    const verificationPlan: BuildPlan = planning?.plan ?? {
+      version: 1,
+      canvas: { width: 1, height: 1 },
+      timing: { tail: 0, xfade: 0, gap: 0 },
+      totalDuration: 0,
+      frames: [],
+      captionGroups: [],
+    };
     const problem = (msg: string) => problems.push(msg);
     const warn = (msg: string) => warnings.push(msg);
+
+    const expectedMarker = "md2vid-continuous-visual-coverage: 2";
+    const relativeStandard = `.md2vid/standards/${adapter.name}.md`;
+    const standardPath = join(layout.outputDir, relativeStandard);
+    const standardText = existsSync(standardPath)
+      ? readFileSync(standardPath, "utf8")
+      : "";
+    const standardMessage = `${relativeStandard} is missing ${expectedMarker}. Refresh it from docs/standards/frameworks/${adapter.name}.md without changing authored project files. Destination: ${relativeStandard}.`;
+    if (!standardText.includes(expectedMarker)) {
+      if (policy.coverageMode === "required") problem(standardMessage);
+      else warn(standardMessage);
+    }
 
     // Neutral caption invariants — delegate to the engine, framework-agnostic.
     const src = join(layout.sharedDir, "caption_groups.json");
@@ -118,8 +183,45 @@ export function run(argv: string[]): number {
       }
     }
 
+    const bindings = adapter.bindingManifestPath
+      ? readBindingManifest(join(layout.outputDir, adapter.bindingManifestPath))
+      : undefined;
+    const hasPlannedVisualBeats = verificationPlan.frames.some((frame) => frame.visualBeats?.length);
+    const verificationConfig = planning?.adapterConfig ?? loaded.config;
+    const freshness = bindings?.version === 2 && visualPlanningEnabled
+      ? (() => {
+          if (!planning) {
+            throw new Error("current visual planning is required for semantic verification");
+          }
+          if (!adapter.collectVisualBindingInputs) {
+            throw new Error(`framework adapter "${adapter.name}" must collect authored visual binding inputs for manifest v2 evidence`);
+          }
+          return {
+            planSha256: hashCoveragePlan(planning.plan),
+            authoredInputs: digestAuthoredInputs(adapter.collectVisualBindingInputs({
+              plan: planning.plan,
+              videoDir: planning.layout.outputDir,
+              sharedDir: planning.layout.sharedDir,
+              config: planning.adapterConfig,
+            })),
+          };
+        })()
+      : undefined;
+
     // Framework-specific layout checks — dispatch off validated config.framework.
-    for (const finding of adapter.verify(layout.outputDir, layout.sharedDir, { voiceSnapshots })) {
+    for (const finding of adapter.verify({
+      plan: verificationPlan,
+      videoDir: layout.outputDir,
+      sharedDir: layout.sharedDir,
+      config: verificationConfig,
+      policy,
+      fps: hasPlannedVisualBeats
+        ? adapter.resolveVerificationFps(verificationConfig, layout.outputDir)
+        : 30,
+      bindings,
+      freshness,
+      voiceSnapshots: planning?.voiceSnapshots ?? voiceSnapshots,
+    })) {
       if (finding.level === "error") problem(finding.msg);
       else warn(finding.msg);
     }

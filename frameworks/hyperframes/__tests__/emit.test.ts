@@ -24,16 +24,18 @@ import {
   sanitizeCompositionTemplate,
 } from "../emit.ts";
 import { extractTemplateById, replaceTemplateById } from "../html.ts";
+import { resolveVerificationFps } from "../verify.ts";
 import { makePcmWav } from "../../../test/helpers/wav.ts";
 import { contrastRatio, parseCssColor } from "../visual_contract.ts";
 import { DEFAULT_GSAP_SRC } from "../../../scripts/dependency_versions.ts";
+import type { BuildPlan } from "../../../engine/types.ts";
 
 const VOICE01 = makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 });
 const VOICE02 = Buffer.from(VOICE01);
 VOICE02[VOICE02.length - 1] = 1;
 
 // A minimal 2-frame plan (pre-regroup: one group per frame).
-function makePlan() {
+function makePlan(): BuildPlan {
   return {
     version: 1 as const,
     canvas: { width: 1920, height: 1080 },
@@ -50,6 +52,64 @@ function makePlan() {
   };
 }
 
+function visualPlan() {
+  const plan = makePlan();
+  plan.frames[0].visualBeats = [{
+    version: 1,
+    id: "execute",
+    text: "Execute",
+    start: 1,
+    cueWordIndex: 0,
+    cueText: "Execute",
+    sourceRefs: [],
+    tolerance: { maxLead: 0.25, maxLag: 0.75 },
+  }];
+  return plan;
+}
+
+function coveragePlan() {
+  const plan = makePlan();
+  plan.totalDuration = 23.08;
+  plan.frames = [{
+    ...plan.frames[0],
+    voiceDur: 22.08,
+    frameDur: 23.08,
+    words: [
+      { text: "A", start: 0.07, end: 0.12 },
+      { text: "solution", start: 18.26, end: 18.8 },
+    ],
+    visualSpecVersion: 2,
+    visualKind: "focal",
+    visualBeats: [
+      {
+        version: 2,
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        start: 0,
+        end: 18.26,
+        cueText: "<frame-start>",
+        sourceRefs: [],
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+      {
+        version: 2,
+        id: "solution",
+        text: "Solution semantic state",
+        role: "focal",
+        start: 18.26,
+        end: 23.08,
+        cueWordIndex: 1,
+        cueText: "solution",
+        sourceRefs: [],
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      },
+    ],
+  }];
+  plan.captionGroups = [plan.captionGroups[0]];
+  return plan;
+}
+
 function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
   return `<!doctype html>
 <html><body>
@@ -61,6 +121,19 @@ function authoredFrame(slug: string, gsapSrc = DEFAULT_GSAP_SRC) {
   </template>
 </body></html>
 `;
+}
+
+function coverageOnlyConfig() {
+  return {
+    visualSync: {
+      mode: "off" as const,
+      coverageMode: "required" as const,
+      maxLead: 0.25,
+      maxLag: 0.75,
+      maxUncoveredGap: 0.5,
+      minLanding: 0.5,
+    },
+  };
 }
 
 function setup() {
@@ -81,6 +154,189 @@ function transactionResidue(root: string): string[] {
   if (!existsSync(assets)) return [];
   return readdirSync(assets).filter((name) => name.includes("md2vid"));
 }
+
+test("preflight finalizes declarative timing after a transported authored controller", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+
+    const template = preflight(plan, shared, output, {}).embeddedFrameTemplates![0];
+    const helper = template.indexOf("window.__md2vidTiming");
+    const controller = template.indexOf('window.__timelines["01-a"] = gsap.timeline');
+    const finalizer = template.lastIndexOf('const timeline = window.__timelines["01-a"]');
+
+    assert.ok(helper >= 0 && helper < controller, "generated helper must initialize before authored controller");
+    assert.ok(controller < finalizer, "generated declarative timing must finalize after authored controller");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames emits manifest v2 with plan and raw frame digests", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = coveragePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="22.08"><article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article><article id="solution" data-md2vid-beat="solution" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">Solution</article></div>`,
+      ),
+    );
+
+    const manifest = preflight(plan, shared, output, {}).bindingManifest;
+
+    assert.equal(manifest?.version, 2);
+    assert.match(manifest?.version === 2 ? manifest.planSha256 : "", /^[a-f0-9]{64}$/);
+    assert.deepEqual(manifest?.version === 2 ? manifest.authoredInputs.map(({ path }) => path) : [], [
+      "compositions/frames/01-a.html",
+    ]);
+    assert.match(manifest?.version === 2 ? manifest.authoredInputs[0]?.sha256 ?? "" : "", /^[a-f0-9]{64}$/);
+    assert.equal(manifest?.version === 2 ? manifest.bindings[0]?.coverageEnd : undefined, 18.26);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames coverage-only preflight remains strict for v2 declarations", () => {
+  const valid = setup();
+  try {
+    const plan = coveragePlan();
+    writeFileSync(join(valid.shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    writeFileSync(
+      join(valid.output, "compositions", "frames", "01-a.html"),
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="22.08"><article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article><article id="solution" data-md2vid-beat="solution" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">Solution</article></div>`,
+      ),
+    );
+    const manifest = preflight(plan, valid.shared, valid.output, coverageOnlyConfig()).bindingManifest;
+    assert.equal(manifest?.version, 2);
+    assert.equal(manifest?.version === 2 ? manifest.bindings.length : 0, 2);
+  } finally {
+    rmSync(valid.tmp, { recursive: true, force: true });
+  }
+
+  for (const [name, replacement, expected] of [
+    ["missing declarative planned marker", '<article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none">Opening</article>', /data-md2vid-coverage.*planned/],
+    ["invalid declarative planned marker", '<article id="opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="typo">Opening</article>', /data-md2vid-coverage must be "planned"/],
+    ["invalid custom planned marker", '<article id="opening">Opening</article><script type="application/json" data-md2vid-custom-bindings>{"bindings":[{"beat":"opening","target":"#opening","method":"from","duration":0.2,"coverage":"typo"}]}</script>', /custom binding coverage must be "planned"/],
+  ] as const) {
+    const { tmp, shared, output } = setup();
+    try {
+      const plan = coveragePlan();
+      writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+      writeFileSync(
+        join(output, "compositions", "frames", "01-a.html"),
+        authoredFrame("01-a").replace(`data-duration="2"></div>`, `data-duration="22.08">${replacement}</div>`),
+      );
+      assert.throws(
+        () => preflight(plan, shared, output, coverageOnlyConfig()),
+        expected,
+        name,
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+});
+
+test("full emit replaces the generated visual binding manifest", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    const framePath = join(output, "compositions", "frames", "01-a.html");
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute-v1" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+
+    emit(plan, shared, output, {});
+    let manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.framework, "hyperframes");
+    assert.equal(manifest.bindings[0].target, "#execute-v1");
+
+    writeFileSync(
+      framePath,
+      authoredFrame("01-a").replace(
+        `data-duration="2"></div>`,
+        `data-duration="2"><div id="execute-v2" data-md2vid-beat="execute"></div></div>`,
+      ),
+    );
+    emit(plan, shared, output, {});
+    manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.bindings[0].target, "#execute-v2");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("full emit records frame duration evidence without a visual target", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = visualPlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    writeFileSync(
+      join(output, "compositions", "frames", "01-a.html"),
+      authoredFrame("01-a").replace('data-duration="2"', 'data-duration="1.9"'),
+    );
+
+    emit(plan, shared, output, {});
+    const manifest = JSON.parse(readFileSync(join(output, "build", "visual_bindings.json"), "utf8"));
+    assert.deepEqual(manifest.bindings, []);
+    assert.deepEqual(manifest.frames, [{ frameSlug: "01-a", authoredDuration: 1.9 }]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("captions-only emit retains an existing visual binding manifest", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, {});
+    const manifestPath = join(output, "build", "visual_bindings.json");
+    writeFileSync(manifestPath, "EXISTING MANIFEST\n");
+
+    emit(plan, shared, output, {}, { captionsOnly: true });
+
+    assert.equal(readFileSync(manifestPath, "utf8"), "EXISTING MANIFEST\n");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("full emit writes the effective FPS on the main composition root", () => {
+  const index = buildIndexHtml(makePlan(), { render: { fps: 24 } });
+  assert.match(index, /data-composition-id="main"[\s\S]*?data-fps="24"/);
+});
+
+test("full emit and verification resolve the same main-root FPS", () => {
+  const { tmp, shared, output } = setup();
+  try {
+    const plan = makePlan();
+    writeFileSync(join(shared, "caption_groups.json"), JSON.stringify({ groups: plan.captionGroups }));
+    emit(plan, shared, output, { render: { fps: 60 } });
+    assert.equal(resolveVerificationFps({ render: { fps: 24 } }, output), 60);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
 
 test("canonical emit stages real voice files under the HyperFrames root", () => {
   const { tmp, shared, output } = setup();

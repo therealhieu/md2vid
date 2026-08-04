@@ -12,12 +12,33 @@
 
 import { validateAudioMeta } from "./audio_meta.ts";
 import { validateSlugMappings } from "./config.ts";
-import type { AudioMeta, BuildPlan, PlanFrame, CaptionGroup, VideoConfig, Word } from "./types.ts";
+import { resolveVisualBeats } from "./visual_beats.ts";
+import type {
+  AudioMeta,
+  BuildPlan,
+  PlanFrame,
+  CaptionGroup,
+  ResolvedVisualSyncPolicy,
+  VideoConfig,
+  VisualBeatSpec,
+  Word,
+} from "./types.ts";
+
+export function resolveVisualSyncPolicy(config: VideoConfig): ResolvedVisualSyncPolicy {
+  return {
+    mode: config.visualSync?.mode ?? "warn",
+    coverageMode: config.visualSync?.coverageMode ?? "warn",
+    maxLead: config.visualSync?.maxLead ?? 0.25,
+    maxLag: config.visualSync?.maxLag ?? 0.75,
+    maxUncoveredGap: config.visualSync?.maxUncoveredGap ?? 0.5,
+    minLanding: config.visualSync?.minLanding ?? 1,
+  };
+}
 
 // Compute the neutral build plan from audio meta (voices + word timings) and the
 // resolved config (timing/canvas/slugs). Throws on a missing slug or wordless
 // voices — the caller maps the throw to a CLI failure.
-export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
+export function plan(meta: AudioMeta, config: VideoConfig, visualBeats?: VisualBeatSpec): BuildPlan {
   const voices = validateAudioMeta(meta, "audio_meta.json").voices;
 
   // Voice identity is stable metadata; sequence order comes from array position.
@@ -77,6 +98,52 @@ export function plan(meta: AudioMeta, config: VideoConfig): BuildPlan {
     };
   });
   const totalDuration = cursor;
+
+  const policy = resolveVisualSyncPolicy(config);
+  const visualPlanningEnabled = policy.mode !== "off" || policy.coverageMode !== "off";
+  if (visualBeats && visualPlanningEnabled) {
+    if (visualBeats.version === 2) {
+      for (const frame of frames) {
+        frame.visualSpecVersion = 2;
+        frame.visualBeats = [];
+      }
+    }
+    if (visualBeats.version === 1 && policy.coverageMode === "required") {
+      throw new Error(
+        "visualSync.coverageMode=required requires visual_beats.json version 2; migrate the v1 specification to version 2 before enabling required coverage",
+      );
+    }
+    if (visualBeats.version === 2 && policy.coverageMode === "required") {
+      for (const frame of frames) {
+        if (frame.words.length === 0) continue;
+        const authoredFrame = Object.hasOwn(visualBeats.frames, frame.slug)
+          ? visualBeats.frames[frame.slug]
+          : undefined;
+        if (!authoredFrame) {
+          throw new Error(
+            `visual_beats.json.frames is missing narrated frame "${frame.slug}" required by visualSync.coverageMode=required`,
+          );
+        }
+        if (!authoredFrame.beats.some((beat) => beat.role === "focal")) {
+          throw new Error(
+            `visual_beats.json.frames.${frame.slug}.beats must contain at least one focal beat required by visualSync.coverageMode=required`,
+          );
+        }
+      }
+    }
+
+    const bySlug = resolveVisualBeats(visualBeats, frames, policy);
+    for (const frame of frames) {
+      const visual = bySlug.get(frame.slug);
+      if (!visual) continue;
+      frame.visualSpecVersion = visual.visualSpecVersion;
+      if (visual.visualKind !== undefined) frame.visualKind = visual.visualKind;
+      frame.visualBeats = visual.visualBeats;
+      if (visual.visualCoverageExemptions !== undefined) {
+        frame.visualCoverageExemptions = visual.visualCoverageExemptions;
+      }
+    }
+  }
 
   // ── Caption groups — one group per line, GLOBAL times ──────────────────────
   // The captions comp spans the whole video, so word times are offset by frame.start.

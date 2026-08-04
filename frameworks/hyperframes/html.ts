@@ -332,6 +332,31 @@ export function moveTopLevelTransportElementsIntoCompositionRoot(
   return result;
 }
 
+/**
+ * Adds adapter-owned scripts inside one composition root without moving or rewriting
+ * authored content. The prefix runs before every authored root script; the suffix
+ * runs after it, which lets generated cue tweens compose with the authored timeline.
+ */
+export function insertCompositionRootScripts(
+  html: string,
+  compositionId: string,
+  prefix: string,
+  suffix: string,
+): string {
+  if (!prefix && !suffix) return html;
+  const root = compositionRootRange(html, compositionId, `composition ${compositionId}`);
+  const edits = [
+    prefix ? { start: root.innerStart, end: root.innerStart, replacement: `\n${prefix}\n` } : undefined,
+    suffix ? { start: root.innerEnd, end: root.innerEnd, replacement: `\n${suffix}\n` } : undefined,
+  ].filter((edit): edit is { start: number; end: number; replacement: string } => edit !== undefined)
+    .sort((left, right) => right.start - left.start);
+  let result = html;
+  for (const edit of edits) {
+    result = result.slice(0, edit.start) + edit.replacement + result.slice(edit.end);
+  }
+  return result;
+}
+
 export function removeExternalScriptSource(
   html: string,
   source: string,

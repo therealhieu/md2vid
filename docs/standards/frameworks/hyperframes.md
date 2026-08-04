@@ -1,5 +1,7 @@
 # HyperFrames Composition Project
 
+<!-- md2vid-continuous-visual-coverage: 2 -->
+
 ## Skills — USE THESE FIRST
 
 **Always invoke the relevant skill before writing or modifying compositions.** Skills encode framework-specific patterns (e.g., `window.__timelines` registration, `data-*` attribute semantics, shader-compatible CSS rules) that are NOT in generic web docs. Skipping them produces broken compositions.
@@ -41,12 +43,18 @@ The npm `postinstall` normally applies the required caption-loop patch to the pi
 
 ## First run
 
-1. Review the generated `audio_request.json.example`, then prepare `audio_meta.json` and `assets/voice/*.wav` through `/md2vid` and `/hyperframes-media` or an external TTS provider.
-2. Use meaningful, unique voice IDs. Their `voices[]` array order controls frame sequence; map each ID to a visual slug in `video.config.json.slugs`.
-3. Author `compositions/frames/*.html` for those slugs.
-4. Run `npm run build`.
-5. Run `npm run check` before preview or render.
-6. Run `npm run dev` for review; render only after review.
+Both framework adapters consume the same neutral narration artifacts: `audio_request.json`, source WAVs, `audio_meta.json`, and (for versioned requests) `narration_evidence.json`. The neutral narration contract owns provider and voice policy; this framework document does not select or synthesize a voice. Matching evidence freshness is required before plan, build, regroup, or verify.
+
+1. Complete source coverage, then author the storyboard semantic coverage map with opening/body/final focal states for every narrated frame.
+2. Author the spoken script, review `audio_request.json.example`, and materialize `audio_request.json` through the neutral narration workflow.
+3. Run `md2vid narration-check .` before synthesis.
+4. Complete the neutral narration workflow to prepare fresh WAVs and `audio_meta.json`, then run `npm run transcribe` unconditionally. Use meaningful, unique voice IDs; their `voices[]` array order controls frame sequence, and map each ID to a visual slug in `video.config.json.slugs`.
+5. Author `visual_beats.json` v2 with opening/body/final focal states against the transcribed WAV words.
+6. Run `npm run plan`, then inspect `build/visual_timing.json` intervals before visual authoring.
+7. Bind framework visibility in `compositions/frames/*.html` for those slugs; bind every narrated target to its beat ID rather than copying resolved seconds.
+8. Run `npm run build`.
+9. Run continuous `npm run check` before preview/manual semantic review or render.
+10. Run `npm run dev` for listening and visual review; render only after review.
 
 The generated scripts are:
 
@@ -54,6 +62,7 @@ The generated scripts are:
 {
   "build": "md2vid build . && md2vid regroup . --max-chars 54",
   "transcribe": "md2vid transcribe .",
+  "plan": "md2vid plan .",
   "verify": "md2vid verify .",
   "check": "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
   "dev": "md2vid hyperframes preview --no-open",
@@ -83,6 +92,66 @@ md2vid does not auto-rewrite existing generated `package.json` files. Replace ol
 > **`npm run dev` is a long-running server, not a one-shot command.** It blocks until stopped.
 > In Claude Code, always run it with `run_in_background: true`. Never run it as a foreground
 > command — it will time out and the server will die, breaking the browser preview.
+
+## Cue-bound visual timing
+
+Plan narration cues before authoring visual motion:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → prepare/transcribe audio → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
+```
+
+`visual_beats.json` is neutral input. `npm run plan` resolves its phrase, word-index, or frame-start anchors before HTML authoring. Every narrated node, row, card, code line, workflow station, opening state, and final landing binds to a beat ID; authored frames never copy the resolved seconds. Continuous coverage requires a focal semantic state from the first spoken word through `frameDur`. Long static focal states are valid; captions, shell, background, logos, and headings are not focal coverage by themselves.
+
+The v2 binding manifest records raw authored frame-source digests for every planned `compositions/frames/<slug>.html` plus the canonical neutral plan digest. Verification rejects stale evidence after authored HTML or coverage-relevant plan changes, so run a full build after semantic edits. HyperFrames authored semantic duration remains `voiceDur`; host retention through `frameDur` is what keeps the final focal visible during the held landing.
+
+### Declarative bindings
+
+Use a supported declarative target for the standard path:
+
+```html
+<div data-md2vid-beat="opening-context" data-md2vid-enter="none" data-md2vid-coverage="planned">
+  Opening context
+</div>
+<li id="reserve-step" data-md2vid-beat="reserve" data-md2vid-enter="rise" data-md2vid-duration="0.48" data-md2vid-coverage="planned">
+  Reserve value
+</li>
+```
+
+Supported entrance tokens are `fade`, `rise`, `slide-left`, `scale`, and `none`. md2vid owns the generated paused, seek-safe scheduling timeline and writes each observed reveal plus `coverageStart`/`coverageEnd` to `build/visual_bindings.json`. `data-md2vid-coverage="planned"` means the target remains semantically visible until the resolved state end unless an owned semantic exit shortens it.
+
+### Custom bindings
+
+A custom motion path declares inert JSON and uses the owned helper that schedules at the resolved beat:
+
+```html
+<script type="application/json" data-md2vid-custom-bindings>
+{"bindings":[{"beat":"execute","target":"#execute-step","method":"from","duration":0.7}]}
+</script>
+<script>
+  const timing = window.__md2vidTiming.forFrame("reserve-flow");
+  timing.from(tl, "execute", "#execute-step", { opacity: 0, y: 36, duration: 0.7 });
+</script>
+```
+
+The `data-md2vid-custom-bindings` script is inert machine-readable declaration, not executable scheduling code. The owned helper validates its declared beat/target/method, owns the actual timeline position, and records the same `build/visual_bindings.json` evidence. It must not return numeric semantic timestamps for authors to reuse freely. If semantic visibility should end before the planned interval, use the framework-owned semantic exit helper so runtime visibility and manifest evidence agree.
+
+Keep one paused registered parent timeline per composition. Its authored and generated child timelines must seek to the same state whether playback is sequential, directly sought, or sought backward then forward. The semantic composition duration must match `voiceDur`; the emitted host duration must match `frameDur`. The outer host provides owned host retention through `frameDur`; do not freehand-hide the final focal during the held landing.
+
+### Render profiles
+
+`md2vid hyperframes render` consumes md2vid policy flags before spawning HyperFrames:
+
+```text
+--profile final|draft|gif
+--allow-low-fps
+```
+
+The final profile defaults to 30 FPS and enforces a minimum of 24 FPS for MP4/MOV unless `--allow-low-fps` is explicit. Draft and GIF profiles permit intentional low rates. `--quality` is a HyperFrames encoding setting and does not select the md2vid profile. Successful known-output renders write `<output>.md2vid-render.json` beside the artifact.
 
 ## GSAP source
 

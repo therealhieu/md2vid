@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "followup", "text": "Recap the key idea." }
+  ]
+}

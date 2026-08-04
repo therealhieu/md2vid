@@ -43,6 +43,9 @@ const CAPTION_TOKENS = new Set([
   ...CAPTION_LENGTH_TOKENS,
   ...CAPTION_FONT_TOKENS,
 ]);
+const VISUAL_SYNC_MODES = new Set(["off", "warn", "required"]);
+const RENDER_PROFILES = new Set(["final", "draft", "gif"]);
+const NEUTRAL_ONLY_FIELDS = ["slugs", "timing", "canvas", "visualSync"] as const;
 
 export function validateSlugMappings(
   value: unknown,
@@ -114,6 +117,46 @@ function optionalNonEmptyString(config: ConfigRecord, field: string, path: strin
   }
 }
 
+function optionalVisualMode(value: unknown, path: string): "off" | "warn" | "required" | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !VISUAL_SYNC_MODES.has(value)) {
+    throw new Error(`${path} must be one of off, warn, required`);
+  }
+  return value as "off" | "warn" | "required";
+}
+
+function optionalNonNegativeNumber(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${path} must be a finite non-negative number`);
+  }
+  return value;
+}
+
+function optionalPositiveNumber(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${path} must be a finite positive number`);
+  }
+  return value;
+}
+
+function optionalLandingSeconds(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0.5) {
+    throw new Error(`${path} must be a finite number >= 0.5`);
+  }
+  return value;
+}
+
+function optionalMinimumFinalFps(value: unknown, path: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 24) {
+    throw new Error(`${path} must be a finite number >= 24`);
+  }
+  return value;
+}
+
 export function validateVideoConfig(value: unknown, path: string): VideoConfig {
   if (!isRecord(value)) throw new Error(`invalid configuration at ${path}: expected a JSON object`);
 
@@ -142,6 +185,30 @@ export function validateVideoConfig(value: unknown, path: string): VideoConfig {
         invalid(path, `canvas.${field}`, "must be a positive finite number");
       }
     }
+  }
+
+  const visualSync = optionalRecord(value, "visualSync", path);
+  if (visualSync) {
+    optionalVisualMode(visualSync.mode, `${path}.visualSync.mode`);
+    optionalVisualMode(visualSync.coverageMode, `${path}.visualSync.coverageMode`);
+    optionalNonNegativeNumber(visualSync.maxLead, `${path}.visualSync.maxLead`);
+    optionalNonNegativeNumber(visualSync.maxLag, `${path}.visualSync.maxLag`);
+    optionalNonNegativeNumber(
+      visualSync.maxUncoveredGap,
+      `${path}.visualSync.maxUncoveredGap`,
+    );
+    optionalLandingSeconds(visualSync.minLanding, `${path}.visualSync.minLanding`);
+  }
+
+  const render = optionalRecord(value, "render", path);
+  if (render) {
+    if (render.profile !== undefined && (
+      typeof render.profile !== "string" || !RENDER_PROFILES.has(render.profile)
+    )) {
+      invalid(path, "render.profile", 'must be one of "final", "draft", or "gif"');
+    }
+    optionalPositiveNumber(render.fps, `${path}.render.fps`);
+    optionalMinimumFinalFps(render.minimumFinalFps, `${path}.render.minimumFinalFps`);
   }
 
   optionalNonEmptyString(value, "framework", path);
@@ -208,6 +275,14 @@ function readConfig(path: string): VideoConfig {
   return validateVideoConfig(value, path);
 }
 
+function rejectLocalNeutralFields(local: VideoConfig, path: string): void {
+  for (const field of NEUTRAL_ONLY_FIELDS) {
+    if (Object.hasOwn(local, field)) {
+      throw new Error(`${path}.${field} is neutral-only; move it to video.config.json`);
+    }
+  }
+}
+
 export interface LoadedVideoConfig {
   config: VideoConfig;
   neutral: VideoConfig;
@@ -225,7 +300,10 @@ export function loadConfigFiles(sharedDir: string, outputDir?: string): LoadedVi
   let localPath: string | undefined;
   if (outputDir) {
     localPath = join(outputDir, "output.config.json");
-    if (existsSync(localPath)) local = readConfig(localPath);
+    if (existsSync(localPath)) {
+      local = readConfig(localPath);
+      rejectLocalNeutralFields(local, localPath);
+    }
   }
   return {
     config: { ...neutral, ...local },

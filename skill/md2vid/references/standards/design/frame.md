@@ -136,6 +136,18 @@ Eyeball tests gate every frame before any structural check:
 frame-relative units are `cqw`/`cqh` against it — never `vw`. Hairlines stay 1px; card radii stay
 6/8/12px; the warm-paper reading must survive every ratio.
 
+## Cue-bound visual timing
+
+- Every narrated node, row, card, code line, and workflow station binds to one resolved beat ID from `visual_beats.json`. The beat, not a copied timestamp, is the semantic timing authority.
+- No copied semantic offsets are permitted in authored CSS, GSAP, or scene code. Use the framework declarative binding or its owned scheduling helper so the reveal remains attached to the beat ID.
+- Do not use front-loaded workflows. A workflow station appears on the narration cue for its ordered step; it may remain visible after that cue, but later stations may not appear before their own beats.
+- Pre-place dim structure only when it improves orientation. The narrated node, row, card, code line, or station must become the focal on its beat and must not compete with a future step.
+- Continuous coverage extends the triad from reveal points to intervals: `active focal semantic state = narration concept = caption concept` at every narrated timestamp.
+- A static focal state is valid when it continues to explain the active concept; do not invent a fixed motion cadence just to show movement.
+- Shell, captions, background, logos, rails, and persistent headings are not focal coverage by themselves. A title counts only when it is explicitly the active semantic focal.
+- Focal coverage persists until the next planned state, frame end, or an owned semantic exit. Transition gaps must stay within `visualSync.maxUncoveredGap` or be explicitly exempted.
+- The final focal must remain through the held landing so frame end is covered, not merely the last spoken word.
+
 ## Colors
 
 Tokens identical to the source. Default ground `{colors.cream}`; content gathers on

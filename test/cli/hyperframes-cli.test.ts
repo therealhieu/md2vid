@@ -191,7 +191,10 @@ test("runs the declared CLI with process.execPath, literal arguments, and exact 
   const fixture = fakePackage();
   try {
     const calls: unknown[][] = [];
-    const args = ["lint", "--flag=value with spaces", "$(not-a-shell)"];
+    const args = [
+      "lint", "--profile", "draft", "--allow-low-fps",
+      "--flag=value with spaces", "$(not-a-shell)",
+    ];
     const status = runHyperframes(args, {
       metaUrl: pathToFileURL(fixture.md2vidModule).href,
       cwd: fixture.root,

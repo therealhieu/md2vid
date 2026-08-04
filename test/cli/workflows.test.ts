@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  appendFileSync,
   chmodSync,
   existsSync,
   lstatSync,
@@ -15,6 +16,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { createNarrationEvidence } from "../../engine/narration_evidence.ts";
+import { validateVersionedNarrationRequest } from "../../engine/narration_request.ts";
+import { transcribeVoices } from "../../engine/transcribe.ts";
+import { hashCoveragePlan, digestAuthoredInputs } from "../../engine/visual_evidence.ts";
+import type { FrameworkAdapter } from "../../engine/types.ts";
+import { captureVoiceWavSnapshots } from "../../engine/voice_assets.ts";
 import { getAdapter } from "../../frameworks/index.ts";
 import { DEFAULT_GSAP_SRC } from "../../frameworks/hyperframes/scaffold.ts";
 import {
@@ -22,6 +29,8 @@ import {
   type BuildDependencies,
 } from "../../scripts/build.ts";
 import { createProject } from "../../scripts/new_video.ts";
+import { createProjectPlan } from "../../scripts/plan_project.ts";
+import { run as planRun } from "../../scripts/plan.ts";
 import {
   run as regroupRun,
   type RegroupDependencies,
@@ -87,6 +96,10 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
     details: "02-details",
     recap: "03-recap",
   };
+  // These workflow fixtures exercise legacy build/transaction behavior, not the
+  // scaffold default. Preserve legacy compatibility explicitly rather than
+  // weakening scaffolded required mode.
+  config.visualSync = { mode: "warn", maxLead: 0.25, maxLag: 0.75, minLanding: 1 };
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 
   if (framework === "hyperframes") {
@@ -106,6 +119,47 @@ function createWorkflowCase({ framework, layout }: WorkflowCase): WorkflowProjec
   return { root, outputDir, sharedDir };
 }
 
+function versionedWorkflowFixture({ includeMetadataProvenance = true }: { includeMetadataProvenance?: boolean } = {}): WorkflowProject {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "canonical" });
+  const metadataPath = join(project.sharedDir, "audio_meta.json");
+  const meta = {
+    ...(JSON.parse(readFileSync(metadataPath, "utf8")) as import("../../engine/types.ts").AudioMeta),
+    ...(includeMetadataProvenance ? { tts_provider: "kokoro", voice_id: "am_michael" } : {}),
+  };
+  const request = validateVersionedNarrationRequest({
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: meta.voices.map((voice) => ({ id: voice.id, text: `${voice.id} narration.` })),
+  }, join(project.sharedDir, "audio_request.json"));
+  const snapshots = captureVoiceWavSnapshots(project.sharedDir, meta.voices.map((voice) => voice.path));
+  const evidence = createNarrationEvidence({
+    request,
+    meta,
+    snapshots,
+    metadataPath,
+  });
+  writeFileSync(join(project.sharedDir, "audio_meta.json"), `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "audio_request.json"), `${JSON.stringify(request, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "narration_evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+  return project;
+}
+
+function snapshotProjectFiles(root: string): Map<string, Buffer> {
+  const paths = readdirSync(root, { recursive: true, encoding: "utf8" })
+    .filter((path) => lstatSync(join(root, path)).isFile())
+    .sort();
+  return new Map(paths.map((path) => [path, readFileSync(join(root, path))]));
+}
+
+function assertProjectFilesUnchanged(root: string, before: ReadonlyMap<string, Buffer>): void {
+  const after = snapshotProjectFiles(root);
+  assert.deepEqual([...after.keys()], [...before.keys()]);
+  for (const [path, bytes] of before) assert.deepEqual(after.get(path), bytes, path);
+}
+
 function captureConsole(run: () => number): { code: number; stdout: string; stderr: string } {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -120,6 +174,988 @@ function captureConsole(run: () => number): { code: number; stdout: string; stde
     console.error = originalError;
   }
 }
+
+function createCoverageProject(): { project: WorkflowProject; adapter: FrameworkAdapter } {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = {
+    mode: "off",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 0.5,
+  };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, {
+      beats: [{
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        cue: { frameStart: true },
+        coverage: { until: "frame-end" },
+      }],
+    }])),
+  }, null, 2)}\n`);
+  for (const slug of Object.values(config.slugs) as string[]) {
+    const framePath = join(project.outputDir, "compositions", "frames", `${slug}.html`);
+    writeFileSync(
+      framePath,
+      readFileSync(framePath, "utf8").replace(
+        `${slug}</div>`,
+        `<article id="${slug}-opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article>${slug}</div>`,
+      ),
+    );
+  }
+
+  return { project, adapter: getAdapter("hyperframes") };
+}
+
+function createRemotionCoverageProject(): { project: WorkflowProject; adapter: FrameworkAdapter } {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = {
+    mode: "off",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 0.5,
+  };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, {
+      beats: [{
+        id: "opening",
+        text: "Opening semantic state",
+        role: "focal",
+        cue: { frameStart: true },
+        coverage: { until: "frame-end" },
+      }],
+    }])),
+  }, null, 2)}\n`);
+  writeFileSync(join(project.outputDir, "visual_bindings.json"), `${JSON.stringify({
+    version: 2,
+    frames: Object.fromEntries(Object.values(config.slugs).map((slug) => [slug, [
+      { beat: "opening", target: "OpeningContext", enter: "none", coverage: "planned" },
+    ]])),
+  }, null, 2)}\n`);
+  return { project, adapter: getAdapter("remotion") };
+}
+
+
+test("verify warns once with manual refresh instructions for missing legacy project standard marker", () => {
+  const project = validHyperframesProject();
+  const standardPath = join(project.output, ".md2vid", "standards", "hyperframes.md");
+  try {
+    rmSync(standardPath);
+    const result = captureConsole(() => verifyRun([project.output]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /WARN: \.md2vid\/standards\/hyperframes\.md is missing md2vid-continuous-visual-coverage: 2/);
+    assert.match(result.stdout, /docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.match(result.stdout, /Destination: \.md2vid\/standards\/hyperframes\.md/);
+    assert.equal(existsSync(standardPath), false, "verify must not create or overwrite project-local standards");
+  } finally {
+    cleanup(project);
+  }
+});
+
+test("verify errors on missing project standard marker when v2 coverage is required", () => {
+  const { project } = createCoverageProject();
+  const standardPath = join(project.outputDir, ".md2vid", "standards", "hyperframes.md");
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    rmSync(standardPath);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /\.md2vid\/standards\/hyperframes\.md is missing md2vid-continuous-visual-coverage: 2/);
+    assert.match(result.stderr, /docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.match(result.stderr, /Destination: \.md2vid\/standards\/hyperframes\.md/);
+    assert.equal(existsSync(standardPath), false, "verify must not create or overwrite project-local standards");
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify accepts the current project standard marker without mutating the file", () => {
+  const { project } = createCoverageProject();
+  const standardPath = join(project.outputDir, ".md2vid", "standards", "hyperframes.md");
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const before = readFileSync(standardPath, "utf8");
+    assert.match(before, /md2vid-continuous-visual-coverage: 2/);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /Refresh it from docs\/standards\/frameworks\/hyperframes\.md/);
+    assert.equal(readFileSync(standardPath, "utf8"), before);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify never overwrites a stale project standard while warning", () => {
+  const project = validRemotionProject();
+  const standardPath = join(project.output, ".md2vid", "standards", "remotion.md");
+  const stale = "# Local custom Remotion notes\n";
+  try {
+    writeFileSync(standardPath, stale);
+
+    const result = captureConsole(() => verifyRun([project.output]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /docs\/standards\/frameworks\/remotion\.md/);
+    assert.match(result.stdout, /Destination: \.md2vid\/standards\/remotion\.md/);
+    assert.equal(readFileSync(standardPath, "utf8"), stale);
+  } finally {
+    cleanup(project);
+  }
+});
+
+function writeFreshV2Manifest(project: WorkflowProject, adapter: FrameworkAdapter): void {
+  const planning = createProjectPlan(project.outputDir);
+  assert.ok(adapter.collectVisualBindingInputs);
+  const authoredInputs = digestAuthoredInputs(adapter.collectVisualBindingInputs({
+    plan: planning.plan,
+    videoDir: planning.layout.outputDir,
+    sharedDir: planning.layout.sharedDir,
+    config: planning.adapterConfig,
+  }));
+  const bindings = planning.plan.frames.flatMap((frame) =>
+    (frame.visualBeats ?? []).flatMap((beat) => beat.version === 2 && beat.role === "focal" ? [{
+      frameSlug: frame.slug,
+      beatId: beat.id,
+      target: `#${frame.slug}-${beat.id}`,
+      role: "focal" as const,
+      revealStart: beat.start,
+      revealDuration: 0,
+      coverageStart: beat.start,
+      coverageEnd: beat.end,
+      source: "static" as const,
+      authoredDuration: frame.voiceDur,
+      outerDuration: frame.frameDur,
+    }] : []),
+  );
+  const path = join(project.outputDir, "build", "visual_bindings.json");
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({
+    version: 2,
+    framework: adapter.name,
+    planSha256: hashCoveragePlan(planning.plan),
+    authoredInputs,
+    bindings,
+  }, null, 2)}\n`);
+}
+
+function mutateVisualBeatsEnd(project: WorkflowProject): void {
+  const path = join(project.sharedDir, "visual_beats.json");
+  const visualBeats = JSON.parse(readFileSync(path, "utf8"));
+  visualBeats.frames["01-intro"].beats[0].coverage.until = "voice-end";
+  writeFileSync(path, `${JSON.stringify(visualBeats, null, 2)}\n`);
+}
+
+function addPlannedCoverageFrame(project: WorkflowProject): void {
+  const metaPath = join(project.sharedDir, "audio_meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  meta.voices.push({
+    id: "second",
+    path: "assets/voice/second.wav",
+    duration_s: 1,
+    words: [{ text: "Second", start: 0, end: 1 }],
+  });
+  writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "assets", "voice", "second.wav"), ONE_SECOND_WAV);
+
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.slugs.second = "04-second";
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+  const visualBeatsPath = join(project.sharedDir, "visual_beats.json");
+  const visualBeats = JSON.parse(readFileSync(visualBeatsPath, "utf8"));
+  visualBeats.frames["04-second"] = {
+    beats: [{
+      id: "opening",
+      text: "Second opening semantic state",
+      role: "focal",
+      cue: { frameStart: true },
+      coverage: { until: "frame-end" },
+    }],
+  };
+  writeFileSync(visualBeatsPath, `${JSON.stringify(visualBeats, null, 2)}\n`);
+
+  const framePath = join(project.outputDir, "compositions", "frames", "04-second.html");
+  writeFileSync(framePath, `<template data-composition-id="04-second">
+<div data-composition-id="04-second" data-frame-theme="light" data-width="1920" data-height="1080" data-duration="1"><article id="04-second-opening" data-md2vid-beat="opening" data-md2vid-enter="none" data-md2vid-coverage="planned">Opening</article></div>
+<script src="${DEFAULT_GSAP_SRC}"></script>
+<script>window.__timelines = window.__timelines || {}; window.__timelines["04-second"] = gsap.timeline({ paused: true });</script>
+</template>\n`);
+}
+
+test("HyperFrames full build emits fresh manifest v2 and rejects frame mutation", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const manifest = JSON.parse(readFileSync(join(project.outputDir, "build", "visual_bindings.json"), "utf8"));
+    assert.equal(manifest.version, 2);
+    assert.equal(manifest.framework, "hyperframes");
+    assert.match(manifest.planSha256, /^[a-f0-9]{64}$/);
+    assert.deepEqual(manifest.authoredInputs.map(({ path }: { path: string }) => path), [
+      "compositions/frames/01-intro.html",
+      "compositions/frames/02-details.html",
+      "compositions/frames/03-recap.html",
+    ]);
+    assert.equal(captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    })).code, 0);
+
+    appendFileSync(
+      join(project.outputDir, "compositions", "frames", "01-intro.html"),
+      "\n<!-- semantic mutation -->\n",
+    );
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /compositions\/frames\/01-intro\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames verify rejects a newly planned frame source set", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    addPlannedCoverageFrame(project);
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /compositions\/frames\/04-second\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames coverage-only verify rejects post-build emitted host duration mutation", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const indexPath = join(project.outputDir, "index.html");
+    const index = readFileSync(indexPath, "utf8");
+    const mutated = index.replace(/(id="el-01-intro"[^>]*data-duration=")([^"]+)(")/, "$10.5$3");
+    assert.notEqual(mutated, index, "test must mutate the emitted 01-intro host duration");
+    writeFileSync(indexPath, mutated);
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /outer duration/);
+    assert.match(result.stderr, /frame "01-intro"/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify rejects stale coverage plan and authored-source evidence", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    mutateVisualBeatsEnd(project);
+
+    let result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /planSha256/);
+    assert.match(result.stderr, /md2vid build/);
+
+    writeFreshV2Manifest(project, adapter);
+    appendFileSync(
+      join(project.outputDir, "compositions", "frames", "01-intro.html"),
+      "\n<!-- changed -->\n",
+    );
+    result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /compositions\/frames\/01-intro\.html/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify reports missing HyperFrames authored frame input as stale visual evidence", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    rmSync(join(project.outputDir, "compositions", "frames", "01-intro.html"));
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /missing authored input compositions\/frames\/01-intro\.html/);
+    assert.match(result.stderr, /md2vid build/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames authored frame input collection rejects symlinked files and parent directories", () => {
+  for (const kind of ["file", "parent"] as const) {
+    const { project, adapter } = createCoverageProject();
+    const externalRoot = mkdtempSync(join(tmpdir(), `md2vid-hf-external-${kind}-`));
+    try {
+      const planning = createProjectPlan(project.outputDir);
+      assert.ok(adapter.collectVisualBindingInputs);
+      const framePath = join(project.outputDir, "compositions", "frames", "01-intro.html");
+      if (kind === "file") {
+        const externalFrame = join(externalRoot, "01-intro.html");
+        writeFileSync(externalFrame, readFileSync(framePath));
+        rmSync(framePath);
+        symlinkSync(externalFrame, framePath);
+      } else {
+        const framesPath = join(project.outputDir, "compositions", "frames");
+        const externalFrames = join(externalRoot, "frames");
+        mkdirSync(externalFrames, { recursive: true });
+        for (const slug of ["01-intro", "02-details", "03-recap"]) {
+          writeFileSync(join(externalFrames, `${slug}.html`), readFileSync(join(framesPath, `${slug}.html`)));
+        }
+        rmSync(framesPath, { recursive: true, force: true });
+        symlinkSync(externalFrames, framesPath);
+      }
+
+      assert.throws(
+        () => adapter.collectVisualBindingInputs!({
+          plan: planning.plan,
+          videoDir: planning.layout.outputDir,
+          sharedDir: planning.layout.sharedDir,
+          config: planning.adapterConfig,
+        }),
+        /compositions\/frames.*symlink|compositions\/frames\/01-intro\.html.*symlink/i,
+      );
+      const result = captureConsole(() => buildRun([project.outputDir]));
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /symlink/i);
+      assert.doesNotMatch(result.stderr, /ENOENT/);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+      rmSync(externalRoot, { recursive: true, force: true });
+    }
+  }
+});
+
+test("HyperFrames full build reports a missing planned authored frame input", () => {
+  const { project } = createCoverageProject();
+  try {
+    rmSync(join(project.outputDir, "compositions", "frames", "01-intro.html"));
+    const result = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /missing HyperFrames authored frame input compositions\/frames\/01-intro\.html/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify reports missing Remotion registry input as stale visual evidence", () => {
+  const { project, adapter } = createRemotionCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    rmSync(join(project.outputDir, "visual_bindings.json"));
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /stale_visual_evidence/);
+    assert.match(result.stderr, /missing authored input visual_bindings\.json/);
+    assert.match(result.stderr, /md2vid build/);
+    assert.doesNotMatch(result.stderr, /ENOENT/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion verify rejects source mutation, addition, and removal after full build", () => {
+  for (const [name, mutate, expected] of [
+    ["changed source", (project: WorkflowProject) => appendFileSync(join(project.outputDir, "src", "Video.tsx"), "\n// semantic mutation\n"), /src\/Video\.tsx/],
+    ["new source", (project: WorkflowProject) => {
+      mkdirSync(join(project.outputDir, "src", "scenes"), { recursive: true });
+      writeFileSync(join(project.outputDir, "src", "scenes", "NewScene.tsx"), "export const NewScene = () => null;\n");
+    }, /src\/scenes\/NewScene\.tsx/],
+    ["removed source", (project: WorkflowProject) => rmSync(join(project.outputDir, "src", "types.ts")), /missing authored input src\/types\.ts/],
+  ] as const) {
+    const { project } = createRemotionCoverageProject();
+    try {
+      assert.equal(buildRun([project.outputDir]), 0, name);
+      mutate(project);
+      const result = captureConsole(() => verifyRun([project.outputDir]));
+      assert.equal(result.code, 1, name);
+      assert.match(result.stderr, /stale_visual_evidence/, name);
+      assert.match(result.stderr, expected, name);
+      assert.match(result.stderr, /md2vid build/, name);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("Remotion authored input collection rejects symlinks and excludes generated source subtrees", () => {
+  const { project, adapter } = createRemotionCoverageProject();
+  try {
+    assert.ok(adapter.collectVisualBindingInputs);
+    mkdirSync(join(project.outputDir, "src", "node_modules"), { recursive: true });
+    mkdirSync(join(project.outputDir, "src", "build"), { recursive: true });
+    mkdirSync(join(project.outputDir, "src", "dist"), { recursive: true });
+    writeFileSync(join(project.outputDir, "src", "node_modules", "ignored.ts"), "export const ignored = true;\n");
+    writeFileSync(join(project.outputDir, "src", "build", "ignored.ts"), "export const ignored = true;\n");
+    writeFileSync(join(project.outputDir, "src", "dist", "ignored.ts"), "export const ignored = true;\n");
+    const planning = createProjectPlan(project.outputDir);
+
+    const paths = adapter.collectVisualBindingInputs({
+      plan: planning.plan,
+      videoDir: planning.layout.outputDir,
+      sharedDir: planning.layout.sharedDir,
+      config: planning.adapterConfig,
+    }).map((input) => input.path);
+
+    assert.equal(paths.includes("src/node_modules/ignored.ts"), false);
+    assert.equal(paths.includes("src/build/ignored.ts"), false);
+    assert.equal(paths.includes("src/dist/ignored.ts"), false);
+
+    const registryPath = join(project.outputDir, "visual_bindings.json");
+    const registryBytes = readFileSync(registryPath);
+    rmSync(registryPath);
+    const linkedRegistry = join(project.root, "linked-visual-bindings.json");
+    writeFileSync(linkedRegistry, registryBytes);
+    symlinkSync(linkedRegistry, registryPath);
+    assert.throws(
+      () => adapter.collectVisualBindingInputs!({
+        plan: planning.plan,
+        videoDir: planning.layout.outputDir,
+        sharedDir: planning.layout.sharedDir,
+        config: planning.adapterConfig,
+      }),
+      /visual_bindings\.json.*symlink/i,
+    );
+    rmSync(registryPath);
+    writeFileSync(registryPath, registryBytes);
+
+    const sourcePath = join(project.outputDir, "src", "Video.tsx");
+    const sourceBytes = readFileSync(sourcePath);
+    rmSync(sourcePath);
+    const linkedSource = join(project.root, "LinkedVideo.tsx");
+    writeFileSync(linkedSource, sourceBytes);
+    symlinkSync(linkedSource, sourcePath);
+    assert.throws(
+      () => adapter.collectVisualBindingInputs!({
+        plan: planning.plan,
+        videoDir: planning.layout.outputDir,
+        sharedDir: planning.layout.sharedDir,
+        config: planning.adapterConfig,
+      }),
+      /src\/Video\.tsx.*symlink/i,
+    );
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion full build writes runtime visual bindings for v2 evidence", () => {
+  const { project } = createRemotionCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    const plan = JSON.parse(readFileSync(join(project.outputDir, "build_plan.json"), "utf8"));
+    assert.ok(plan.visualBindings, "Remotion build_plan.json must contain semantic runtime bindings");
+    assert.deepEqual(plan.visualBindings["01-intro"].map((binding: { target: string; beatId: string }) => [binding.target, binding.beatId]), [
+      ["OpeningContext", "opening"],
+    ]);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+
+    assert.equal(result.code, 0, result.stderr);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify warns on stale evidence without accepting stale focal coverage", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    mutateVisualBeatsEnd(project);
+    const configPath = join(project.sharedDir, "video.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync.coverageMode = "warn";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /stale_visual_evidence/);
+    assert.doesNotMatch(result.stdout, /semantic coverage (?:passed|satisfied)/i);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify replans when reveal mode is off but coverage is required", () => {
+  const { project, adapter } = createCoverageProject();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFreshV2Manifest(project, adapter);
+    const result = captureConsole(() => verifyRun([project.outputDir], {
+      getAdapter: () => adapter,
+    }));
+    assert.equal(result.code, 0, result.stderr);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("verify applies current semantic visual timing through the registered HyperFrames adapter", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const configPath = join(project.sharedDir, "video.config.json");
+  const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync = { mode: "required", maxLead: 0.05, maxLag: 0.75, minLanding: 0.5 };
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-intro": { beats: [{ id: "workflow", text: "workflow", cue: { wordIndex: 3 } }] },
+      },
+    }, null, 2)}\n`);
+    const framePath = join(project.outputDir, "compositions", "frames", "01-intro.html");
+    writeFileSync(
+      framePath,
+      readFileSync(framePath, "utf8").replace(
+        "</div>\n<script",
+        '<div id="workflow" data-md2vid-beat="workflow"></div></div>\n<script',
+      ),
+    );
+    assert.equal(buildRun([project.outputDir]), 0);
+
+    const aligned = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const frontLoaded = structuredClone(aligned);
+    frontLoaded.bindings[0].revealStart = 0;
+    writeFileSync(manifestPath, `${JSON.stringify(frontLoaded, null, 2)}\n`);
+    let result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /lead is/);
+
+    const unknown = structuredClone(aligned);
+    unknown.bindings[0].beatId = "stale";
+    writeFileSync(manifestPath, `${JSON.stringify(unknown, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /unknown beat "stale"/);
+
+    const durationMismatch = structuredClone(aligned);
+    durationMismatch.frames[0].authoredDuration = 0;
+    writeFileSync(manifestPath, `${JSON.stringify(durationMismatch, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /authored duration/);
+
+    rmSync(manifestPath);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /visual binding manifest is missing/);
+
+    config.visualSync.mode = "warn";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /WARN: visual binding manifest is missing/);
+
+    config.visualSync.mode = "off";
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("build emits one actionable visual-sync warning for a legacy project", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    const result = captureConsole(() => buildRun([project.outputDir]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(warnings, [
+      `WARN [build] ${join(project.sharedDir, "visual_beats.json")}: no visual beat specification; semantic checks are skipped`,
+    ]);
+  } finally {
+    console.warn = originalWarn;
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("build and regroup emit one legacy visual-sync warning", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+
+    assert.deepEqual(warnings, [
+      `WARN [build] ${join(project.sharedDir, "visual_beats.json")}: no visual beat specification; semantic checks are skipped`,
+    ]);
+  } finally {
+    console.warn = originalWarn;
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("plan, build, regroup, and verify accept matching versioned narration evidence", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("evidence-backed versioned narration remains fresh when metadata omits optional provenance", () => {
+  const project = versionedWorkflowFixture({ includeMetadataProvenance: false });
+  try {
+    rmSync(join(project.sharedDir, "narration_evidence.json"));
+    assert.equal(transcribeRun([project.outputDir], {
+      transcribeVoices(meta, baseDir) {
+        return transcribeVoices(meta, baseDir, {
+          run(args) {
+            const transcriptDir = args[args.indexOf("--dir") + 1]!;
+            writeFileSync(join(transcriptDir, "transcript.json"), JSON.stringify([
+              { text: "Narration", start: 0, end: 0.5 },
+              { text: "line", start: 0.5, end: 1 },
+            ]));
+            return 0;
+          },
+        });
+      },
+    }), 0);
+    const meta = JSON.parse(readFileSync(join(project.sharedDir, "audio_meta.json"), "utf8"));
+    const evidence = JSON.parse(readFileSync(join(project.sharedDir, "narration_evidence.json"), "utf8"));
+    assert.equal(meta.tts_provider, undefined);
+    assert.equal(meta.voice_id, undefined);
+    assert.equal(evidence.provider, "kokoro");
+    assert.equal(evidence.voice, "am_michael");
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+type NarrationMutation = (project: WorkflowProject) => void;
+
+const STALE_NARRATION_MUTATIONS: Array<[string, NarrationMutation]> = [
+  ["missing evidence", (project) => rmSync(join(project.sharedDir, "narration_evidence.json"))],
+  ["provider", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.provider = "heygen";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["voice", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.voice = "alternate-voice";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["language", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lang = "en-US";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["speed", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.speed = 1;
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["spoken text", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines[0].text = "Changed narration.";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["line order", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines.reverse();
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["line ID", (project) => {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.lines[0].id = "changed-id";
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+  }],
+  ["same-duration WAV bytes", (project) => {
+    const wavPath = join(project.sharedDir, "assets", "voice", "intro.wav");
+    const bytes = Buffer.from(readFileSync(wavPath));
+    bytes[bytes.length - 1] = bytes[bytes.length - 1] === 0 ? 1 : 0;
+    writeFileSync(wavPath, bytes);
+  }],
+  ["evidence voice path", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].path = "assets/voice/replaced.wav";
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+  ["evidence voice duration", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].duration_s = 0.5;
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+  ["evidence WAV digest", (project) => {
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+    evidence.voices[0].sha256 = "f".repeat(64);
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  }],
+];
+
+for (const [name, mutate] of STALE_NARRATION_MUTATIONS) {
+  test(`plan, build, regroup, and verify reject stale ${name} evidence before changing outputs`, () => {
+    const project = versionedWorkflowFixture();
+    try {
+      assert.equal(buildRun([project.outputDir]), 0);
+      assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+      mutate(project);
+      const before = snapshotProjectFiles(project.root);
+      const routes: Array<[string, () => number]> = [
+        ["plan", () => planRun([project.outputDir])],
+        ["build", () => buildRun([project.outputDir])],
+        ["regroup", () => regroupRun([project.outputDir, "--max-chars", "54"])],
+        ["verify", () => verifyRun([project.outputDir])],
+      ];
+
+      for (const [route, run] of routes) {
+        const result = captureConsole(run);
+        assert.equal(result.code, 1, `${name}: ${route}`);
+        assert.match(result.stderr, /Re-synthesize narration and rerun `md2vid transcribe`/, `${name}: ${route}`);
+        assertProjectFilesUnchanged(project.root, before);
+      }
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("malformed narration evidence names the artifact, includes recovery, and preserves all outputs", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    const evidencePath = join(project.sharedDir, "narration_evidence.json");
+    writeFileSync(evidencePath, "{ malformed evidence");
+    const before = snapshotProjectFiles(project.root);
+    const routes: Array<[string, () => number]> = [
+      ["plan", () => planRun([project.outputDir])],
+      ["build", () => buildRun([project.outputDir])],
+      ["regroup", () => regroupRun([project.outputDir, "--max-chars", "54"])],
+      ["verify", () => verifyRun([project.outputDir])],
+    ];
+
+    for (const [route, run] of routes) {
+      const result = captureConsole(run);
+      assert.equal(result.code, 1, route);
+      assert.ok(result.stderr.includes(evidencePath), `${route}: ${result.stderr}`);
+      assert.match(result.stderr, /Re-synthesize narration and rerun `md2vid transcribe`/, route);
+      assertProjectFilesUnchanged(project.root, before);
+    }
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("BGM and SFX-only request edits retain matching narration evidence", () => {
+  const project = versionedWorkflowFixture();
+  try {
+    const requestPath = join(project.sharedDir, "audio_request.json");
+    const request = JSON.parse(readFileSync(requestPath, "utf8"));
+    request.bgm = { mode: "none" };
+    request.sfx = [{ id: "click" }];
+    writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+
+    assert.equal(planRun([project.outputDir]), 0);
+    assert.equal(buildRun([project.outputDir]), 0);
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    assert.equal(verifyRun([project.outputDir]), 0);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+for (const [name, request] of [
+  ["no request", undefined],
+  ["unversioned request", { lines: [{ id: "intro", text: "intro narration." }] }],
+] as const) {
+  test(`plan, build, regroup, and verify retain legacy behavior with ${name} and orphan evidence`, () => {
+    const project = versionedWorkflowFixture();
+    try {
+      const requestPath = join(project.sharedDir, "audio_request.json");
+      if (request === undefined) rmSync(requestPath);
+      else writeFileSync(requestPath, `${JSON.stringify(request, null, 2)}\n`);
+      const orphanEvidence = readFileSync(join(project.sharedDir, "narration_evidence.json"));
+
+      assert.equal(planRun([project.outputDir]), 0);
+      assert.equal(buildRun([project.outputDir]), 0);
+      assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+      assert.equal(verifyRun([project.outputDir]), 0);
+      assert.deepEqual(readFileSync(join(project.sharedDir, "narration_evidence.json")), orphanEvidence);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("verify replans current visual-beat inputs instead of trusting emitted artifacts", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  try {
+    assert.equal(buildRun([project.outputDir]), 0);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "unknown-frame": {
+          beats: [{ id: "unknown", text: "Unknown", cue: { wordIndex: 0 } }],
+        },
+      },
+    }, null, 2)}\n`);
+
+    const result = captureConsole(() => verifyRun([project.outputDir]));
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /unknown frame slug "unknown-frame"/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+function enableIntroVisualBeat(project: WorkflowProject): void {
+  const configPath = join(project.sharedDir, "video.config.json");
+  const config = JSON.parse(readFileSync(configPath, "utf8"));
+  config.visualSync = { mode: "required" };
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+    version: 1,
+    frames: {
+      "01-intro": {
+        beats: [{ id: "intro", text: "Intro", cue: { wordIndex: 0 } }],
+      },
+    },
+  }, null, 2)}\n`);
+}
+
+function writeIntroRemotionBindings(outputDir: string, target = "Intro:reveal"): void {
+  writeFileSync(join(outputDir, "visual_bindings.json"), `${JSON.stringify({
+    version: 1,
+    frames: {
+      "01-intro": [{ beat: "intro", target, enter: "fade", duration: 0.5 }],
+    },
+  }, null, 2)}\n`);
+}
+
+test("regroup preserves Remotion semantic plan and manifest evidence", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    enableIntroVisualBeat(project);
+    writeIntroRemotionBindings(project.outputDir);
+    assert.equal(buildRun([project.outputDir]), 0);
+    const planPath = join(project.outputDir, "build_plan.json");
+    const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+    const before = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifestBefore = readFileSync(manifestPath);
+    writeIntroRemotionBindings(project.outputDir, "Intro:changed-after-build");
+
+    assert.equal(regroupRun([project.outputDir, "--max-chars", "54"]), 0);
+    const after = JSON.parse(readFileSync(planPath, "utf8"));
+
+    assert.deepEqual(
+      after.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
+      before.frames.map((frame: { visualBeats?: unknown }) => frame.visualBeats),
+    );
+    assert.deepEqual(after.visualBindings, before.visualBindings);
+    assert.deepEqual(readFileSync(manifestPath), manifestBefore);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("multi-framework builds preserve one shared neutral plan", () => {
+  const hyperframes = createWorkflowCase({ framework: "hyperframes", layout: "canonical" });
+  const remotionOutput = join(hyperframes.root, "remotion");
+  try {
+    createProject(remotionOutput, "video", getAdapter("remotion"));
+    enableIntroVisualBeat(hyperframes);
+    writeIntroRemotionBindings(remotionOutput);
+
+    assert.equal(buildRun([hyperframes.outputDir]), 0);
+    const hyperframesPlan = JSON.parse(readFileSync(join(hyperframes.sharedDir, "build", "build_plan.json"), "utf8"));
+    assert.equal(buildRun([remotionOutput]), 0);
+    const remotionPlan = JSON.parse(readFileSync(join(hyperframes.sharedDir, "build", "build_plan.json"), "utf8"));
+
+    assert.deepEqual(hyperframesPlan.frames, remotionPlan.frames);
+    assert.equal(hyperframesPlan.frames[0].start, 0);
+  } finally {
+    rmSync(hyperframes.root, { recursive: true, force: true });
+  }
+});
+
+test("build rejects neutral timing keys in output-local configuration", () => {  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    writeFileSync(join(project.outputDir, "output.config.json"), `${JSON.stringify({
+      framework: "remotion",
+      visualSync: { mode: "off" },
+    }, null, 2)}\n`);
+
+    const result = captureConsole(() => buildRun([project.outputDir]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /output\.config\.json\.visualSync is neutral-only/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
 
 function writeNeutralConfig(shared: string): void {
   writeFileSync(join(shared, "video.config.json"), JSON.stringify({
@@ -151,6 +1187,8 @@ function validHyperframesProject(): Project {
   writeNeutralConfig(shared);
   writeValidAudioMeta(shared);
   writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "hyperframes" }));
+  mkdirSync(join(output, ".md2vid", "standards"), { recursive: true });
+  writeFileSync(join(output, ".md2vid", "standards", "hyperframes.md"), "<!-- md2vid-continuous-visual-coverage: 2 -->\n");
   mkdirSync(join(output, "assets", "voice"), { recursive: true });
   writeFileSync(join(output, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
   writeFileSync(join(output, "index.html"), `<script src="${DEFAULT_GSAP_SRC}"></script><script>window.__timelines["main"] = 1;</script>`);
@@ -166,6 +1204,8 @@ function validRemotionProject(): Project {
   writeNeutralConfig(shared);
   writeValidAudioMeta(shared);
   writeFileSync(join(output, "output.config.json"), JSON.stringify({ framework: "remotion" }));
+  mkdirSync(join(output, ".md2vid", "standards"), { recursive: true });
+  writeFileSync(join(output, ".md2vid", "standards", "remotion.md"), "<!-- md2vid-continuous-visual-coverage: 2 -->\n");
   mkdirSync(join(output, "public", "assets", "voice"), { recursive: true });
   writeFileSync(join(output, "public", "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
   writeFileSync(join(output, "src", "Root.tsx"), 'id="video"\n');
@@ -236,6 +1276,11 @@ function regroupProject(framework: "hyperframes" | "remotion"): Project & {
         { text: "six.", start: 1.5, end: 2 },
       ],
     }],
+  }));
+  mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+  writeFileSync(join(shared, "assets", "voice", "intro.wav"), makePcmWav({
+    sampleRate: 48_000,
+    sampleFrames: 96_000,
   }));
   const neutralPath = join(shared, "caption_groups.json");
   writeFileSync(neutralPath, ORIGINAL_JSON);
@@ -375,6 +1420,7 @@ function fullBuildProject(framework: "hyperframes" | "remotion"): FullBuildProje
     [join(project.sharedDir, "cues.json"), "ORIGINAL_CUES\n"],
     [join(project.sharedDir, "caption_groups.json"), "ORIGINAL_CAPTION_GROUPS\n"],
     [join(project.sharedDir, "build", "build_plan.json"), "ORIGINAL_NEUTRAL_PLAN\n"],
+    [join(project.sharedDir, "build", "visual_timing.json"), "ORIGINAL_VISUAL_TIMING\n"],
   ]);
   mkdirSync(join(project.sharedDir, "build"), { recursive: true });
 
@@ -386,10 +1432,18 @@ function fullBuildProject(framework: "hyperframes" | "remotion"): FullBuildProje
       join(project.outputDir, "compositions", "captions.html"),
       "ORIGINAL_STANDALONE_CAPTIONS\n",
     );
+    managedFiles.set(
+      join(project.outputDir, "build", "visual_bindings.json"),
+      "ORIGINAL_VISUAL_BINDINGS\n",
+    );
     voiceDir = join(project.outputDir, "assets", "voice");
     authoredPath = join(project.outputDir, "compositions", "frames", "01-intro.html");
   } else {
     managedFiles.set(join(project.outputDir, "build_plan.json"), "ORIGINAL_REMOTION_PLAN\n");
+    managedFiles.set(
+      join(project.outputDir, "build", "visual_bindings.json"),
+      "ORIGINAL_REMOTION_VISUAL_BINDINGS\n",
+    );
     voiceDir = join(project.outputDir, "public", "assets", "voice");
     authoredPath = join(project.outputDir, "src", "Video.tsx");
   }
@@ -516,10 +1570,10 @@ function failingRegroupDependencies(
   point: "config" | "planning" | "emit" | "verify" | "first-promotion" | "second-promotion" | "third-promotion",
 ): RegroupDependencies {
   if (point === "config") {
-    return { loadConfig() { throw new Error("injected config failure"); } };
+    return { createProjectPlan() { throw new Error("injected config failure"); } };
   }
   if (point === "planning") {
-    return { buildPlan() { throw new Error("injected planning failure"); } };
+    return { createProjectPlan() { throw new Error("injected planning failure"); } };
   }
   if (point === "emit") {
     return {
@@ -684,7 +1738,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
     });
   }
 
-  const promotionCount = framework === "hyperframes" ? 6 : 5;
+  const promotionCount = framework === "hyperframes" ? 8 : 7;
   for (let position = 1; position <= promotionCount; position += 1) {
     test(`full ${framework} build rolls back every managed output after promotion failure ${position}/${promotionCount}`, () => {
       const project = fullBuildProject(framework);
@@ -869,7 +1923,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
         assert.equal(transcribeRun([project.outputDir], {
           transcribeVoices(meta, baseDir) {
             transcribeBaseDir = baseDir;
-            return { meta, ok: meta.voices.length, total: meta.voices.length };
+            return { meta, ok: meta.voices.length, total: meta.voices.length, voiceSnapshots: [] };
           },
         }), 0);
         assert.equal(transcribeBaseDir, project.sharedDir);
@@ -1284,5 +2338,117 @@ test("verify keeps argument errors at exit 2", () => {
     assert.equal(result.code, 2, argv.join(" "));
     assert.match(result.stderr, /Usage: md2vid verify/);
     assert.equal(result.stdout, "");
+  }
+});
+
+test("fresh HyperFrames captions-only build updates captions without binding evidence", () => {
+  const project = createWorkflowCase({ framework: "hyperframes", layout: "flat" });
+  try {
+    const captionsPath = join(project.outputDir, "compositions", "captions.html");
+    const indexPath = join(project.outputDir, "index.html");
+    const bindingPath = join(project.outputDir, "build", "visual_bindings.json");
+    assert.equal(existsSync(captionsPath), false, "fresh project must not have standalone captions");
+    assert.equal(existsSync(indexPath), false, "fresh project must not have an embedded captions host");
+    assert.equal(existsSync(bindingPath), false, "fresh project must not have binding evidence");
+    writeFileSync(
+      indexPath,
+      '<template id="captions-template"><div data-composition-id="captions"></div></template>\n',
+    );
+    const indexBefore = readFileSync(indexPath, "utf8");
+    const planned = captureConsole(() => planRun([project.outputDir]));
+    assert.equal(planned.code, 0, planned.stderr);
+
+    const result = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(existsSync(captionsPath), true, "captions-only must write standalone captions");
+    assert.match(readFileSync(indexPath, "utf8"), /id="captions-template"/, "captions-only must write embedded captions");
+    assert.notEqual(readFileSync(indexPath, "utf8"), indexBefore, "captions-only must replace the embedded caption artifact");
+    assert.equal(existsSync(bindingPath), false, "captions-only must not promote absent binding evidence");
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("Remotion captions-only requires an existing full-build runtime plan", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    enableIntroVisualBeat(project);
+    writeIntroRemotionBindings(project.outputDir);
+    assert.equal(buildRun([project.outputDir]), 0);
+    rmSync(join(project.outputDir, "build_plan.json"));
+
+    const result = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /run md2vid build/i);
+    assert.match(result.stderr, /build_plan\.json/);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("only a full Remotion build publishes updated semantic evidence", () => {
+  const project = createWorkflowCase({ framework: "remotion", layout: "canonical" });
+  try {
+    const configPath = join(project.sharedDir, "video.config.json");
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    config.visualSync = { mode: "required", maxLead: 0.25, maxLag: 0.75, minLanding: 0.5 };
+    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    writeFileSync(join(project.sharedDir, "visual_beats.json"), `${JSON.stringify({
+      version: 1,
+      frames: {
+        "01-intro": { beats: [{ id: "intro", text: "Intro", cue: { wordIndex: 1 } }] },
+      },
+    }, null, 2)}\n`);
+    const registryPath = join(project.outputDir, "visual_bindings.json");
+    const registry = (target: string) => ({
+      version: 1,
+      frames: {
+        "01-intro": [{ beat: "intro", target, enter: "fade", duration: 0.2 }],
+      },
+    });
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:initial"), null, 2)}\n`);
+
+    const full = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(full.code, 0, full.stderr);
+    const planPath = join(project.outputDir, "build_plan.json");
+    const manifestPath = join(project.outputDir, "build", "visual_bindings.json");
+    const sourcePath = join(project.outputDir, "src", "Video.tsx");
+    const voicePath = join(project.outputDir, "public", "assets", "voice", "intro.wav");
+    const sourceBefore = readFileSync(sourcePath, "utf8");
+    const voiceBefore = readFileSync(voicePath);
+    const planBeforeCaptionsOnly = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifestBeforeCaptionsOnly = readFileSync(manifestPath, "utf8");
+
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:updated"), null, 2)}\n`);
+    const captionsOnly = captureConsole(() => buildRun([project.outputDir, "--captions-only"]));
+    assert.equal(captionsOnly.code, 0, captionsOnly.stderr);
+    const captionsOnlyPlan = JSON.parse(readFileSync(planPath, "utf8"));
+    assert.deepEqual(captionsOnlyPlan.frames, planBeforeCaptionsOnly.frames);
+    assert.deepEqual(captionsOnlyPlan.visualBindings, planBeforeCaptionsOnly.visualBindings);
+    assert.equal(readFileSync(manifestPath, "utf8"), manifestBeforeCaptionsOnly);
+    assert.equal(readFileSync(sourcePath, "utf8"), sourceBefore);
+    assert.equal(readFileSync(voicePath).equals(voiceBefore), true);
+
+    const refreshed = captureConsole(() => buildRun([project.outputDir]));
+    assert.equal(refreshed.code, 0, refreshed.stderr);
+    const plan = JSON.parse(readFileSync(planPath, "utf8"));
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.equal(plan.visualBindings["01-intro"][0].target, "Target:updated");
+    assert.equal(manifest.bindings[0].target, "Target:updated");
+
+    const planBeforeFailure = readFileSync(planPath, "utf8");
+    const manifestBeforeFailure = readFileSync(manifestPath, "utf8");
+    writeFileSync(registryPath, `${JSON.stringify(registry("Target:rollback"), null, 2)}\n`);
+    const failed = captureConsole(() => buildRun(
+      [project.outputDir, "--captions-only"],
+      failingBuildDependencies("remotion", 1),
+    ));
+    assert.equal(failed.code, 1, failed.stderr);
+    assert.equal(readFileSync(planPath, "utf8"), planBeforeFailure);
+    assert.equal(readFileSync(manifestPath, "utf8"), manifestBeforeFailure);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
   }
 });

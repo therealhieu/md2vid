@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync, existsSync, lstatSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -80,19 +80,73 @@ async function runOf(script: string): Promise<(argv: string[]) => Promise<number
 async function captureRun(
   run: (argv: string[]) => Promise<number> | number,
   argv: string[],
-): Promise<{ code: number; stdout: string; stderr: string }> {
+): Promise<{ code: number; stdout: string; stderr: string; warnings: string }> {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const warnings: string[] = [];
   const originalLog = console.log;
   const originalError = console.error;
+  const originalWarn = console.warn;
   try {
     console.log = (...args: unknown[]) => stdout.push(args.join(" "));
     console.error = (...args: unknown[]) => stderr.push(args.join(" "));
-    return { code: await run(argv), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    return {
+      code: await run(argv),
+      stdout: stdout.join("\n"),
+      stderr: stderr.join("\n"),
+      warnings: warnings.join("\n"),
+    };
   } finally {
     console.log = originalLog;
     console.error = originalError;
+    console.warn = originalWarn;
   }
+}
+
+function versionedTranscriptionProject() {
+  const root = mkdtempSync(join(tmpdir(), "run-exports-versioned-transcribe-"));
+  const output = join(root, "hyperframes");
+  const shared = join(root, "shared");
+  const requestPath = join(shared, "audio_request.json");
+  const metaPath = join(shared, "audio_meta.json");
+  const evidencePath = join(shared, "narration_evidence.json");
+  mkdirSync(output, { recursive: true });
+  mkdirSync(join(shared, "assets", "voice"), { recursive: true });
+  writeFileSync(join(shared, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
+  writeFileSync(requestPath, `${JSON.stringify({
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [{ id: "intro", text: "Introduce the topic." }],
+  }, null, 2)}\n`);
+  writeFileSync(metaPath, `${JSON.stringify({
+    tts_provider: "kokoro",
+    voice_id: "am_michael",
+    voices: [{ id: "intro", path: "assets/voice/intro.wav", duration_s: 999, words: [] }],
+  }, null, 2)}\n`);
+  return { root, output, shared, requestPath, metaPath, evidencePath };
+}
+
+function transcribeWithWords(meta: import("../../engine/types.ts").AudioMeta, baseDir: string) {
+  return transcribeVoices(meta, baseDir, {
+    run(args) {
+      const transcriptDir = args[args.indexOf("--dir") + 1]!;
+      writeFileSync(join(transcriptDir, "transcript.json"), JSON.stringify([
+        { text: "Introduce", start: 0, end: 0.5 },
+        { text: "topic", start: 0.5, end: 1 },
+      ]));
+      return 0;
+    },
+  });
+}
+
+function findTranscribeResidue(project: string): string[] {
+  return readdirSync(project, { recursive: true, encoding: "utf8" })
+    .filter((path) => path.includes(".md2vid-transcribe-") || path.includes("md2vid-backup"))
+    .sort();
 }
 
 test("build: run() returns 0 on a valid video, non-zero on a missing dir", async () => {
@@ -381,6 +435,343 @@ test("transcribe does not persist partial provider results", async () => {
   }
 });
 
+test("versioned transcribe atomically writes metadata and narration evidence", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const result = await captureRun(
+      (argv) => module.run(argv, { transcribeVoices: transcribeWithWords }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    const meta = JSON.parse(readFileSync(project.metaPath, "utf8"));
+    const evidence = JSON.parse(readFileSync(project.evidencePath, "utf8"));
+    assert.equal(meta.tts_provider, "kokoro");
+    assert.equal(meta.voice_id, "am_michael");
+    assert.equal(evidence.provider, "kokoro");
+    assert.equal(evidence.voice, "am_michael");
+    assert.equal(evidence.voices[0].duration_s, meta.voices[0].duration_s);
+    assert.equal(evidence.voices[0].sha256.length, 64);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe reports retained and uncertain backups after committed cleanup failures", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    writeFileSync(project.evidencePath, '{"old":true}\n');
+    const retainedBackup = `${project.metaPath}.md2vid-backup-0`;
+    const uncertainBackup = `${project.evidencePath}.md2vid-backup-1`;
+    let cleanupStarted = false;
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices: transcribeWithWords,
+        transactionDependencies: {
+          remove(path: string, options: Parameters<typeof rmSync>[1]) {
+            if (path === retainedBackup) {
+              cleanupStarted = true;
+              throw new Error("forced metadata backup cleanup failure");
+            }
+            rmSync(path, options);
+          },
+          lstat(path: string) {
+            if (cleanupStarted && path === uncertainBackup) {
+              throw new Error("forced uncertain backup inspection failure");
+            }
+            return lstatSync(path);
+          },
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(readFileSync(project.metaPath, "utf8")).voices[0].duration_s, 1);
+    assert.equal(JSON.parse(readFileSync(project.evidencePath, "utf8")).provider, "kokoro");
+    assert.match(result.warnings, /forced metadata backup cleanup failure/);
+    assert.match(result.warnings, new RegExp(`retained backups: ${retainedBackup.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`));
+    assert.match(result.warnings, new RegExp(`uncertain backups: ${uncertainBackup.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`));
+    assert.equal(existsSync(retainedBackup), true);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe rejects duplicate voice WAV paths before provider execution", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const request = JSON.parse(readFileSync(project.requestPath, "utf8"));
+    request.lines.push({ id: "recap", text: "Recap the topic." });
+    writeFileSync(project.requestPath, `${JSON.stringify(request, null, 2)}\n`);
+    const meta = JSON.parse(readFileSync(project.metaPath, "utf8"));
+    meta.voices.push({
+      id: "recap",
+      path: "assets/voice/intro.wav",
+      duration_s: 999,
+      words: [],
+    });
+    writeFileSync(project.metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+    const originalMeta = readFileSync(project.metaPath);
+    const originalEvidence = Buffer.from('{"old":true}\n');
+    writeFileSync(project.evidencePath, originalEvidence);
+    let providerCalls = 0;
+
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta, baseDir: string) {
+          providerCalls += 1;
+          return transcribeWithWords(meta, baseDir);
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /duplicate voice WAV path/);
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+    assert.deepEqual(readFileSync(project.evidencePath), originalEvidence);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+for (const [name, failureAt] of [
+  ["first", 1],
+  ["second", 2],
+] as const) {
+  test(`${name} versioned metadata/evidence promotion failure restores both prior destinations`, async () => {
+    const module = await import(join(SCRIPTS, "transcribe.ts"));
+    const project = versionedTranscriptionProject();
+    try {
+      const originalMeta = readFileSync(project.metaPath);
+      const originalEvidence = Buffer.from('{"old":true}\n');
+      writeFileSync(project.evidencePath, originalEvidence);
+      let promotions = 0;
+
+      const result = await captureRun(
+        (argv) => module.run(argv, {
+          transcribeVoices: transcribeWithWords,
+          transactionDependencies: {
+            rename(from: string, to: string) {
+              if (String(from).includes(".md2vid-transcribe-") && ++promotions === failureAt) {
+                const error = new Error(`forced ${name} promotion failure`) as NodeJS.ErrnoException;
+                error.code = "EIO";
+                throw error;
+              }
+              renameSync(from, to);
+            },
+          },
+        }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, new RegExp(`forced ${name} promotion failure`));
+      assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+      assert.deepEqual(readFileSync(project.evidencePath), originalEvidence);
+      assert.deepEqual(findTranscribeResidue(project.root), []);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const [name, failureAt] of [
+  ["first", 1],
+  ["second", 2],
+] as const) {
+  test(`${name} versioned promotion failure with absent evidence leaves evidence absent`, async () => {
+    const module = await import(join(SCRIPTS, "transcribe.ts"));
+    const project = versionedTranscriptionProject();
+    try {
+      const originalMeta = readFileSync(project.metaPath);
+      assert.equal(existsSync(project.evidencePath), false);
+      let promotions = 0;
+      const result = await captureRun(
+        (argv) => module.run(argv, {
+          transcribeVoices: transcribeWithWords,
+          transactionDependencies: {
+            rename(from: string, to: string) {
+              if (String(from).includes(".md2vid-transcribe-") && ++promotions === failureAt) {
+                throw new Error(`forced absent-evidence ${name} promotion failure`);
+              }
+              renameSync(from, to);
+            },
+          },
+        }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, new RegExp(`forced absent-evidence ${name} promotion failure`));
+      assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+      assert.equal(existsSync(project.evidencePath), false);
+      assert.deepEqual(findTranscribeResidue(project.root), []);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
+test("versioned transcribe leaves both artifacts unchanged after partial transcription", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const originalMeta = readFileSync(project.metaPath);
+    const originalEvidence = Buffer.from('{"old":true}\n');
+    writeFileSync(project.evidencePath, originalEvidence);
+
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta) {
+          return { meta, ok: 0, total: 1, voiceSnapshots: [] };
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+    assert.deepEqual(readFileSync(project.evidencePath), originalEvidence);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe reports a malformed request path before provider execution", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  const project = versionedTranscriptionProject();
+  try {
+    const originalMeta = readFileSync(project.metaPath);
+    writeFileSync(project.requestPath, "{ malformed request");
+    let providerCalls = 0;
+    const result = await captureRun(
+      (argv) => module.run(argv, {
+        transcribeVoices(meta: import("../../engine/types.ts").AudioMeta) {
+          providerCalls += 1;
+          return { meta, ok: 1, total: 1, voiceSnapshots: [] };
+        },
+      }),
+      [project.output],
+    );
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, new RegExp(project.requestPath.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")));
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(readFileSync(project.metaPath), originalMeta);
+    assert.equal(existsSync(project.evidencePath), false);
+    assert.deepEqual(findTranscribeResidue(project.root), []);
+  } finally {
+    rmSync(project.root, { recursive: true, force: true });
+  }
+});
+
+test("versioned transcribe rejects invalid request versions and required fields before provider execution", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  for (const [name, request] of [
+    ["unsupported version", { version: 2, lines: [{ id: "intro", text: "Introduce the topic." }] }],
+    ["missing versioned fields", { version: 1, lines: [{ id: "intro", text: "Introduce the topic." }] }],
+  ] as const) {
+    const project = versionedTranscriptionProject();
+    try {
+      const originalMeta = readFileSync(project.metaPath);
+      writeFileSync(project.requestPath, `${JSON.stringify(request, null, 2)}\n`);
+      let providerCalls = 0;
+      const result = await captureRun(
+        (argv) => module.run(argv, {
+          transcribeVoices(meta: import("../../engine/types.ts").AudioMeta) {
+            providerCalls += 1;
+            return { meta, ok: 1, total: 1, voiceSnapshots: [] };
+          },
+        }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 1, name);
+      assert.equal(providerCalls, 0, name);
+      assert.deepEqual(readFileSync(project.metaPath), originalMeta, name);
+      assert.equal(existsSync(project.evidencePath), false, name);
+      assert.deepEqual(findTranscribeResidue(project.root), [], name);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("versioned transcribe rejects mismatched line IDs and provenance without writing artifacts", async () => {
+  const module = await import(join(SCRIPTS, "transcribe.ts"));
+  for (const [name, mutate] of [
+    ["line ID", (project: ReturnType<typeof versionedTranscriptionProject>) => {
+      const request = JSON.parse(readFileSync(project.requestPath, "utf8"));
+      request.lines[0].id = "other";
+      writeFileSync(project.requestPath, `${JSON.stringify(request, null, 2)}\n`);
+    }],
+    ["provider provenance", (project: ReturnType<typeof versionedTranscriptionProject>) => {
+      const meta = JSON.parse(readFileSync(project.metaPath, "utf8"));
+      meta.tts_provider = "heygen";
+      writeFileSync(project.metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+    }],
+    ["voice provenance", (project: ReturnType<typeof versionedTranscriptionProject>) => {
+      const meta = JSON.parse(readFileSync(project.metaPath, "utf8"));
+      meta.voice_id = "other";
+      writeFileSync(project.metaPath, `${JSON.stringify(meta, null, 2)}\n`);
+    }],
+  ] as const) {
+    const project = versionedTranscriptionProject();
+    try {
+      mutate(project);
+      const originalMeta = readFileSync(project.metaPath);
+      const result = await captureRun(
+        (argv) => module.run(argv, { transcribeVoices: transcribeWithWords }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 1, name);
+      assert.deepEqual(readFileSync(project.metaPath), originalMeta, name);
+      assert.equal(existsSync(project.evidencePath), false, name);
+      assert.deepEqual(findTranscribeResidue(project.root), [], name);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  }
+});
+
+for (const [name, request] of [
+  ["no request", undefined],
+  ["unversioned request", { lines: [{ id: "intro", text: "Introduce the topic." }] }],
+] as const) {
+  test(`legacy transcribe with ${name} updates only metadata and preserves orphan evidence`, async () => {
+    const module = await import(join(SCRIPTS, "transcribe.ts"));
+    const project = versionedTranscriptionProject();
+    try {
+      if (request === undefined) rmSync(project.requestPath);
+      else writeFileSync(project.requestPath, `${JSON.stringify(request, null, 2)}\n`);
+      const orphanEvidence = Buffer.from('{"legacy-orphan":true}\n');
+      writeFileSync(project.evidencePath, orphanEvidence);
+
+      const result = await captureRun(
+        (argv) => module.run(argv, { transcribeVoices: transcribeWithWords }),
+        [project.output],
+      );
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.notEqual(JSON.parse(readFileSync(project.metaPath, "utf8")).voices[0].duration_s, 999);
+      assert.deepEqual(readFileSync(project.evidencePath), orphanEvidence);
+      assert.deepEqual(findTranscribeResidue(project.root), []);
+    } finally {
+      rmSync(project.root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("transcribe replaces invalid existing words and persists normalized provider output", async () => {
   const module = await import(join(SCRIPTS, "transcribe.ts"));
   const root = mkdtempSync(join(tmpdir(), "run-exports-transcribe-repair-"));
@@ -437,6 +828,7 @@ test("transcribe replaces invalid existing words and persists normalized provide
 
 test("project commands report neutral artifacts from the resolved shared directory", async () => {
   const build = await runOf("build.ts");
+  const plan = await runOf("plan.ts");
   const regroup = await runOf("regroup.ts");
   const transcribe = await runOf("transcribe.ts");
   const verify = await runOf("verify.ts");
@@ -467,7 +859,7 @@ test("project commands report neutral artifacts from the resolved shared directo
       assert.equal(regroupResult.code, 1);
       assert.ok(regroupResult.stderr.includes(join(shared, "caption_groups.json")), regroupResult.stderr);
 
-      writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: {} }));
+      writeFileSync(join(shared, "video.config.json"), JSON.stringify({ slugs: { intro: "01-intro" } }));
       writeFileSync(join(shared, "audio_meta.json"), JSON.stringify({
         voices: [{
           id: "intro",
@@ -483,6 +875,11 @@ test("project commands report neutral artifacts from the resolved shared directo
       }
       const verifyResult = await captureRun(verify, [output]);
       assert.ok(verifyResult.stdout.includes(join(shared, "caption_groups.json")), verifyResult.stdout);
+
+      const planResult = await captureRun(plan, [output]);
+      assert.equal(planResult.code, 0, planResult.stderr);
+      assert.ok(planResult.stdout.includes(shared), planResult.stdout);
+      assert.equal(existsSync(join(shared, "build", "visual_timing.json")), true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -529,10 +926,10 @@ test("project commands report layout stat failures instead of throwing", async (
     mkdirSync(output, { recursive: true });
     symlinkSync("shared", shared);
 
-    for (const script of ["build.ts", "regroup.ts", "transcribe.ts", "verify.ts"]) {
+    for (const script of ["build.ts", "plan.ts", "regroup.ts", "transcribe.ts", "verify.ts"]) {
       const result = await captureRun(await runOf(script), [output]);
       assert.equal(result.code, 1, script);
-      assert.match(result.stderr, /FAIL:/, script);
+      assert.match(result.stderr, script === "plan.ts" ? /FAIL \[plan\]/ : /FAIL:/, script);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -590,7 +987,7 @@ test("transcribe passes the resolved shared directory to its provider", async ()
 
     const transcribe: typeof import("../../engine/transcribe.ts").transcribeVoices = (meta, baseDir) => {
       receivedBase = baseDir;
-      return { meta, ok: 1, total: 1 };
+      return { meta, ok: 1, total: 1, voiceSnapshots: [] };
     };
 
     assert.equal(module.run([output], { transcribeVoices: transcribe }), 0);
@@ -640,4 +1037,18 @@ test("patch-studio: run() is idempotent and returns 0 against the installed bund
   const mod = await import(join(REPO_ROOT, "frameworks", "hyperframes", "patch-studio.ts"));
   assert.equal(typeof mod.run, "function", "patch-studio must export run(argv)");
   assert.equal(await mod.run([]), 0);
+});
+
+test("narration-check: run() returns 0 for help without creating project files", async () => {
+  const run = await runOf("narration_check.ts");
+  const root = mkdtempSync(join(tmpdir(), "run-exports-narration-check-"));
+  try {
+    const result = await captureRun(run, ["--help"]);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /Usage: md2vid narration-check/);
+    assert.equal(result.stderr, "");
+    assert.deepEqual(readdirSync(root), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

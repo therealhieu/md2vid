@@ -90,10 +90,19 @@ export function assertSkillMarkdownReferencesResolve(skillRoot: string): void {
   if (broken.length) throw new Error(`FAIL [skill-references]: broken Markdown links: ${broken.join("; ")}`);
 }
 
+const PORTABLE_MEDIA_COMMAND = 'node "$MEDIA_USE_ROOT/audio/scripts/audio.mjs"';
+const STALE_SKILL_GUIDANCE = /(?:\.\.\/)*scripts\/\S+\.(?:ts|mjs)|\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs|docs\/standards\/|outputs\/hash-table-example\/|frameworks\/[^/\s]+\/templates(?:\/\S+)?/;
+
 export function findStaleSkillGuidance(skillRoot: string): string[] {
-  const stale = /(?:\.\.\/)*scripts\/\S+\.(?:ts|mjs)|\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs|docs\/standards\/|outputs\/hash-table-example\/|frameworks\/[^/\s]+\/templates(?:\/\S+)?/;
   return markdownFiles(skillRoot)
-    .filter((path) => stale.test(readFileSync(path, "utf8")))
+    .filter((path) => {
+      const body = readFileSync(path, "utf8");
+      const withoutExactPortableCommand = body.split("\n").map((line) => {
+        const command = line.trim().replace(/\\\s*$/u, "").trim();
+        return command === PORTABLE_MEDIA_COMMAND ? "" : line;
+      }).join("\n");
+      return STALE_SKILL_GUIDANCE.test(withoutExactPortableCommand);
+    })
     .map((path) => relative(skillRoot, path));
 }
 

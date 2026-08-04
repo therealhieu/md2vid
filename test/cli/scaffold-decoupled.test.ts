@@ -34,22 +34,38 @@ const DOCS_STANDARDS = join(REPO_ROOT, "docs", "standards", "frameworks");
 const REPO_RELATIVE = /\.\.\/\.\.\/scripts|@\.\.\/\.\.\/docs/;
 
 const HYPERFRAMES_NEXT_STEPS = [
-  "review audio_request.json.example and generate narration",
-  "author frames in compositions/frames/",
+  "review audio_request.json.example and author the spoken script",
+  "materialize audio_request.json with explicit effective narration settings",
+  "run md2vid narration-check .",
+  "verify Kokoro readiness and generate fresh WAVs through /media-use",
+  "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
-  "npm run build",
-  "npm run check",
-  "npm run dev",
+  "transcribe → author visual-beats v2 → plan → inspect coverage intervals → bind semantic targets → build → verify continuous coverage → review → render",
+  "author visual_beats.json v2 with a static opening focal, body states, and a final frame-end landing",
+  "run npm run plan and inspect build/visual_timing.json coverage intervals",
+  "bind semantic targets in compositions/frames/ with data-md2vid-coverage=\"planned\" or owned helpers",
+  "run npm run build",
+  "run npm run check before preview or render",
+  "run npm run dev for listening and visual review",
+  "run npm run render after review",
 ];
 
 const REMOTION_NEXT_STEPS = [
   "npm install",
-  "review audio_request.json.example and generate narration",
-  "author and register src/scenes/*.tsx",
+  "review audio_request.json.example and author the spoken script",
+  "materialize audio_request.json with explicit effective narration settings",
+  "run md2vid narration-check .",
+  "verify Kokoro readiness and generate fresh WAVs through /media-use",
+  "run npm run transcribe",
   "fill video.config.json voice-id -> frame-slug mappings",
-  "npm run build",
-  "npm run check",
-  "npm run still or npm run studio",
+  "transcribe → author visual-beats v2 → plan → inspect coverage intervals → bind semantic targets → build → verify continuous coverage → review → render",
+  "author visual_beats.json v2 with a static opening focal, body states, and a final frame-end landing",
+  "run npm run plan and inspect build/visual_timing.json coverage intervals",
+  "bind semantic targets through visual_bindings.json plus BeatState/BeatReveal scenes",
+  "run npm run build",
+  "run npm run check before still, studio, preview, or render",
+  "run npm run still or npm run studio for review",
+  "run npm run render after review",
 ];
 
 function scaffold(slug: string, extraArgs: string[], outputsRoot: string) {
@@ -118,6 +134,7 @@ test("HF scaffold: CLAUDE.md/AGENTS.md @import the copied-in standard", () => {
       readFileSync(join(DOCS_STANDARDS, "hyperframes.md"), "utf8"),
       "copied standard is byte-identical to the packaged source",
     );
+    assert.match(readFileSync(copied, "utf8"), /md2vid-continuous-visual-coverage: 2/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -146,6 +163,7 @@ test("HF scaffold: runtime artifacts remain without local GSAP bytes", () => {
       "caption-overrides.json",
       "assets",
       join(".hyperframes", "caption-skin.html"),
+      join(".hyperframes", "frame-template.html"),
       join("compositions", "frames"),
     ]) {
       assert.ok(existsSync(join(dir, rel)), `scaffolder still writes ${rel}`);
@@ -231,6 +249,20 @@ test("HyperFrames frame template documents the canonical project-root-relative l
   assert.match(template, /assets\/gsap\/gsap\.min\.js/);
   assert.match(template, /unchanged|same project-root-relative path/i);
   assert.doesNotMatch(template, /\.\.\/\.\.\/.*gsap/i);
+});
+
+test("HyperFrames frame template teaches continuous declarative coverage without copied beat times", () => {
+  const template = readFileSync(
+    join(REPO_ROOT, "frameworks", "hyperframes", "templates", "frame-template.html"),
+    "utf8",
+  );
+  assert.match(template, /data-md2vid-beat="opening-context"/);
+  assert.match(template, /data-md2vid-enter="none"/);
+  assert.match(template, /data-md2vid-beat="body-detail"/);
+  assert.match(template, /data-md2vid-beat="final-landing"/);
+  assert.match(template, /data-md2vid-coverage="planned"/);
+  assert.match(template, /semantic activation\/retention/);
+  assert.doesNotMatch(template, /"beat"\s*:\s*"body-detail"[^}]*"start"\s*:/);
 });
 
 test("canonical HyperFrames frame template nests frame styles inside the composition root", () => {
@@ -331,6 +363,7 @@ test("HyperFrames scaffoldSpec declares framework-local config and proxy scripts
         allowMixedThemes: false,
         allowLegacyThemeInference: false,
       },
+      render: { profile: "final", fps: 30, minimumFinalFps: 24 },
     },
     frameworkCheck: "md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
     packageScripts: {
@@ -394,6 +427,7 @@ test("generated framework package scripts expose verified workflows", () => {
   const expected = {
     hyperframes: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
+      plan: "md2vid plan .",
       transcribe: "md2vid transcribe .",
       verify: "md2vid verify .",
       check: "md2vid verify . && md2vid hyperframes lint && md2vid hyperframes validate && md2vid hyperframes inspect",
@@ -403,6 +437,7 @@ test("generated framework package scripts expose verified workflows", () => {
     },
     remotion: {
       build: "md2vid build . && md2vid regroup . --max-chars 54",
+      plan: "md2vid plan .",
       transcribe: "md2vid transcribe .",
       verify: "md2vid verify .",
       check: "md2vid verify . && tsc --noEmit -p tsconfig.json",
@@ -448,6 +483,8 @@ test("Remotion ensureRuntime recursively fills missing templates without overwri
       ".gitignore",
       join("src", "index.ts"),
       join("src", "Video.tsx"),
+      join("src", "VisualBeats.tsx"),
+      join("src", "types.ts"),
     ]) {
       assert.ok(existsSync(join(root, rel)), `runtime wrote missing ${rel}`);
     }
@@ -464,7 +501,8 @@ for (const framework of ["hyperframes", "remotion"] as const) {
       const dir = join(root, `complete-${framework}`);
       const neutral = JSON.parse(readFileSync(join(dir, "video.config.json"), "utf8"));
       const local = JSON.parse(readFileSync(join(dir, "output.config.json"), "utf8"));
-      assert.deepEqual(Object.keys(neutral), ["$comment", "timing", "canvas", "slugs"]);
+      assert.deepEqual(Object.keys(neutral), ["$comment", "timing", "canvas", "slugs", "visualSync"]);
+      assert.deepEqual(neutral.visualSync, { mode: "required", coverageMode: "required", maxLead: 0.25, maxLag: 0.75, maxUncoveredGap: 0.5, minLanding: 1 });
       assert.equal(neutral.framework, undefined);
       assert.equal(neutral.gsapSrc, undefined);
       assert.equal(local.framework, framework);
@@ -472,6 +510,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
         "meta.json",
         "package.json",
         "audio_request.json.example",
+        "visual_beats.json.example",
         "video.config.json",
         "output.config.json",
         "CLAUDE.md",
@@ -486,6 +525,7 @@ for (const framework of ["hyperframes", "remotion"] as const) {
             "caption-overrides.json",
             "assets",
             join(".hyperframes", "caption-skin.html"),
+            join(".hyperframes", "frame-template.html"),
             join("compositions", "frames"),
           ]
         : [

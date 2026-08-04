@@ -7,7 +7,14 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_GSAP_SRC } from "../scaffold.ts";
-import { verify, verifyFrameShell, verifyHyperframesCaptionArtifact } from "../verify.ts";
+import { getAdapter } from "../../index.ts";
+import { resolveVerificationFps, verify, verifyFrameShell, verifyHyperframesCaptionArtifact } from "../verify.ts";
+import type {
+  AdapterVerifyContext,
+  BuildPlan,
+  VisualBindingManifest,
+  VisualBindingManifestV1,
+} from "../../../engine/types.ts";
 
 const errs = (findings: Array<{ level: string; msg: string }>) =>
   findings.filter((f) => f.level === "error").map((f) => f.msg);
@@ -91,10 +98,167 @@ const visualFrame = ({
 const warns = (findings: Array<{ level: string; msg: string }>) =>
   findings.filter((finding) => finding.level === "warn").map((finding) => finding.msg);
 
+function semanticPlan(): BuildPlan {
+  return {
+    version: 1,
+    canvas: { width: 1920, height: 1080 },
+    timing: { tail: 0.5, xfade: 0.5, gap: 0 },
+    totalDuration: 2.5,
+    frames: [{
+      id: "reserve-flow",
+      frameNum: 1,
+      slug: "reserve-flow",
+      voicePath: "assets/voice/reserve-flow.wav",
+      voiceDur: 2,
+      frameDur: 2.5,
+      start: 0,
+      words: [],
+      visualBeats: [{
+        version: 1,
+        id: "execute",
+        text: "Execute",
+        start: 1,
+        cueWordIndex: 0,
+        cueText: "Execute",
+        sourceRefs: [],
+        tolerance: { maxLead: 0.25, maxLag: 0.75 },
+      }],
+    }],
+    captionGroups: [],
+  };
+}
+
+function semanticIndex(fps: number, hostDuration = 2.5): string {
+  return `<script src="${DEFAULT_GSAP_SRC}"></script>
+<div data-composition-id="main" data-fps="${fps}">
+  <div id="el-reserve-flow" data-composition-id="reserve-flow" data-duration="${hostDuration}"></div>
+</div>
+<script>window.__timelines["main"] = 1;</script>
+${embeddedCaptions(DEFAULT_GROUPS)}`;
+}
+
+function semanticManifest(
+  overrides: Partial<VisualBindingManifestV1> = {},
+): VisualBindingManifestV1 {
+  return {
+    version: 1,
+    framework: "hyperframes",
+    bindings: [{
+      frameSlug: "reserve-flow",
+      beatId: "execute",
+      target: "#execute",
+      revealStart: 1,
+      revealDuration: 0.25,
+      source: "declarative",
+      authoredDuration: 2,
+      outerDuration: 2.5,
+    }],
+    ...overrides,
+  };
+}
+
+function semanticContext(output: string, fps: number, bindings?: VisualBindingManifest): AdapterVerifyContext {
+  return {
+    plan: semanticPlan(),
+    videoDir: output,
+    sharedDir: join(output, "..", "shared"),
+    config: { framework: "hyperframes" },
+    policy: {
+      mode: "required",
+      coverageMode: "warn",
+      maxLead: 0.25,
+      maxLag: 0.75,
+      maxUncoveredGap: 0.5,
+      minLanding: 0.5,
+    },
+    fps,
+    bindings,
+  };
+}
+
 test("passes a well-formed HF video", () => {
   const { root, output } = makeVideo();
   try {
     assert.deepEqual(errs(verify(output)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verifies semantic binding manifests against the current plan", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(30) });
+  try {
+    assert.deepEqual(errs(verify(semanticContext(output, 30, semanticManifest()))), []);
+
+    const missing = errs(verify(semanticContext(output, 30)));
+    assert.ok(missing.some((message) => message.includes("visual binding manifest is missing")), JSON.stringify(missing));
+
+    const early = errs(verify(semanticContext(output, 30, semanticManifest({
+      bindings: [{ ...semanticManifest().bindings[0], revealStart: 0.2 }],
+    }))));
+    assert.ok(early.some((message) => message.includes("lead is 0.800s")), JSON.stringify(early));
+
+    const unknown = errs(verify(semanticContext(output, 30, semanticManifest({
+      bindings: [{ ...semanticManifest().bindings[0], beatId: "stale" }],
+    }))));
+    assert.ok(unknown.some((message) => message.includes("unknown beat \"stale\"")), JSON.stringify(unknown));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("registered HyperFrames adapter preserves semantic verification context", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(30) });
+  try {
+    const findings = getAdapter("hyperframes").verify(semanticContext(output, 30));
+    assert.ok(errs(findings).some((message) => message.includes("visual binding manifest is missing")), JSON.stringify(findings));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads emitted host duration for planned frames without visual bindings", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(30, 2.4) });
+  try {
+    const bindings = semanticManifest({
+      bindings: [],
+      frames: [{ frameSlug: "reserve-flow", authoredDuration: 1.9 }],
+    });
+    const messages = errs(verify(semanticContext(output, 30, bindings)));
+    assert.ok(messages.some((message) => message.includes("has no visual binding")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("authored duration")), JSON.stringify(messages));
+    assert.ok(messages.some((message) => message.includes("outer duration")), JSON.stringify(messages));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses main-root FPS even when captions advertise a conflicting FPS", () => {
+  const index = semanticIndex(24).replace(
+    'data-composition-id="captions"',
+    'data-composition-id="captions" data-fps="60"',
+  );
+  const { root, output } = makeVideo({ index });
+  try {
+    assert.equal(resolveVerificationFps({}, output), 24);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uses main-root FPS and frame quantization when checking binding durations", () => {
+  const { root, output } = makeVideo({ index: semanticIndex(24) });
+  try {
+    assert.equal(resolveVerificationFps({}, output), 24);
+    const nonAligned = semanticManifest({
+      bindings: [{ ...semanticManifest().bindings[0], authoredDuration: 2.019 }],
+    });
+    assert.deepEqual(errs(verify(semanticContext(output, 24, nonAligned))), []);
+    const atSixty = errs(verify(semanticContext(output, 60, nonAligned)));
+    assert.ok(atSixty.some((message) => message.includes("authored duration") && message.includes("at 60 FPS")), JSON.stringify(atSixty));
+
+    writeFileSync(join(output, "index.html"), semanticIndex(60));
+    assert.equal(resolveVerificationFps({}, output), 60);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

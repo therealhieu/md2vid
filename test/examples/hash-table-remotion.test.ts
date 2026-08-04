@@ -28,17 +28,20 @@ const EXPECTED_SCENES = [
 ];
 const COPY_VIDEO = "cp ../examples/hash-table/remotion/src/Video.tsx src/Video.tsx";
 const COPY_SCENES = "cp -R ../examples/hash-table/remotion/src/scenes src/";
+const COPY_BINDINGS = "cp ../examples/hash-table/remotion/visual_bindings.json .";
 const EXPECTED_STEPS = [
   "1. `md2vid new hash-table --framework remotion`",
   "2. `cd hash-table`",
   "3. `npm install`",
   `4. \`${COPY_VIDEO}\``,
   `5. \`${COPY_SCENES}\``,
-  "6. Review `../examples/hash-table/remotion/video.config.json` and merge its mappings into `video.config.json`; do not overwrite the project config.",
-  "7. Generate narration matching the example IDs.",
-  "8. `npm run build`",
-  "9. `npm run check`",
-  "10. `npm run still` or `npm run studio`",
+  `6. \`${COPY_BINDINGS}\``,
+  "7. Review `../examples/hash-table/remotion/video.config.json` and merge its mappings into `video.config.json`; do not overwrite the project config.",
+  "8. Generate narration matching the example IDs.",
+  "9. After narration and transcription, author or merge compatible neutral `visual_beats.json` entries before `npm run plan`.",
+  "10. `npm run build`",
+  "11. `npm run check`",
+  "12. `npm run still` or `npm run studio`",
 ].join("\n");
 
 test("hash-table Remotion example retains all scene routes", () => {
@@ -60,6 +63,32 @@ test("hash-table Remotion example retains all scene routes", () => {
   }
 });
 
+test("hash-table Remotion lookup flow uses unique static beat bindings", () => {
+  const scene = readFileSync(join(EXAMPLE, "src", "scenes", "LookupFlowScene.tsx"), "utf8");
+  assert.doesNotMatch(scene, /const CUES\s*=\s*\[/);
+  for (const target of ["LookupFlow:probe", "LookupFlow:match", "LookupFlow:return"]) {
+    assert.match(scene, new RegExp(`useVisualBeatProgress\\(${JSON.stringify(target)}\\)`));
+  }
+
+  const registryPath = join(EXAMPLE, "visual_bindings.json");
+  assert.equal(existsSync(registryPath), true);
+  const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
+    frames: Record<string, Array<{ beat: string; target: string }>>;
+  };
+  const bindings = registry.frames["03-lookup-flow"];
+  assert.deepEqual(bindings.map((binding) => binding.beat), ["lookup-probe", "lookup-match", "lookup-return"]);
+  assert.deepEqual(bindings.map((binding) => binding.target), ["LookupFlow:probe", "LookupFlow:match", "LookupFlow:return"]);
+  assert.equal(new Set(bindings.map((binding) => binding.target)).size, bindings.length);
+
+  const readme = readFileSync(join(EXAMPLE, "README.md"), "utf8");
+  assert.match(readme, /cp .*visual_bindings\.json \./);
+  assert.match(readme, /visual_beats\.json/);
+  assert.match(readme, /after narration.*transcript|after transcription/i);
+  for (const beat of bindings.map((binding) => binding.beat)) {
+    assert.match(readme, new RegExp(`id.*${beat}`));
+  }
+});
+
 test("hash-table Remotion example stays public but excluded from the npm package", () => {
   const packageFiles = (JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8")) as {
     files: string[];
@@ -70,6 +99,7 @@ test("hash-table Remotion example stays public but excluded from the npm package
 test("hash-table Remotion example ships exact configs and safe overlay instructions", () => {
   assert.deepEqual(JSON.parse(readFileSync(join(EXAMPLE, "video.config.json"), "utf8")), {
     timing: { tail: 0.5, xfade: 0.5, gap: 0.5 },
+    visualSync: { mode: "required" },
     canvas: { width: 1920, height: 1080 },
     slugs: {
       cover: "01-cover",
@@ -107,12 +137,17 @@ test("README copy commands overlay a repo-root scaffold without touching unrelat
 
     execFileSync("sh", ["-c", COPY_VIDEO], { cwd: project });
     execFileSync("sh", ["-c", COPY_SCENES], { cwd: project });
+    execFileSync("sh", ["-c", COPY_BINDINGS], { cwd: project });
 
     assert.equal(readFileSync(sentinel, "utf8"), "// unrelated authored file\n");
     assert.equal(readFileSync(config, "utf8"), "{\"custom\":true}\n");
     assert.equal(
       readFileSync(join(project, "src", "Video.tsx"), "utf8"),
       readFileSync(join(EXAMPLE, "src", "Video.tsx"), "utf8"),
+    );
+    assert.equal(
+      readFileSync(join(project, "visual_bindings.json"), "utf8"),
+      readFileSync(join(EXAMPLE, "visual_bindings.json"), "utf8"),
     );
     for (const scene of EXPECTED_SCENES) {
       assert.equal(existsSync(join(project, "src", "scenes", `${scene}.tsx`)), true);

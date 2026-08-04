@@ -1,15 +1,12 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
 import {
   Background,
   Headline,
   Kicker,
   StrokeLine,
-  activeCueIndex,
-  progressAt,
-  reveal,
 } from "../primitives";
 import { THEME } from "../theme";
+import { useVisualBeatProgress } from "../VisualBeats";
 
 const STATIONS = [
   { step: "01 · key", term: '"apple"', sub: null as string | null },
@@ -17,14 +14,13 @@ const STATIONS = [
   { step: "03 · index", term: "mod size", sub: "→ bucket" },
   { step: "04 · value", term: "read it", sub: null },
 ] as const;
-const CUES = [2.4, 4.8, 7.5, 12.1];
 
 export const LookupFlowScene: React.FC<{ opacity: number }> = ({ opacity }) => {
-  const f = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const header = reveal(f, fps, 0, 0.5, 20);
-  const tSec = f / fps;
-  const live = activeCueIndex(tSec, CUES);
+  const probe = useVisualBeatProgress("LookupFlow:probe");
+  const match = useVisualBeatProgress("LookupFlow:match");
+  const returnValue = useVisualBeatProgress("LookupFlow:return");
+  const stationProgress = [probe, probe, match, returnValue];
+  const live = returnValue > 0 ? 3 : match > 0 ? 2 : probe > 0 ? 0 : -1;
 
   return (
     <Background opacity={opacity}>
@@ -33,8 +29,6 @@ export const LookupFlowScene: React.FC<{ opacity: number }> = ({ opacity }) => {
           position: "absolute",
           left: 150,
           top: 84,
-          opacity: header.opacity,
-          transform: `translateY(${header.y}px)`,
         }}
       >
         <Kicker text="HOW A LOOKUP WORKS" />
@@ -51,16 +45,14 @@ export const LookupFlowScene: React.FC<{ opacity: number }> = ({ opacity }) => {
           alignItems: "center",
         }}
       >
-        {STATIONS.map((s, i) => {
-          const r = reveal(f, fps, CUES[i], 0.4, 18);
-          const isLive = live === i;
-          const connProgress =
-            i === 0 ? 0 : progressAt(f, fps, CUES[i] - 0.2, 0.4);
+        {STATIONS.map((station, index) => {
+          const progress = stationProgress[index];
+          const isLive = live === index;
           return (
-            <React.Fragment key={s.step}>
-              {i > 0 && (
+            <React.Fragment key={station.step}>
+              {index > 0 && (
                 <div style={{ flex: "1 1 auto", height: 40, display: "flex", alignItems: "center" }}>
-                  <StrokeLine progress={connProgress} width={120} />
+                  <StrokeLine progress={stationProgress[index]} width={120} />
                 </div>
               )}
               <div
@@ -78,8 +70,8 @@ export const LookupFlowScene: React.FC<{ opacity: number }> = ({ opacity }) => {
                   justifyContent: "center",
                   padding: "0 20px",
                   textAlign: "center",
-                  opacity: r.opacity,
-                  transform: `translateY(${r.y}px)`,
+                  opacity: progress,
+                  transform: `translateY(${(1 - progress) * 18}px)`,
                 }}
               >
                 <div
@@ -92,12 +84,12 @@ export const LookupFlowScene: React.FC<{ opacity: number }> = ({ opacity }) => {
                     marginBottom: 14,
                   }}
                 >
-                  {s.step}
+                  {station.step}
                 </div>
-                <div style={{ fontFamily: THEME.monoFont, fontSize: 30, color: THEME.ink }}>{s.term}</div>
-                {s.sub && (
+                <div style={{ fontFamily: THEME.monoFont, fontSize: 30, color: THEME.ink }}>{station.term}</div>
+                {station.sub && (
                   <div style={{ fontFamily: THEME.bodyFont, fontSize: 20, color: THEME.muted, marginTop: 10 }}>
-                    {s.sub}
+                    {station.sub}
                   </div>
                 )}
               </div>

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import {
   appendFileSync,
@@ -21,7 +21,7 @@ import {
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gunzipSync } from "node:zlib";
 import puppeteer from "puppeteer-core";
 import { readPackageMetadata } from "../../scripts/package_root.ts";
@@ -1065,15 +1065,473 @@ export function assertInstalledSkill(
   }
 }
 
-function stageFlatAuthoredInputs(project: string): void {
-  cpSync(join(FIXTURES, "audio_meta.json"), join(project, "audio_meta.json"));
-  cpSync(join(FIXTURES, "assets", "voice"), join(project, "assets", "voice"), {
+export const RETAINED_KOKORO_FIXTURE_ROOT = join(
+  REPO_ROOT,
+  "test",
+  "release",
+  "fixtures",
+  "kokoro-am-michael",
+);
+
+interface FixtureMeta {
+  version: number;
+  kind: string;
+  freshSynthesisDuringTest: boolean;
+  freshTranscriptionDuringTest: boolean;
+  provider: string;
+  voice: string;
+  requestedSpeed: number;
+  transcriptSource: string;
+  transcriptSha256: string;
+  sourceLines: Record<string, string>;
+  wavSha256: Record<string, string>;
+}
+
+interface RetainedNarrationRequest {
+  version: 1;
+  provider: "kokoro";
+  voice: "am_michael";
+  lang: "en";
+  speed: 0.9;
+  lines: Array<{ id: string; text: string }>;
+}
+
+interface RetainedTranscriptWord {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+}
+
+interface RetainedKokoroFixture {
+  meta: FixtureMeta;
+  request: RetainedNarrationRequest;
+  expectedWords: Record<string, RetainedTranscriptWord[]>;
+  audioMeta: {
+    tts_provider: string;
+    voice_id: string;
+    voices: Array<{ id: string; path: string; duration_s: number; words: unknown[] }>;
+  };
+}
+
+export const RETAINED_NARRATION_STAGES = [
+  "assert scaffold audio_request.json.example",
+  "copy versioned retained fixture request",
+  "run installed narration-check",
+  "capture test-owned media arguments",
+  "copy retained Kokoro/Michael WAVs",
+  "run installed transcribe with injected transcript provider",
+  "assert narration_evidence.json",
+  "mutate spoken text and prove planning rejects stale evidence",
+  "restore request",
+  "build/check HyperFrames",
+  "build/check Remotion",
+] as const;
+
+type RetainedNarrationStage = typeof RETAINED_NARRATION_STAGES[number];
+type RetainedNarrationTerminalStage =
+  | typeof RETAINED_NARRATION_STAGES[9]
+  | typeof RETAINED_NARRATION_STAGES[10];
+
+export class RetainedNarrationStageSequence {
+  #next = 0;
+  #terminalStage: RetainedNarrationTerminalStage | undefined;
+
+  async run<T>(stage: RetainedNarrationStage, operation: () => T | Promise<T>): Promise<T> {
+    const firstFrameworkStage = RETAINED_NARRATION_STAGES.indexOf("build/check HyperFrames");
+    if (this.#next < firstFrameworkStage) {
+      const expected = RETAINED_NARRATION_STAGES[this.#next];
+      assert.equal(stage, expected, `retained narration stage ${stage} must run after ${expected}`);
+    } else {
+      assert.equal(this.#terminalStage, undefined, "retained narration can execute only one framework terminal stage");
+      if (stage !== "build/check HyperFrames" && stage !== "build/check Remotion") {
+        throw new Error(`retained narration stage must finish with a framework build/check, got ${stage}`);
+      }
+      this.#terminalStage = stage;
+    }
+    const result = await operation();
+    this.#next++;
+    return result;
+  }
+
+  complete(terminalStage: RetainedNarrationTerminalStage): void {
+    const expectedCount = RETAINED_NARRATION_STAGES.indexOf("build/check HyperFrames") + 1;
+    assert.equal(this.#terminalStage, terminalStage, `retained narration stages stopped before ${terminalStage}`);
+    assert.equal(this.#next, expectedCount, `retained narration stages must end after ${terminalStage}`);
+  }
+}
+
+function assertRetainedKokoroFixture(meta: FixtureMeta): void {
+  assert.equal(meta.kind, "retained-kokoro-fixture");
+  assert.equal(meta.freshSynthesisDuringTest, false);
+  assert.equal(meta.freshTranscriptionDuringTest, false);
+  assert.equal(meta.transcriptSource, "retained-md2vid-transcribe");
+  assert.equal(meta.provider, "kokoro");
+  assert.equal(meta.voice, "am_michael");
+  assert.equal(meta.requestedSpeed, 0.9);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function validateRetainedAbsoluteWords(
+  voiceId: string,
+  value: unknown,
+  duration_s: number,
+): RetainedTranscriptWord[] {
+  assert.ok(Number.isFinite(duration_s) && duration_s > 0, `${voiceId} must have a positive safe WAV duration`);
+  assert.ok(Array.isArray(value) && value.length > 0, `${voiceId} retained transcript must be non-empty`);
+  let previousEnd = 0;
+  return value.map((candidate, index) => {
+    assert.ok(isRecord(candidate), `${voiceId} word ${index} must be an object`);
+    assert.deepEqual(
+      Object.keys(candidate).sort(),
+      ["end", "id", "start", "text"],
+      `${voiceId} word ${index} must contain only id, text, start, and end`,
+    );
+    const { id, text, start, end } = candidate;
+    assert.ok(typeof id === "string" && id.length > 0, `${voiceId} word ${index} id must be non-empty`);
+    assert.ok(typeof text === "string" && text.length > 0, `${voiceId} word ${index} text must be non-empty`);
+    assert.ok(
+      typeof start === "number" && typeof end === "number" && Number.isFinite(start) && Number.isFinite(end),
+      `${voiceId} word ${index} times must be finite`,
+    );
+    assert.ok(start >= previousEnd, `${voiceId} words must be ordered without overlap`);
+    assert.ok(end > start && end <= duration_s, `${voiceId} word ${index} must fit its safe WAV duration`);
+    previousEnd = end;
+    return { id, text, start, end };
+  });
+}
+
+function readRetainedKokoroFixture(): RetainedKokoroFixture {
+  const meta = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "fixture.json"), "utf8")) as FixtureMeta;
+  assertRetainedKokoroFixture(meta);
+  const request = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_request.json"), "utf8")) as RetainedNarrationRequest;
+  assert.deepEqual(request, {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "followup", text: "Recap the key idea." },
+    ],
+  });
+  assert.deepEqual(meta.sourceLines, Object.fromEntries(request.lines.map((line) => [line.id, line.text])));
+
+  const transcriptBytes = readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "expected_words.json"));
+  assert.equal(createHash("sha256").update(transcriptBytes).digest("hex"), meta.transcriptSha256);
+  const expectedWordsJson: unknown = JSON.parse(transcriptBytes.toString("utf8"));
+  assert.ok(isRecord(expectedWordsJson), "retained transcript must be an object keyed by voice ID");
+  assert.deepEqual(Object.keys(expectedWordsJson), request.lines.map((line) => line.id));
+  for (const [path, digest] of Object.entries(meta.wavSha256)) {
+    assert.equal(
+      createHash("sha256").update(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, path))).digest("hex"),
+      digest,
+      `retained fixture hash for ${path}`,
+    );
+  }
+
+  const audioMeta = JSON.parse(readFileSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_meta.json"), "utf8")) as RetainedKokoroFixture["audioMeta"];
+  assert.equal(audioMeta.tts_provider, meta.provider);
+  assert.equal(audioMeta.voice_id, meta.voice);
+  assert.deepEqual(audioMeta.voices.map((voice) => voice.id), request.lines.map((line) => line.id));
+  assert.ok(audioMeta.voices.every((voice) => voice.words.length === 0), "retained metadata must be pre-transcription input");
+  const expectedWords: Record<string, RetainedTranscriptWord[]> = Object.fromEntries(
+    audioMeta.voices.map((voice) => [
+      voice.id,
+      validateRetainedAbsoluteWords(voice.id, expectedWordsJson[voice.id], voice.duration_s),
+    ]),
+  );
+  return { meta, request, expectedWords, audioMeta };
+}
+
+function assertScaffoldNarrationRequest(project: string): void {
+  assert.deepEqual(JSON.parse(readFileSync(join(project, "audio_request.json.example"), "utf8")), {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "recap", text: "Recap the key idea." },
+    ],
+  });
+}
+
+function copyRetainedNarrationRequest(project: string): void {
+  cpSync(
+    join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_request.json"),
+    join(project, "audio_request.json"),
+  );
+}
+
+function captureTestOwnedMediaArguments(project: string, request: RetainedNarrationRequest): string[] {
+  let captured: string[] | undefined;
+  const fakeMediaRunner = (args: string[]): void => { captured = [...args]; };
+  const effective = [
+    "--request", join(project, "audio_request.json"),
+    "--hyperframes", project,
+    "--out", join(project, "audio_meta.json"),
+    "--only", "tts",
+    "--provider", request.provider,
+    "--voice", request.voice,
+    "--lang", request.lang,
+    "--speed", String(request.speed),
+  ];
+  fakeMediaRunner(effective);
+  if (captured === undefined) throw new Error("test-owned media runner did not capture effective arguments");
+  assert.deepEqual(captured, effective);
+  return captured;
+}
+
+function stageRetainedKokoroAudio(project: string, retained: RetainedKokoroFixture): void {
+  cpSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "audio_meta.json"), join(project, "audio_meta.json"));
+  mkdirSync(join(project, "assets"), { recursive: true });
+  cpSync(join(RETAINED_KOKORO_FIXTURE_ROOT, "assets", "voice"), join(project, "assets", "voice"), {
     recursive: true,
   });
   const configPath = join(project, "video.config.json");
   const config = JSON.parse(readFileSync(configPath, "utf8"));
   config.slugs = { intro: "01-smoke", followup: "02-smoke" };
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync(
+    join(project, "visual_beats.json"),
+    `${JSON.stringify({
+      version: 2,
+      frames: {
+        "01-smoke": {
+          kind: "focal",
+          beats: [
+            {
+              id: "opening-context",
+              text: "Introduce the topic",
+              role: "focal",
+              cue: { frameStart: true },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:1-1"],
+            },
+            {
+              id: "final-landing",
+              text: "The topic",
+              role: "focal",
+              cue: { wordIndex: 1 },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:1-1"],
+            },
+          ],
+          coverageExemptions: [],
+        },
+        "02-smoke": {
+          kind: "focal",
+          beats: [
+            {
+              id: "opening-context",
+              text: "Recap the key idea",
+              role: "focal",
+              cue: { frameStart: true },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:2-2"],
+            },
+            {
+              id: "final-landing",
+              text: "The key idea",
+              role: "focal",
+              cue: { wordIndex: 0 },
+              coverage: { until: "frame-end" },
+              sourceRefs: ["smoke.md:2-2"],
+            },
+          ],
+          coverageExemptions: [],
+        },
+      },
+    }, null, 2)}\n`,
+  );
+  assert.deepEqual(
+    retained.audioMeta.voices.map(({ id, path, duration_s }) => ({ id, path, duration_s })),
+    JSON.parse(readFileSync(join(project, "audio_meta.json"), "utf8")).voices.map(
+      ({ id, path, duration_s }: { id: string; path: string; duration_s: number }) => ({ id, path, duration_s }),
+    ),
+  );
+}
+
+async function runInstalledFixtureTranscription(
+  context: ReleaseContext,
+  project: string,
+  retained: RetainedKokoroFixture,
+): Promise<void> {
+  const packageRoot = join(context.prefix, "node_modules", "md2vid");
+  const transcribe = await import(pathToFileURL(join(packageRoot, "dist", "scripts", "transcribe.js")).href) as typeof import("../../scripts/transcribe.ts");
+  const engine = await import(pathToFileURL(join(packageRoot, "dist", "engine", "transcribe.js")).href) as typeof import("../../engine/transcribe.ts");
+  const code = transcribe.run([project], {
+    transcribeVoices(meta, baseDir) {
+      return engine.transcribeVoices(meta, baseDir, {
+        run(args) {
+          const voicePath = args[1];
+          if (!voicePath) throw new Error("injected transcript runner received no voice path");
+          const voice = meta.voices.find((candidate) => candidate.path === voicePath);
+          if (!voice) throw new Error(`injected transcript runner has no voice for ${voicePath}`);
+          const words = retained.expectedWords[voice.id];
+          if (!words) throw new Error(`retained transcript has no words for ${voice.id}`);
+          const outIndex = args.indexOf("--dir");
+          const output = outIndex === -1 ? undefined : args[outIndex + 1];
+          if (!output) throw new Error("injected transcript runner received no output directory");
+          writeFileSync(join(output, "transcript.json"), `${JSON.stringify(words)}\n`);
+          return 0;
+        },
+      });
+    },
+  });
+  assert.equal(code, 0, "installed transcribe must accept retained absolute transcript words");
+}
+
+async function assertRetainedNarrationArtifacts(
+  context: ReleaseContext,
+  project: string,
+  retained: RetainedKokoroFixture,
+): Promise<void> {
+  assertRetainedKokoroFixture(retained.meta);
+  const packageRoot = join(context.prefix, "node_modules", "md2vid");
+  const requestModule = await import(pathToFileURL(join(packageRoot, "dist", "engine", "narration_request.js")).href) as typeof import("../../engine/narration_request.ts");
+  const voiceAssets = await import(pathToFileURL(join(packageRoot, "dist", "engine", "voice_assets.js")).href) as typeof import("../../engine/voice_assets.ts");
+  const request = requestModule.validateVersionedNarrationRequest(
+    JSON.parse(readFileSync(join(project, "audio_request.json"), "utf8")),
+    join(project, "audio_request.json"),
+  );
+  const metadata = JSON.parse(readFileSync(join(project, "audio_meta.json"), "utf8")) as RetainedKokoroFixture["audioMeta"];
+  const evidence = JSON.parse(readFileSync(join(project, "narration_evidence.json"), "utf8")) as {
+    requestSha256: string;
+    provider: string;
+    voice: string;
+    transcription: { source: string };
+    voices: Array<{ id: string; path: string; duration_s: number; sha256: string }>;
+  };
+  assert.equal(metadata.tts_provider, "kokoro");
+  assert.equal(metadata.voice_id, "am_michael");
+  assert.equal(evidence.requestSha256, requestModule.narrationRequestSha256(request));
+  assert.equal(evidence.provider, "kokoro");
+  assert.equal(evidence.voice, "am_michael");
+  assert.equal(evidence.transcription.source, "md2vid transcribe");
+  assert.deepEqual(evidence.voices.map((voice) => voice.id), metadata.voices.map((voice) => voice.id));
+  for (const voice of metadata.voices) {
+    const snapshot = voiceAssets.captureVoiceWavSnapshot(project, voice.path);
+    const evidenceVoice = evidence.voices.find((candidate) => candidate.id === voice.id);
+    if (!evidenceVoice) throw new Error(`narration evidence has no ${voice.id} voice`);
+    assert.equal(voice.duration_s, snapshot.duration_s, `${voice.id} metadata safe WAV duration`);
+    assert.equal(evidenceVoice.duration_s, snapshot.duration_s, `${voice.id} evidence safe WAV duration`);
+    assert.equal(evidenceVoice.sha256, retained.meta.wavSha256[voice.path], `${voice.id} evidence retained WAV hash`);
+    assert.equal(snapshot.digest, retained.meta.wavSha256[voice.path], `${voice.id} retained WAV hash`);
+    assert.deepEqual(voice.words, retained.expectedWords[voice.id], `${voice.id} must replay retained absolute words unchanged`);
+  }
+}
+
+function mutateNarrationAndAssertPlanRejects(context: ReleaseContext, project: string): Buffer {
+  const requestPath = join(project, "audio_request.json");
+  const original = readFileSync(requestPath);
+  const request = JSON.parse(original.toString("utf8")) as RetainedNarrationRequest;
+  request.lines[0] = { ...request.lines[0]!, text: "Introduce this topic." };
+  writeFileSync(requestPath, JSON.stringify(request, null, 2) + "\n");
+  const beforeOutputs = fileTree(project);
+  try {
+    runInstalledCli(context, ["plan", "."], project);
+    assert.fail("stale retained narration evidence must reject planning");
+  } catch (error) {
+    const commandError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+    const diagnostic = [commandError.message, commandError.stdout, commandError.stderr]
+      .filter((value) => value !== undefined)
+      .map(String)
+      .join("\n");
+    assert.match(diagnostic, /narration request digest.*Re-synthesize narration and rerun `md2vid transcribe`/);
+  }
+  assert.deepEqual(fileTree(project), beforeOutputs, "stale planning must not create or modify outputs");
+  return original;
+}
+
+function restoreRetainedNarrationRequest(project: string, original: Buffer): void {
+  writeFileSync(join(project, "audio_request.json"), original);
+}
+
+function commandDiagnostic(error: unknown): string {
+  const commandError = error as Error & { stdout?: string | Buffer; stderr?: string | Buffer };
+  return [commandError.message, commandError.stdout, commandError.stderr]
+    .filter((value) => value !== undefined)
+    .map(String)
+    .join("\n");
+}
+
+function assertInstalledVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+  expectedPath: RegExp,
+): void {
+  try {
+    runInstalledCli(context, ["verify", "."], project);
+    assert.fail("stale visual evidence must reject installed md2vid verify");
+  } catch (error) {
+    const diagnostic = commandDiagnostic(error);
+    assert.match(diagnostic, /stale_visual_evidence/);
+    assert.match(diagnostic, expectedPath);
+    assert.match(diagnostic, /Run `md2vid build` to regenerate semantic visual evidence/);
+  }
+}
+
+function mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const framePath = join(project, "compositions", "frames", "01-smoke.html");
+  const original = readFileSync(framePath);
+  writeFileSync(framePath, `${original.toString("utf8")}\n<!-- stale visual evidence mutation -->\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input compositions\/frames\/01-smoke\.html/);
+  writeFileSync(framePath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
+function mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const registryPath = join(project, "visual_bindings.json");
+  const original = readFileSync(registryPath);
+  writeFileSync(registryPath, `${original.toString("utf8").trimEnd()}\n\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input visual_bindings\.json/);
+  writeFileSync(registryPath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
+function mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence(
+  context: ReleaseContext,
+  project: string,
+): void {
+  const sourcePath = join(project, "src", "Video.tsx");
+  const original = readFileSync(sourcePath);
+  writeFileSync(sourcePath, `${original.toString("utf8")}\n// stale visual evidence mutation\n`);
+  assertInstalledVerifyRejectsStaleVisualEvidence(context, project, /changed authored input src\/Video\.tsx/);
+  writeFileSync(sourcePath, original);
+  assert.match(runInstalledCli(context, ["verify", "."], project), /OK: video contract satisfied/);
+}
+
+function stageFixtureSmokeFrame(
+  project: string,
+  frameSlug: "01-smoke" | "02-smoke",
+  duration: number,
+  gsapSrc: string,
+): void {
+  assert.ok(Number.isFinite(duration) && duration > 0.3, `retained ${frameSlug} duration must leave a smoke handoff window`);
+  const framePath = join(project, "compositions", "frames", `${frameSlug}.html`);
+  const source = readFileSync(join(FIXTURES, `${frameSlug}.html`), "utf8");
+  const authored = source
+    .replaceAll('data-duration="3"', `data-duration="${duration}"`)
+    .replace('data-md2vid-duration="0.2"', 'data-md2vid-duration="0.2" data-md2vid-coverage="planned"')
+    .replace("}, 2.7);", `}, ${duration - 0.3});`)
+    .replace("duration: 3, ease: \"none\"", `duration: ${duration}, ease: \"none\"`)
+    .replace("__MD2VID_DEFAULT_GSAP_SRC__", gsapSrc);
+  assert.notEqual(authored, source, `retained ${frameSlug} smoke frame must use the actual WAV duration`);
+  assert.doesNotMatch(authored, /data-duration="3"/);
+  writeFileSync(framePath, authored);
 }
 
 function assertCompleteScaffold(
@@ -1084,6 +1542,7 @@ function assertCompleteScaffold(
     "meta.json",
     "video.config.json",
     "audio_request.json.example",
+    "visual_beats.json.example",
     "output.config.json",
     "package.json",
     "CLAUDE.md",
@@ -1096,6 +1555,7 @@ function assertCompleteScaffold(
         "caption-overrides.json",
         "assets",
         ".hyperframes/caption-skin.html",
+        ".hyperframes/frame-template.html",
         "compositions/frames",
       ]
     : [
@@ -1106,9 +1566,34 @@ function assertCompleteScaffold(
         "src/index.ts",
         "src/Root.tsx",
         "src/Video.tsx",
+        "src/VisualBeats.tsx",
       ];
   for (const path of [...common, ...runtime]) {
     assert.ok(existsSync(join(project, path)), `scaffold must provide ${path}`);
+  }
+  const packageManifest = JSON.parse(readFileSync(join(project, "package.json"), "utf8")) as {
+    scripts?: Record<string, unknown>;
+  };
+  assert.equal(packageManifest.scripts?.plan, "md2vid plan .");
+  const neutralConfig = JSON.parse(readFileSync(join(project, "video.config.json"), "utf8")) as {
+    visualSync?: unknown;
+  };
+  assert.deepEqual(neutralConfig.visualSync, {
+    mode: "required",
+    coverageMode: "required",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  });
+  const standard = readFileSync(join(project, ".md2vid", "standards", `${framework}.md`), "utf8");
+  if (framework === "hyperframes") {
+    assert.match(standard, /data-md2vid-beat/);
+    assert.match(standard, /data-md2vid-custom-bindings/);
+    assert.match(readFileSync(join(project, ".hyperframes", "frame-template.html"), "utf8"), /data-md2vid-beat/);
+  } else {
+    assert.match(standard, /static.*visual_bindings\.json/is);
+    assert.match(readFileSync(join(project, "src", "VisualBeats.tsx"), "utf8"), /BeatReveal/);
   }
   if (framework === "hyperframes") {
     assert.equal(existsSync(join(project, "assets", "gsap.min.js")), false);
@@ -1123,6 +1608,7 @@ function assertGeneratedPackageScripts(
     scripts: Record<string, string>;
   };
   assert.equal(scripts.build, "md2vid build . && md2vid regroup . --max-chars 54");
+  assert.equal(scripts.plan, "md2vid plan .");
   assert.equal(scripts.transcribe, "md2vid transcribe .");
   assert.equal(scripts.verify, "md2vid verify .");
   assert.equal(
@@ -1221,17 +1707,153 @@ const SMOKE_FRAME_PROBES: SmokeFrameProbe[] = [
   { compositionId: "01-smoke", futureId: "s01-future", lateId: "s01-late" },
   { compositionId: "02-smoke", futureId: "s02-future", lateId: "s02-late" },
 ];
-function smokeSeekPoints(frame2HostStart: number): number[] {
+
+const REMOTION_RUNTIME_PROBE_PREFIX = "MD2VID_REMOTION_PROBE ";
+
+export interface SmokeRevealCheck {
+  frameSlug: "01-smoke" | "02-smoke";
+  target: string;
+  before: number;
+  after: number;
+}
+
+export interface SmokeCoverageSample {
+  phase: "before" | "start" | "inside" | "before-end" | "end";
+  localTime: number;
+  globalTime: number;
+  expectedVisible: boolean;
+}
+
+export interface SmokeCoverageCheck {
+  frameSlug: string;
+  target: string;
+  coverageStart: number;
+  coverageEnd: number;
+  samples: SmokeCoverageSample[];
+}
+
+export function deriveSmokeRevealChecks(
+  frames: ReadonlyArray<{ slug: string; start: number }>,
+  bindings: ReadonlyArray<{
+    frameSlug: string;
+    target: string;
+    revealStart: number;
+    revealDuration: number;
+  }>,
+  fps: number,
+): SmokeRevealCheck[] {
+  assert.ok(Number.isFinite(fps) && fps > 0, `generated root FPS must be positive, got ${fps}`);
+  const epsilon = 1 / fps;
+  return SMOKE_FRAME_PROBES.map((probe) => {
+    const frame = frames.find((candidate) => candidate.slug === probe.compositionId);
+    assert.ok(frame, `generated build plan is missing ${probe.compositionId}`);
+    const target = `#${probe.futureId}`;
+    const matches = bindings.filter((binding) =>
+      binding.frameSlug === probe.compositionId && binding.target === target
+    );
+    assert.equal(matches.length, 1, `generated binding evidence must contain exactly one ${probe.compositionId} ${target} reveal`);
+    const binding = matches[0];
+    assert.ok(Number.isFinite(binding.revealStart) && binding.revealStart > epsilon, `generated reveal start must leave one FPS-safe pre-cue sample for ${target}`);
+    assert.ok(Number.isFinite(binding.revealDuration) && binding.revealDuration >= 0, `generated reveal duration must be non-negative for ${target}`);
+    return {
+      frameSlug: probe.compositionId,
+      target,
+      before: frameSafeSeekTime(frame.start + binding.revealStart - epsilon, fps),
+      after: frameSafeSeekTime(frame.start + binding.revealStart + binding.revealDuration + epsilon, fps),
+    };
+  });
+}
+
+export function deriveSmokeCoverageChecks(
+  frames: ReadonlyArray<{ slug: string; start: number; frameDur: number }>,
+  bindings: ReadonlyArray<{
+    frameSlug: string;
+    target: string;
+    coverageStart?: number;
+    coverageEnd?: number;
+  }>,
+  fps: number,
+): SmokeCoverageCheck[] {
+  assert.ok(Number.isFinite(fps) && fps > 0, `generated root FPS must be positive, got ${fps}`);
+  const epsilon = 0.001;
+  const frameBySlug = new Map(frames.map((frame) => [frame.slug, frame]));
+  const roundTime = (value: number): number => Math.round(value * 1e9) / 1e9;
+  const coverageBindings = bindings.filter((binding) =>
+    Number.isFinite(binding.coverageStart) && Number.isFinite(binding.coverageEnd)
+  ) as Array<typeof bindings[number] & { coverageStart: number; coverageEnd: number }>;
+  return coverageBindings.map((binding) => {
+    const frame = frameBySlug.get(binding.frameSlug);
+    assert.ok(frame, `generated build plan is missing ${binding.frameSlug}`);
+    assert.ok(binding.coverageStart >= 0, `generated coverage start must be non-negative for ${binding.target}`);
+    assert.ok(binding.coverageEnd > binding.coverageStart, `generated coverage end must be after start for ${binding.target}`);
+    assert.ok(binding.coverageEnd <= frame.frameDur + epsilon, `generated coverage end must fit ${binding.frameSlug}`);
+    const quantizedLocal = (localTime: number): number => Math.max(
+      0,
+      Math.min(frameSafeSeekTime(frame.start + localTime, fps) - frame.start, frame.frameDur),
+    );
+    const firstFrameAtOrAfter = (localTime: number): number => Math.max(
+      0,
+      Math.min((Math.ceil((frame.start + localTime - 1e-9) * fps) / fps) - frame.start, frame.frameDur),
+    );
+    const lastFrameBefore = (localTime: number): number => Math.max(
+      0,
+      Math.min(((Math.ceil((frame.start + localTime - 1e-9) * fps) - 1) / fps) - frame.start, frame.frameDur),
+    );
+    const startSample = firstFrameAtOrAfter(binding.coverageStart);
+    const beforeSample = lastFrameBefore(binding.coverageStart);
+    const beforeEndSample = Math.max(startSample, lastFrameBefore(binding.coverageEnd));
+    const finalFrameEnd = Math.abs(binding.coverageEnd - frame.frameDur) < epsilon;
+    const endSample = finalFrameEnd ? frame.frameDur : firstFrameAtOrAfter(binding.coverageEnd);
+    const intervalSamples = [
+      { phase: "before" as const, localTime: roundTime(beforeSample) },
+      { phase: "start" as const, localTime: roundTime(startSample) },
+      { phase: "inside" as const, localTime: roundTime(Math.max(startSample, Math.min(beforeEndSample, firstFrameAtOrAfter(binding.coverageStart + 0.1)))) },
+      { phase: "before-end" as const, localTime: roundTime(beforeEndSample) },
+      { phase: "end" as const, localTime: roundTime(endSample) },
+    ];
+    return {
+      frameSlug: binding.frameSlug,
+      target: binding.target,
+      coverageStart: binding.coverageStart,
+      coverageEnd: binding.coverageEnd,
+      samples: intervalSamples.map((sample) => {
+        const actualLocalTime = quantizedLocal(sample.localTime);
+        const expectedVisible = actualLocalTime >= binding.coverageStart - epsilon &&
+          (actualLocalTime < binding.coverageEnd - epsilon || (finalFrameEnd && actualLocalTime <= frame.frameDur + epsilon));
+        return {
+          ...sample,
+          globalTime: roundTime(frameSafeSeekTime(frame.start + sample.localTime, fps)),
+          expectedVisible,
+        };
+      }),
+    };
+  });
+}
+
+function frameSafeSeekTime(time: number, fps: number): number {
+  assert.ok(Number.isFinite(time) && time >= 0, `seek time must be non-negative and finite, got ${time}`);
+  assert.ok(Number.isFinite(fps) && fps > 0, `seek FPS must be positive and finite, got ${fps}`);
+  return Math.floor((time + 1e-9) * fps) / fps;
+}
+
+function smokeSeekPoints(
+  frame2HostStart: number,
+  frame2Duration: number,
+  revealChecks: readonly SmokeRevealCheck[],
+  coverageChecks: readonly SmokeCoverageCheck[],
+  fps: number,
+): number[] {
   return [
+    0,
     0.5,
     frame2HostStart - 0.1,
     frame2HostStart,
-    frame2HostStart + 2.4,
-    2.4,
     frame2HostStart + 0.1,
-    frame2HostStart + 2.9,
+    frame2HostStart + frame2Duration - 0.1,
+    ...revealChecks.flatMap((check) => [check.before, check.after, check.before, check.after]),
+    ...coverageChecks.flatMap((check) => check.samples.map((sample) => sample.globalTime)),
     0.2,
-  ];
+  ].map((time) => frameSafeSeekTime(time, fps));
 }
 
 function derivedLocalPoints(
@@ -1324,7 +1946,16 @@ async function assertHyperframesBrowserExecution(
   baseUrl: string,
   expectedGroups: SmokeCaptionGroup[],
   duration: number,
-  expectedFrames: Array<{ slug: string; start: number; frameDur: number }>,
+  expectedFrames: Array<{ slug: string; start: number; frameDur: number; voiceDur?: number }>,
+  visualBindings: Array<{
+    frameSlug: string;
+    target: string;
+    revealStart: number;
+    revealDuration: number;
+    coverageStart?: number;
+    coverageEnd?: number;
+  }>,
+  fps: number,
 ): Promise<void> {
   const expectedFrameBySlug = new Map(expectedFrames.map((frame) => [frame.slug, frame]));
   const frame1 = expectedFrameBySlug.get("01-smoke");
@@ -1332,7 +1963,27 @@ async function assertHyperframesBrowserExecution(
   assert.ok(frame1 && frame2, "packed smoke plan must contain both frame timings");
   const frame2HostStart = frame2.start;
   assert.ok(frame2HostStart > 0, "second smoke frame must start at a nonzero global time");
-  const globalSeekPoints = smokeSeekPoints(frame2HostStart);
+  const initialGlobalSample = frameSafeSeekTime(0, fps);
+  const frame2PreHostSample = frameSafeSeekTime(frame2HostStart, fps);
+  assert.ok(frame2PreHostSample < frame2HostStart, "frame 2 frame-quantized pre-host sample must precede the nominal host start");
+  const revealChecks = deriveSmokeRevealChecks(expectedFrames, visualBindings, fps);
+  const coverageChecks = deriveSmokeCoverageChecks(expectedFrames, visualBindings, fps);
+  const finalLandingChecks = coverageChecks.flatMap((check) => {
+    const frame = expectedFrameBySlug.get(check.frameSlug)!;
+    const voiceDur = Number(frame.voiceDur);
+    const frameDur = frame.frameDur;
+    if (!Number.isFinite(voiceDur) || voiceDur >= frameDur - 0.01) return [];
+    if (Math.abs(check.coverageEnd - frameDur) >= 0.001) return [];
+    return [{
+      frameSlug: check.frameSlug,
+      target: check.target,
+      voiceDur,
+      frameDur,
+      globalTime: frameSafeSeekTime(frame.start + frameDur - 0.01, fps),
+    }];
+  });
+  assert.ok(finalLandingChecks.length > 0, "manifest-v2 smoke must include a final focal state held between voiceDur and frameDur");
+  const globalSeekPoints = smokeSeekPoints(frame2HostStart, frame2.frameDur, revealChecks, coverageChecks, fps);
   const browserExpectations = captionBrowserExpectations(expectedGroups, duration, globalSeekPoints);
   const browser = await puppeteer.launch({
     executablePath,
@@ -1391,6 +2042,27 @@ async function assertHyperframesBrowserExecution(
         visibleGroups: number;
         classes: string[];
       }>;
+      coverageSamples: Array<{
+        frameSlug: string;
+        target: string;
+        phase: string;
+        time: number;
+        expectedVisible: boolean;
+        direct: { opacity: string; visibility: string; display: string; visible: boolean };
+        sequential: { opacity: string; visibility: string; display: string; visible: boolean };
+        reverse: { opacity: string; visibility: string; display: string; visible: boolean };
+      }>;
+      finalLandingSamples: Array<{
+        frameSlug: string;
+        target: string;
+        time: number;
+        voiceDur: number;
+        frameDur: number;
+        opacity: string;
+        visibility: string;
+        display: string;
+        visible: boolean;
+      }>;
       wallClockElapsed: number;
       playerDrift: number;
       mainDrift: number;
@@ -1405,6 +2077,10 @@ async function assertHyperframesBrowserExecution(
             const expectations = input.captionExpectations;
             const standaloneStates = input.standaloneFrameStates;
             const frameTimings = input.frameTimings;
+            const coverageChecks = input.coverageChecks;
+            const finalLandingChecks = input.finalLandingChecks;
+            const activeFps = input.fps;
+            const totalDuration = input.totalDuration;
             interface Timeline {
               pause(): Timeline;
               seek(time: number): Timeline;
@@ -1562,6 +2238,41 @@ async function assertHyperframesBrowserExecution(
             if (!frame1Future || !frame1Late || !frame2Future || !frame2Late) {
               throw new Error("composed frame state probe is missing visual elements");
             }
+            const targetState = (selector: string) => {
+              const element = pageDocument.querySelector(selector) as any;
+              if (!element) throw new Error(`missing semantic coverage target ${selector}`);
+              const style = pageGetComputedStyle(element);
+              const structurallyVisible = typeof element.checkVisibility === "function"
+                ? element.checkVisibility()
+                : style.display !== "none" && style.visibility !== "hidden";
+              const visible = structurallyVisible && Number.parseFloat(style.opacity) > 0.01;
+              return {
+                opacity: style.opacity,
+                visibility: style.visibility,
+                display: style.display,
+                visible,
+              };
+            };
+            const directCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(time);
+              return targetState(selector);
+            };
+            const sequentialCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(0);
+              for (let frameIndex = 1; frameIndex <= Math.round(time * activeFps); frameIndex += 1) {
+                player.seek(frameIndex / activeFps);
+              }
+              return targetState(selector);
+            };
+            const reverseCoverageState = (time: number, selector: string) => {
+              player.pause();
+              player.seek(totalDuration);
+              player.seek(Math.max(0, time - 1 / activeFps));
+              player.seek(time);
+              return targetState(selector);
+            };
             player.pause();
             player.seek(expectations[0]?.time ?? 0);
             const hitStack = pageDocument.elementsFromPoint(viewportWidth / 2, viewportHeight / 2);
@@ -1606,10 +2317,8 @@ async function assertHyperframesBrowserExecution(
               const frame2FutureOpacity = Number.parseFloat(pageGetComputedStyle(frame2Future).opacity);
               const frame2LateColor = pageGetComputedStyle(frame2Late).color;
               if (
-                Math.abs(frame1FutureOpacity - standaloneFrame1.futureOpacity) >= 0.001 ||
                 frame1LateColor !== standaloneFrame1.lateColor ||
                 Math.abs(frame1LocalTime - standaloneFrame1.localTime) >= 0.001 ||
-                Math.abs(frame2FutureOpacity - standaloneFrame2.futureOpacity) >= 0.001 ||
                 frame2LateColor !== standaloneFrame2.lateColor ||
                 Math.abs(frame2LocalTime - standaloneFrame2.localTime) >= 0.001
               ) {
@@ -1623,8 +2332,8 @@ async function assertHyperframesBrowserExecution(
               }
               const actualClasses = Array.from(captionHost.querySelectorAll(".caption-word") as any[])
                 .map((element: any) => String(element.className));
-              const captionBoundaryIsExact = Math.abs(time - frame2HostStart) < 0.001;
-              if (!captionBoundaryIsExact && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
+              const captionAtQuantizedPreHostSample = Math.abs(time - frameTimings["02-smoke"].preHostSample) < 0.001;
+              if (!captionAtQuantizedPreHostSample && JSON.stringify(actualClasses) !== JSON.stringify(classes)) {
                 throw new Error(
                   `caption classes at ${time} (player=${player.getTime()}, main=${main.time()}/${main.duration()} paused=${main.paused()}, captions=${captions.time()}/${captions.duration()} paused=${captions.paused()}): ${JSON.stringify(actualClasses)}`,
                 );
@@ -1637,7 +2346,7 @@ async function assertHyperframesBrowserExecution(
                 .filter((entry) => entry.visible)
                 .map((entry) => entry.index);
               if (
-                !captionBoundaryIsExact &&
+                !captionAtQuantizedPreHostSample &&
                 JSON.stringify(visibleGroupIndexes) !== JSON.stringify(expectedVisibleGroups)
               ) {
                 throw new Error(`visible caption groups at ${time}: ${JSON.stringify(visibleGroupIndexes)}`);
@@ -1659,6 +2368,36 @@ async function assertHyperframesBrowserExecution(
               };
             });
 
+            const coverageSamples = coverageChecks.flatMap((check: any) =>
+              check.samples.map((sample: any) => {
+                const direct = directCoverageState(sample.globalTime, check.target);
+                const sequential = sequentialCoverageState(sample.globalTime, check.target);
+                const reverse = reverseCoverageState(sample.globalTime, check.target);
+                return {
+                  frameSlug: check.frameSlug,
+                  target: check.target,
+                  phase: sample.phase,
+                  time: sample.globalTime,
+                  expectedVisible: sample.expectedVisible,
+                  direct,
+                  sequential,
+                  reverse,
+                };
+              })
+            );
+            const finalLandingSamples = finalLandingChecks.map((check: any) => {
+              player.pause();
+              player.seek(check.globalTime);
+              return {
+                frameSlug: check.frameSlug,
+                target: check.target,
+                time: check.globalTime,
+                voiceDur: check.voiceDur,
+                frameDur: check.frameDur,
+                ...targetState(check.target),
+              };
+            });
+
             player.seek(frameTimings["02-smoke"].start + 0.1);
             const playerBefore = player.getTime();
             const mainBefore = main.time();
@@ -1672,6 +2411,8 @@ async function assertHyperframesBrowserExecution(
               gsapVersion: runtime.gsap.version,
               frameTimelineIds: [frame1TimelineMatch.id, frame2TimelineMatch.id] as [string, string],
               samples,
+              coverageSamples,
+              finalLandingSamples,
               wallClockElapsed,
               playerDrift: Math.abs(player.getTime() - playerBefore),
               mainDrift: Math.abs(main.time() - mainBefore),
@@ -1684,8 +2425,16 @@ async function assertHyperframesBrowserExecution(
             standaloneFrameStates,
             frameTimings: {
               "01-smoke": { start: frame1.start, frameDur: frame1.frameDur },
-              "02-smoke": { start: frame2.start, frameDur: frame2.frameDur },
+              "02-smoke": {
+                start: frame2.start,
+                frameDur: frame2.frameDur,
+                preHostSample: frame2PreHostSample,
+              },
             },
+            coverageChecks,
+            finalLandingChecks,
+            fps,
+            totalDuration: duration,
           });
           if (candidate) {
             execution = candidate;
@@ -1707,32 +2456,65 @@ async function assertHyperframesBrowserExecution(
       assert.ok(sample, `missing frame sample at ${time}`);
       return sample;
     };
-    const beforeFrame2 = frame2HostStart - 0.1;
-    const afterFrame2 = frame2HostStart + 0.1;
-    const frame2RevealGlobal = frame2HostStart + 2.4;
-    const frame2HandoffGlobal = frame2HostStart + 2.9;
-    assert.ok(sampleAt(0.5).frame1FutureOpacity < 0.01, "frame 1 future element must start hidden");
-    assert.ok(sampleAt(2.4).frame1FutureOpacity > 0.99, "frame 1 future element must reveal on its cue");
-    assert.equal(sampleAt(2.4).frame1LateColor, "rgb(20, 20, 19)", "frame 1 late handoff must remain neutral");
-    assert.equal(sampleAt(frame2HostStart).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral");
+    const samplesAt = (time: number) => execution!.samples.filter((sample) => sample.time === time);
+    const beforeFrame2 = frameSafeSeekTime(frame2HostStart - 0.1, fps);
+    const afterFrame2 = frameSafeSeekTime(frame2HostStart + 0.1, fps);
+    const frame2HandoffGlobal = frameSafeSeekTime(frame2HostStart + frame2.frameDur - 0.1, fps);
+    const revealFor = (
+      sample: { frame1FutureOpacity: number; frame2FutureOpacity: number },
+      frameSlug: SmokeRevealCheck["frameSlug"],
+    ): number => frameSlug === "01-smoke" ? sample.frame1FutureOpacity : sample.frame2FutureOpacity;
+    for (const check of revealChecks) {
+      const before = samplesAt(check.before);
+      const after = samplesAt(check.after);
+      assert.ok(before.length >= 2 && after.length >= 2, `missing repeated cue samples for ${check.target}`);
+      assert.ok(before.every((sample) => revealFor(sample, check.frameSlug) < 0.01), `${check.target} must be hidden immediately before its resolved cue, including after reverse seek`);
+      assert.ok(after.every((sample) => revealFor(sample, check.frameSlug) > 0.99), `${check.target} must be visible after its resolved cue duration, including after reverse seek`);
+    }
+    for (const sample of execution.coverageSamples) {
+      assert.deepEqual(sample.direct, sample.sequential, `${sample.target} direct/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
+      assert.deepEqual(sample.reverse, sample.sequential, `${sample.target} reverse/sequential coverage state differs at ${sample.phase} ${sample.time}s`);
+      assert.equal(sample.direct.visible, sample.expectedVisible, `${sample.target} semantic visibility must match manifest evidence at ${sample.phase} ${sample.time}s`);
+      if (sample.expectedVisible) {
+        for (const [route, state] of Object.entries({ direct: sample.direct, sequential: sample.sequential, reverse: sample.reverse })) {
+          assert.ok(Number.parseFloat(state.opacity) > 0.01, `${sample.target} ${route} opacity must be nonzero at ${sample.phase} ${sample.time}s`);
+        }
+      }
+    }
+    for (const sample of execution.finalLandingSamples) {
+      const frame = expectedFrameBySlug.get(sample.frameSlug)!;
+      assert.ok(sample.time > frame.start + sample.voiceDur, `${sample.target} final landing sample must be after voiceDur`);
+      assert.ok(sample.time < frame.start + sample.frameDur, `${sample.target} final landing sample must be before frameDur`);
+      assert.equal(sample.visible, true, `${sample.target} final landing must remain visible through composed player seek`);
+      assert.notEqual(sample.opacity, "0", `${sample.target} final landing opacity must be retained`);
+    }
+    const frame1Reveal = revealChecks.find((check) => check.frameSlug === "01-smoke")!;
+    const frame2Reveal = revealChecks.find((check) => check.frameSlug === "02-smoke")!;
+    assert.ok(sampleAt(initialGlobalSample).frame1FutureOpacity < 0.01, "frame 1 future element must be hidden at global time zero");
+    assert.ok(sampleAt(frame1Reveal.before).frame1FutureOpacity < 0.01, "frame 1 future element must be hidden immediately before its resolved cue");
+    assert.equal(sampleAt(frame1Reveal.after).frame1LateColor, "rgb(20, 20, 19)", "frame 1 authored handoff must coexist with the generated reveal");
+    assert.equal(sampleAt(frame2PreHostSample).frame1LateColor, "rgb(204, 120, 92)", "frame 1 late handoff must become coral at the frame-quantized pre-host sample");
 
     assert.equal(sampleAt(beforeFrame2).frame2LocalTime, 0, "frame 2 local time must clamp before host start");
-    assert.equal(sampleAt(frame2HostStart).frame2LocalTime, 0, "frame 2 local time must be zero at host start");
-    assert.ok(Math.abs(sampleAt(afterFrame2).frame2LocalTime - 0.1) < 0.001, "frame 2 local time must offset after host start");
-    assert.ok(sampleAt(frame2RevealGlobal).frame2FutureOpacity > 0.99, "frame 2 future element must reveal at local 2.4");
-    assert.equal(sampleAt(frame2RevealGlobal).frame2LateColor, "rgb(31, 41, 55)", "frame 2 must remain neutral at local 2.4");
-    assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off at local 2.9");
+    assert.equal(sampleAt(frame2PreHostSample).frame2LocalTime, 0, "frame 2 local time must remain clamped at the frame-quantized pre-host sample");
+    const expectedAfterFrame2Local = afterFrame2 - frame2HostStart;
+    assert.ok(
+      Math.abs(sampleAt(afterFrame2).frame2LocalTime - expectedAfterFrame2Local) < 0.001,
+      "frame 2 local time must offset after host start",
+    );
+    assert.equal(sampleAt(frame2Reveal.after).frame2LateColor, "rgb(31, 41, 55)", "frame 2 authored handoff must remain neutral through generated reveal");
+    assert.equal(sampleAt(frame2HandoffGlobal).frame2LateColor, "rgb(93, 184, 114)", "frame 2 must hand off before its retained WAV ends");
     for (const sample of execution.samples) {
       assert.ok(Math.abs(sample.playerTime - sample.time) < 0.001, `player time mismatch at ${sample.time}`);
       assert.ok(Math.abs(sample.mainTime - sample.time) < 0.001, `main timeline mismatch at ${sample.time}`);
       assert.ok(Math.abs(sample.captionTime - sample.time) < 0.001, `caption timeline mismatch at ${sample.time}`);
-      if (Math.abs(sample.time - frame2HostStart) >= 0.001) {
-        assert.equal(
-          sample.visibleGroups,
-          Math.abs(sample.time - beforeFrame2) < 0.001 ? 0 : 1,
-          `caption group visibility at ${sample.time}`,
-        );
-      }
+      const expectation = browserExpectations.find((candidate) => candidate.time === sample.time);
+      assert.ok(expectation, `missing caption expectation at ${sample.time}`);
+      assert.equal(
+        sample.visibleGroups,
+        expectation.visibleGroups.length,
+        `caption group visibility at ${sample.time}`,
+      );
     }
     assert.ok(execution.wallClockElapsed >= 250, "wall-clock drift probe must span at least 250ms");
     assert.ok(execution.playerDrift < 0.001, `paused player drifted ${execution.playerDrift}s`);
@@ -1746,6 +2528,128 @@ async function assertHyperframesBrowserExecution(
   } finally {
     await browser.close();
   }
+}
+
+async function assertRemotionRuntimeProbe(
+  context: ReleaseContext,
+  project: string,
+): Promise<void> {
+  const probePath = join(project, "runtime-probe.mjs");
+  writeFileSync(probePath, `
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { bundle } from "@remotion/bundler";
+import { openBrowser, renderStill, selectComposition } from "@remotion/renderer";
+
+const root = import.meta.dirname;
+const fps = 30;
+const prefix = ${JSON.stringify(REMOTION_RUNTIME_PROBE_PREFIX)};
+const plan = JSON.parse(readFileSync(join(root, "build_plan.json"), "utf8"));
+const manifest = JSON.parse(readFileSync(join(root, "build", "visual_bindings.json"), "utf8"));
+const inputProps = { plan };
+const serveUrl = await bundle({ entryPoint: join(root, "src", "index.ts"), publicDir: join(root, "public") });
+const composition = await selectComposition({ serveUrl, id: "video", inputProps });
+mkdirSync(join(root, "out", "runtime-probe"), { recursive: true });
+
+const frameBySlug = new Map(plan.frames.map((frame) => [frame.slug, frame]));
+const runtimeBindingFor = (binding) => {
+  const matches = (plan.visualBindings?.[binding.frameSlug] ?? []).filter((candidate) =>
+    candidate.beatId === binding.beatId && candidate.target === binding.target
+  );
+  if (matches.length !== 1) throw new Error(
+    \`expected exactly one runtime binding for \${binding.frameSlug} \${binding.target}, found \${matches.length}\`,
+  );
+  return matches[0];
+};
+const uniqueSamples = (samples) => {
+  const seen = new Set();
+  return samples.filter((sample) => {
+    const key = \`\${sample.frameSlug}:\${sample.target}:\${sample.localFrame}:\${sample.expectedVisible}:\${sample.phase}\`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const samples = uniqueSamples(manifest.bindings
+  .filter((binding) => binding.role === "focal")
+  .flatMap((binding) => {
+    const frame = frameBySlug.get(binding.frameSlug);
+    if (!frame) throw new Error(\`missing frame \${binding.frameSlug}\`);
+    const runtime = runtimeBindingFor(binding);
+    const frameDurFrames = Math.round(frame.frameDur * fps);
+    const voiceDurFrames = Math.round((frame.voiceDur ?? 0) * fps);
+    const local = [];
+    if (runtime.startFrame > 0) local.push({ phase: "before", localFrame: runtime.startFrame - 1, expectedVisible: false });
+    local.push({ phase: "start", localFrame: runtime.startFrame, expectedVisible: true });
+    local.push({ phase: "interior", localFrame: Math.min(runtime.endFrame - 1, runtime.startFrame + Math.max(1, runtime.durationFrames)), expectedVisible: true });
+    local.push({ phase: "before-end", localFrame: runtime.endFrame - 1, expectedVisible: true });
+    if (runtime.endFrame < frameDurFrames) local.push({ phase: "end", localFrame: runtime.endFrame, expectedVisible: false });
+    if (runtime.endFrame === frameDurFrames && voiceDurFrames < runtime.endFrame - 1) {
+      local.push({ phase: "held-landing", localFrame: runtime.endFrame - 1, expectedVisible: true });
+    }
+    return local
+      .filter((sample) => sample.localFrame >= 0 && sample.localFrame < frameDurFrames)
+      .map((sample) => ({
+        ...sample,
+        frameSlug: binding.frameSlug,
+        target: binding.target,
+        beatId: binding.beatId,
+        globalFrame: Math.round(frame.start * fps) + sample.localFrame,
+      }));
+  }));
+if (!samples.some((sample) => sample.phase === "held-landing" && sample.target === "FinalLanding")) {
+  throw new Error("Remotion runtime probe must include a FinalLanding held-landing sample");
+}
+
+const browser = await openBrowser("chrome", { logLevel: "error" });
+try {
+  const orders = {
+    direct: samples,
+    sequential: [...samples].sort((a, b) => a.globalFrame - b.globalFrame),
+    reverse: [...samples].sort((a, b) => b.globalFrame - a.globalFrame),
+  };
+  for (const [route, ordered] of Object.entries(orders)) {
+    for (const sample of ordered) {
+      const logs = [];
+      await renderStill({
+        composition,
+        serveUrl,
+        inputProps,
+        frame: sample.globalFrame,
+        output: join(root, "out", "runtime-probe", \`\${route}-\${sample.frameSlug}-\${sample.target}-\${sample.phase}.png\`),
+        puppeteerInstance: browser,
+        onBrowserLog: (log) => {
+          const text = typeof log === "string"
+            ? log
+            : typeof log?.text === "string"
+              ? log.text
+              : typeof log?.message === "string"
+                ? log.message
+                : String(log);
+          if (text.includes(prefix)) logs.push(text.slice(text.indexOf(prefix) + prefix.length));
+        },
+      });
+      const states = logs.map((line) => JSON.parse(line));
+      const state = states.find((candidate) =>
+        candidate.target === sample.target && candidate.localFrame === sample.localFrame
+      );
+      if (!state) throw new Error(\`missing Remotion runtime probe state for \${route} \${JSON.stringify(sample)} in \${JSON.stringify(states)}\`);
+      if (state.visible !== sample.expectedVisible) throw new Error(\`Remotion runtime visibility mismatch for \${route} \${JSON.stringify({ sample, state })}\`);
+      if (sample.expectedVisible && !(state.effectiveOpacity > 0.01)) {
+        throw new Error(\`Remotion runtime target is transparent for \${route} \${JSON.stringify({ sample, state })}\`);
+      }
+    }
+  }
+} finally {
+  await browser.close({ silent: true });
+}
+console.log(\`OK Remotion runtime probe: \${samples.length} samples x 3 routes\`);
+`);
+  const output = run(process.execPath, [probePath], {
+    cwd: project,
+    env: installedCommandEnvironment(context),
+  }, context);
+  assert.match(output, /OK Remotion runtime probe/);
 }
 
 export async function runFrameworkSmoke(
@@ -1800,10 +2704,45 @@ export async function runFrameworkSmoke(
   runInstalledCli(context, scaffoldArgs, caseRoot);
   const project = join(caseRoot, framework);
   const shared = project;
-  assertCompleteScaffold(project, framework);
-  assertGeneratedPackageScripts(project, framework);
-  assertNoRepoRelativePaths(project);
-  stageFlatAuthoredInputs(project);
+  const narrationStages = new RetainedNarrationStageSequence();
+  await narrationStages.run("assert scaffold audio_request.json.example", () => {
+    assertCompleteScaffold(project, framework);
+    assertScaffoldNarrationRequest(project);
+    assertGeneratedPackageScripts(project, framework);
+    assertNoRepoRelativePaths(project);
+  });
+  let retained: RetainedKokoroFixture | undefined;
+  await narrationStages.run("copy versioned retained fixture request", () => {
+    retained = readRetainedKokoroFixture();
+    copyRetainedNarrationRequest(project);
+  });
+  if (!retained) throw new Error("retained Kokoro fixture was not loaded");
+  const retainedFixture = retained;
+  await narrationStages.run("run installed narration-check", () => {
+    const narrationCheck = runInstalledCli(context, ["narration-check", "."], project);
+    assert.match(narrationCheck, /PASS \[narration\]/);
+  });
+  await narrationStages.run("capture test-owned media arguments", () => {
+    captureTestOwnedMediaArguments(project, retainedFixture.request);
+  });
+  await narrationStages.run("copy retained Kokoro/Michael WAVs", () => {
+    stageRetainedKokoroAudio(project, retainedFixture);
+  });
+  await narrationStages.run("run installed transcribe with injected transcript provider", () =>
+    runInstalledFixtureTranscription(context, project, retainedFixture),
+  );
+  await narrationStages.run("assert narration_evidence.json", () =>
+    assertRetainedNarrationArtifacts(context, project, retainedFixture),
+  );
+  let originalRequest: Buffer | undefined;
+  await narrationStages.run("mutate spoken text and prove planning rejects stale evidence", () => {
+    originalRequest = mutateNarrationAndAssertPlanRejects(context, project);
+  });
+  if (!originalRequest) throw new Error("retained narration request was not captured before mutation");
+  const originalRequestBytes = originalRequest;
+  await narrationStages.run("restore request", () => {
+    restoreRetainedNarrationRequest(project, originalRequestBytes);
+  });
 
   if (framework === "hyperframes") {
     const gsapSrc = "assets/gsap/gsap.min.js";
@@ -1816,16 +2755,12 @@ export async function runFrameworkSmoke(
       join(project, "output.config.json"),
       `${JSON.stringify({ framework: "hyperframes", gsapSrc }, null, 2)}\n`,
     );
-    for (const frameSlug of ["01-smoke", "02-smoke"]) {
-      const framePath = join(project, "compositions", "frames", `${frameSlug}.html`);
-      cpSync(join(FIXTURES, `${frameSlug}.html`), framePath);
-      writeFileSync(
-        framePath,
-        readFileSync(framePath, "utf8").replace(
-          "__MD2VID_DEFAULT_GSAP_SRC__",
-          gsapSrc,
-        ),
-      );
+    for (const [frameSlug, voice] of [
+      ["01-smoke", retainedFixture.audioMeta.voices[0]],
+      ["02-smoke", retainedFixture.audioMeta.voices[1]],
+    ] as const) {
+      if (!voice) throw new Error(`retained fixture is missing audio for ${frameSlug}`);
+      stageFixtureSmokeFrame(project, frameSlug, voice.duration_s, gsapSrc);
     }
     const previewHelp = runInstalledFromPath(
       context,
@@ -1833,8 +2768,10 @@ export async function runFrameworkSmoke(
       project,
     );
     assert.match(previewHelp, /--port\b/, "HyperFrames preview must support --port");
-    runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "check"]);
+    await narrationStages.run("build/check HyperFrames", () => {
+      runProjectNpm(context, project, ["run", "build"]);
+      runProjectNpm(context, project, ["run", "check"]);
+    });
 
     const generatedGsapDocuments = [
       join(project, "index.html"),
@@ -1847,6 +2784,9 @@ export async function runFrameworkSmoke(
       assert.deepEqual(sources, [gsapSrc], `local GSAP source in ${relative(project, document)}`);
     }
     const generatedIndex = readFileSync(join(project, "index.html"), "utf8");
+    const rootTag = generatedIndex.match(/<div\b(?=[^>]*\bid="root")[^>]*>/)?.[0] ?? "";
+    const fps = Number(rootTag.match(/\bdata-fps="([^"]+)"/)?.[1]);
+    assert.ok(Number.isFinite(fps) && fps > 0, "generated main root must expose a positive FPS");
     assert.equal(
       generatedIndex.match(/\.caption-host\s*\{\s*pointer-events:\s*none;\s*\}/g)?.length,
       1,
@@ -1864,6 +2804,7 @@ export async function runFrameworkSmoke(
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence(context, project);
     const browserPath = runInstalledFromPath(
       context,
       ["hyperframes", "browser", "path"],
@@ -1879,6 +2820,11 @@ export async function runFrameworkSmoke(
       totalDuration: number;
       frames: Array<{ slug: string; start: number; frameDur: number }>;
     };
+    const visualBindingArtifact = JSON.parse(
+      readFileSync(join(project, "build", "visual_bindings.json"), "utf8"),
+    ) as {
+      bindings: Array<{ frameSlug: string; target: string; revealStart: number; revealDuration: number }>;
+    };
     assert.ok(captionArtifact.groups.length > 1, "smoke regroup must materially split captions");
 
     // Render before starting the long-running Studio preview. On macOS, a just-
@@ -1889,6 +2835,7 @@ export async function runFrameworkSmoke(
       () => runProjectNpm(context, project, [
         "run", "render", "--",
         "--output", smokeRender,
+        "--profile", "draft",
         "--fps", "1",
         "--quality", "draft",
         "--workers", "1",
@@ -1897,6 +2844,18 @@ export async function runFrameworkSmoke(
       () => rmSync(smokeRender, { force: true }),
     );
     assert.ok(statSync(smokeRender).size > 0, "HyperFrames smoke render must be nonempty");
+    const renderEvidence = JSON.parse(readFileSync(`${smokeRender}.md2vid-render.json`, "utf8")) as {
+      profile?: unknown;
+      fps?: unknown;
+      lowFpsOverride?: unknown;
+    };
+    assert.deepEqual(renderEvidence, {
+      version: 1,
+      profile: "draft",
+      fps: 1,
+      minimumFps: 24,
+      lowFpsOverride: false,
+    }, "md2vid must consume --profile before spawning HyperFrames and record the effective policy");
 
     await withHyperframesStudio(context, project, async (baseUrl) => {
       const index = readFileSync(join(project, "index.html"), "utf8");
@@ -1919,16 +2878,55 @@ export async function runFrameworkSmoke(
         captionArtifact.groups,
         buildArtifact.totalDuration,
         buildArtifact.frames,
+        visualBindingArtifact.bindings,
+        fps,
       );
     });
   } else {
-    runProjectNpm(context, project, ["install"]);
-    runProjectNpm(context, project, ["run", "build"]);
-    runProjectNpm(context, project, ["run", "check"]);
-    runProjectNpm(context, project, ["run", "still"]);
+    writeFileSync(
+      join(project, "visual_bindings.json"),
+      `${JSON.stringify({
+        version: 2,
+        frames: {
+          "01-smoke": [
+            { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "none", coverage: "planned" },
+          ],
+          "02-smoke": [
+            { beat: "opening-context", target: "OpeningContext", enter: "none", coverage: "planned" },
+            { beat: "final-landing", target: "FinalLanding", enter: "none", coverage: "planned" },
+          ],
+        },
+      }, null, 2)}\n`,
+    );
+    const videoPath = join(project, "src", "Video.tsx");
+    const template = readFileSync(videoPath, "utf8");
+    const smokeTemplate = template
+      .replace(
+        'import { VisualBeatProvider } from "./VisualBeats";',
+        'import { BeatReveal, BeatState, VisualBeatProvider, isVisualBeatActive, resolveVisualBeatProgress, resolveVisualBeatStyle, useVisualBeatBinding } from "./VisualBeats";',
+      )
+      .replace(
+        'const SCENES: Record<string, React.FC<SceneProps>> = {};',
+        `const SmokeProbe: React.FC<{ target: string; testId: string; opacity: number }> = ({ target, testId, opacity }) => {\n  const localFrame = useCurrentFrame();\n  const resolved = useVisualBeatBinding(target);\n  const active = isVisualBeatActive(localFrame, resolved);\n  const progress = resolveVisualBeatProgress(localFrame, resolved.startFrame, resolved.durationFrames);\n  const style = resolveVisualBeatStyle(resolved.binding.enter, progress, active);\n  const targetOpacity = typeof style.opacity === "number" ? style.opacity : Number.parseFloat(String(style.opacity ?? 0));\n  const effectiveOpacity = active ? opacity * targetOpacity : 0;\n  console.log("${REMOTION_RUNTIME_PROBE_PREFIX}" + JSON.stringify({ target, testId, localFrame, active, visible: active && effectiveOpacity > 0.01, effectiveOpacity }));\n  return null;\n};\n\nconst SmokeScene: React.FC<SceneProps> = ({ opacity }) => (\n  <AbsoluteFill style={{ opacity }}>\n    <SmokeProbe target="OpeningContext" testId="smoke-opening" opacity={opacity} />\n    <SmokeProbe target="FinalLanding" testId="smoke-landing" opacity={opacity} />\n    <BeatState target="OpeningContext">\n      <div data-testid="smoke-opening">Opening context</div>\n    </BeatState>\n    <BeatReveal target="FinalLanding">\n      <div data-testid="smoke-landing">Final landing</div>\n    </BeatReveal>\n  </AbsoluteFill>\n);\n\nconst SCENES: Record<string, React.FC<SceneProps>> = {\n  "01-smoke": SmokeScene,\n  "02-smoke": SmokeScene,\n};`,
+      );
+    assert.match(smokeTemplate, /BeatState target="OpeningContext"/);
+    assert.match(smokeTemplate, /BeatReveal target="FinalLanding"/);
+    assert.match(smokeTemplate, /data-testid="smoke-landing"/);
+    writeFileSync(videoPath, smokeTemplate);
+
+    await narrationStages.run("build/check Remotion", () => {
+      runProjectNpm(context, project, ["install"]);
+      runProjectNpm(context, project, ["run", "build"]);
+      runProjectNpm(context, project, ["run", "check"]);
+      runProjectNpm(context, project, ["run", "still"]);
+    });
 
     const verify = runInstalledCli(context, ["verify", "."], project);
     assert.match(verify, /OK: video contract satisfied/);
+    mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence(context, project);
+    mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence(context, project);
+    await assertRemotionRuntimeProbe(context, project);
     const still = join(project, "out", "still.jpeg");
     const sourceWav = join(shared, "assets", "voice", "intro.wav");
     const staged = join(project, "public", "assets", "voice", "intro.wav");
@@ -1939,4 +2937,5 @@ export async function runFrameworkSmoke(
     assert.deepEqual(readFileSync(staged), readFileSync(sourceWav));
   }
   assertNoRepoRelativePaths(project);
+  narrationStages.complete(framework === "hyperframes" ? "build/check HyperFrames" : "build/check Remotion");
 }

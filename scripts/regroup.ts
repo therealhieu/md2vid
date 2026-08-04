@@ -16,8 +16,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { loadConfig } from "../engine/config.ts";
-import { plan as buildPlan } from "../engine/plan.ts";
 import { regroup, groupLineChars } from "../engine/captions.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
@@ -27,12 +25,12 @@ import {
 } from "./managed_file_transaction.ts";
 import { isMainModule } from "./main-guard.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
+import { createProjectPlan } from "./plan_project.ts";
 
 class RegroupError extends Error {}
 
 export interface RegroupDependencies {
-  loadConfig?: typeof loadConfig;
-  buildPlan?: typeof buildPlan;
+  createProjectPlan?: typeof createProjectPlan;
   getAdapter?: typeof getAdapter;
   transactionDependencies?: ManagedFileTransactionDependencies;
 }
@@ -79,12 +77,9 @@ export function run(argv: string[], dependencies: RegroupDependencies = {}): num
     if (!existsSync(captionGroupsPath)) throw new RegroupError(`Not found: ${captionGroupsPath}`);
     const data = JSON.parse(readFileSync(captionGroupsPath, "utf8"));
 
-    const audioMetaPath = join(layout.sharedDir, "audio_meta.json");
-    if (!existsSync(audioMetaPath)) throw new RegroupError(`missing audio_meta.json — ${audioMetaPath}`);
-    const meta = JSON.parse(readFileSync(audioMetaPath, "utf8"));
-    const config = (dependencies.loadConfig ?? loadConfig)(layout.sharedDir, layout.outputDir);
-    const adapter = (dependencies.getAdapter ?? getAdapter)(config.framework);
-    const plan = (dependencies.buildPlan ?? buildPlan)(meta, config);
+    const planning = (dependencies.createProjectPlan ?? createProjectPlan)(layout.outputDir);
+    const adapter = (dependencies.getAdapter ?? getAdapter)(planning.adapterConfig.framework);
+    const plan = planning.plan;
     const newGroups = regroup(data.groups, maxChars);
 
     const wordCounts = newGroups.map((group) => group.words.length);
@@ -121,9 +116,11 @@ export function run(argv: string[], dependencies: RegroupDependencies = {}): num
       `${JSON.stringify({ ...data, groups: newGroups }, null, 2)}\n`,
     );
     const regroupedPlan = { ...plan, captionGroups: newGroups };
-    adapter.emit(regroupedPlan, stagedSharedDir, stagedOutputDir, config, {
+    adapter.emit(regroupedPlan, stagedSharedDir, stagedOutputDir, planning.adapterConfig, {
       captionsOnly: true,
       runtimeSourceDir: layout.outputDir,
+      assetSourceDir: layout.sharedDir,
+      voiceSnapshots: planning.voiceSnapshots,
     });
 
     const findings = adapter.verifyCaptionArtifact({

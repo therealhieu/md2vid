@@ -1,0 +1,38 @@
+{
+  "version": 2,
+  "frames": {
+    "continuous-coverage": {
+      "kind": "focal",
+      "beats": [
+        {
+          "id": "opening",
+          "text": "Opening context",
+          "role": "focal",
+          "cue": {
+            "frameStart": true
+          },
+          "coverage": {
+            "until": "next-state"
+          }
+        },
+        {
+          "id": "solution",
+          "text": "Solution",
+          "role": "focal",
+          "cue": {
+            "phrase": "solution",
+            "occurrence": 1
+          },
+          "coverage": {
+            "until": {
+              "cue": {
+                "wordIndex": 2
+              }
+            }
+          }
+        }
+      ],
+      "coverageExemptions": []
+    }
+  }
+}

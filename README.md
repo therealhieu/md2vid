@@ -38,7 +38,38 @@ Use “Remotion” or “both frameworks” explicitly when required.
 
 ## Narration
 
-New projects include `audio_request.json.example` as a narration planning example. Review its lines, then use the `/md2vid` skill workflow to generate or prepare voice WAV files and `audio_meta.json`. There is no `md2vid audio` command.
+New projects include `audio_request.json.example`. Copy it into the real request and retain the explicit English default unless the user selects a supported override:
+
+```json
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "recap", "text": "Recap the key idea." }
+  ]
+}
+```
+
+For non-English narration, supply a compatible explicit voice; do not use am_michael. Write speech, not copied display copy: target 6–14 lexical words per sentence, split at conceptual boundaries, and treat more than 18 words as a preflight failure unless the user explicitly approves that exact sentence. A comma does not count as a strong sentence boundary.
+
+Run the narration workflow in this order:
+
+```bash
+cp audio_request.json.example audio_request.json
+md2vid narration-check .
+# /md2vid then runs the documented /media-use Kokoro path with explicit am_michael values.
+npm run transcribe
+npm run plan
+npm run build
+npm run check
+# Listen at sentence transitions, then review visuals before rendering.
+```
+
+`md2vid narration-check` is required before synthesis. The `/md2vid` skill runs explicit Kokoro `am_michael` synthesis through `/media-use`, then `md2vid transcribe` immediately after it. Never use `say`, provider auto-selection, or a silent cloud fallback. There is no `md2vid audio` command. A versioned request needs fresh matching `narration_evidence.json` before plan, build, regroup, or verify; edit narration only by re-synthesizing and transcribing before downstream cues, captions, bindings, and render evidence are rebuilt.
 
 Store voice files under `assets/voice/` and reference them with paths relative to the flat project root or the canonical `shared/` root. A minimal `audio_meta.json` is:
 
@@ -73,7 +104,102 @@ Voice IDs may be meaningful strings such as `intro` or `recap`, but every ID mus
 }
 ```
 
-The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) owns narration generation. You may instead create WAV files with an external TTS provider, but the public CLI only builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
+The `/md2vid` skill owns narration orchestration through `/media-use`. The public CLI only validates requests and builds, transcribes, regroups, verifies, previews, and renders prepared narration assets; it has no `md2vid audio` command.
+
+## Semantic visual timing
+
+`visual_beats.json` v2 is the neutral authoring contract for narrated visuals. Give each narrated node, row, card, code line, or workflow station stable opening/body/final focal states with transcript phrase/occurrence, word-index, or frame-start anchors. Resolve intervals before framework visual authoring:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → md2vid plan <dir> → inspect resolved build/visual_timing.json intervals
+  → bind framework visibility → md2vid build <dir>
+  → continuous md2vid verify <dir> → preview/manual semantic review → render
+```
+
+`md2vid plan <dir>` writes neutral resolved timing artifacts without framework emission or authored-source mutation; inspect resolved `build/visual_timing.json` intervals before binding. HyperFrames binds targets through `data-md2vid-beat` or a declared custom binding with an owned helper. Remotion binds its static `visual_bindings.json` registry through generated beat components. `md2vid verify` machine-checks bound focal interval coverage, timing tolerance, workflow order, manifest freshness, landing, and duration; review still checks source interpretation, treatment, hierarchy, and polish.
+
+Continuous semantic visual coverage is verified from the first spoken word through the held landing: captions, title, background, shell chrome, logos, and decoration are insufficient by themselves. A static focal may cover a long explanation; there is no fixed motion cadence requirement.
+
+Use this workflow consistently:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → md2vid plan <dir> → inspect resolved build/visual_timing.json intervals
+  → bind framework visibility → md2vid build <dir>
+  → continuous md2vid verify <dir> → preview/manual semantic review → render
+```
+
+New scaffolds use this required policy:
+
+```json
+{
+  "visualSync": {
+    "mode": "required",
+    "coverageMode": "required",
+    "maxLead": 0.25,
+    "maxLag": 0.75,
+    "maxUncoveredGap": 0.5,
+    "minLanding": 1
+  }
+}
+```
+
+A minimal `visual_beats.json` v2 frame declares interval-capable focal states:
+
+```json
+{
+  "version": 2,
+  "frames": {
+    "frame-slug": {
+      "kind": "focal",
+      "beats": [
+        {
+          "id": "opening-context",
+          "text": "Opening context",
+          "role": "focal",
+          "cue": { "frameStart": true },
+          "coverage": { "until": "next-state" }
+        },
+        {
+          "id": "body-detail",
+          "text": "Body detail",
+          "role": "focal",
+          "cue": { "phrase": "body detail", "occurrence": 1 },
+          "coverage": { "until": "next-state" }
+        },
+        {
+          "id": "final-landing",
+          "text": "Final landing",
+          "role": "focal",
+          "cue": { "phrase": "final landing", "occurrence": 1 },
+          "coverage": { "until": "frame-end" }
+        }
+      ],
+      "coverageExemptions": []
+    }
+  }
+}
+```
+
+HyperFrames and Remotion both emit `build/visual_bindings.json` manifest v2 evidence with a canonical plan digest and authored-input digests. This manifest freshness check rejects stale evidence after changed neutral plans, changed HyperFrames frame HTML, or changed Remotion registry/source files; rerun a full build after semantic edits.
+
+Existing v1 projects remain in compatibility warning mode unless they opt into required coverage. Migrate by converting `visual_beats.json` to v2, adding opening/body/final focal states for every narrated frame, rebuilding framework binding evidence, then switching `coverageMode` to `required`.
+
+Project-local standards are snapshots. If `md2vid verify` says the marker is missing, perform a manual refresh of `.md2vid/standards/<framework>.md` from `docs/standards/frameworks/<framework>.md` without changing authored project files.
+
+Existing projects without `visual_beats.json` stay in **legacy warn vs scaffold required** mode: legacy projects warn until they migrate, while new scaffolds use required mode, include a `visual_beats.json.example`, and require cue-bound framework bindings.
+
+HyperFrames render profiles are md2vid policy flags:
+
+```text
+--profile final|draft|gif
+--allow-low-fps
+```
+
+The final profile is the default: **30 FPS final default / 24 FPS minimum** for MP4/MOV. `--allow-low-fps` explicitly overrides the final minimum; draft and GIF profiles permit intentionally lower rates. `--quality` remains independent. After a successful known-output render, md2vid writes `<output>.md2vid-render.json` beside the output with the effective profile, FPS, and override state.
 
 ## CLI
 
@@ -81,6 +207,8 @@ The `/md2vid` skill plus the HyperFrames media engine (`/hyperframes-media`) own
 md2vid --help
 md2vid --version
 md2vid new <slug> [--framework hyperframes|remotion]
+md2vid narration-check <dir> [--request <path>] [--allow-long-sentence <line-id>:<sentence-index>]
+md2vid plan <dir>
 md2vid build <dir> [--captions-only]
 md2vid transcribe <dir>
 md2vid regroup <dir> [--max-chars 54]
@@ -102,10 +230,14 @@ HyperFrames projects:
 
 ```bash
 cd <video-project>
+# source coverage → storyboard semantic map → script → narration/transcription
+# author visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan       # resolve anchors, then inspect resolved build/visual_timing.json intervals
+# bind framework visibility in authored frame HTML
 npm run build
-npm run check
+npm run check      # continuous verify before preview/manual semantic review or render
 npm run dev        # review in preview
-npm run render     # only after review
+npm run render     # final profile defaults to 30 FPS; only after review
 ```
 
 New projects use the exact GSAP version pinned by md2vid, materialized as `https://cdn.jsdelivr.net/npm/gsap@<version>/dist/gsap.min.js` in `output.config.json`. This default requires network access during preview and render. For offline use, provide your own local GSAP file and set `gsapSrc` to a canonical project-root-relative path such as `assets/gsap/gsap.min.js`. Use that exact unchanged string in every standalone authored frame and standalone `compositions/captions.html`; HyperFrames resolves local asset paths from the project root and rejects generated `../` or `../../` parent traversal. md2vid validates the file but does not copy GSAP bytes into new projects.
@@ -117,8 +249,13 @@ Remotion projects:
 ```bash
 cd <video-project>
 npm install
+# source coverage → storyboard semantic map → script → narration/transcription
+npm run transcribe
+# author visual_beats v2 with opening/body/final focal states for every narrated frame
+npm run plan       # resolve anchors, then inspect resolved build/visual_timing.json intervals
+# bind framework visibility in visual_bindings.json and authored src/scenes/*.tsx
 npm run build
-npm run check
+npm run check      # continuous verify before preview/manual semantic review or render
 npm run still      # fast smoke
 npm run studio     # interactive review
 npm run render     # only after review

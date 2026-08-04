@@ -31,6 +31,64 @@ function readSourceAndCopy(sourceFromRoot: string): Array<{ label: string; body:
   ];
 }
 
+function sectionBetween(body: string, start: string, end: string, label: string): string {
+  if (
+    start === "<!-- md2vid-narration-workflow:start -->"
+    && end === "<!-- md2vid-narration-workflow:end -->"
+  ) {
+    const count = (marker: string) => body.split(marker).length - 1;
+    assert.equal(count(start), 1, "expected exactly one workflow start marker");
+    assert.equal(count(end), 1, "expected exactly one workflow end marker");
+  }
+  const startIndex = body.indexOf(start);
+  const endIndex = body.indexOf(end, startIndex + start.length);
+  assert.ok(startIndex >= 0, `${label}: missing section ${JSON.stringify(start)}`);
+  assert.ok(endIndex > startIndex, `${label}: missing section boundary ${JSON.stringify(end)}`);
+  return body.slice(startIndex, endIndex);
+}
+
+const DEFAULT_NARRATION_REQUEST = {
+  version: 1,
+  provider: "kokoro",
+  voice: "am_michael",
+  lang: "en",
+  speed: 0.9,
+  lines: [
+    { id: "intro", text: "Introduce the topic." },
+    { id: "recap", text: "Recap the key idea." },
+  ],
+} as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertExactDefaultNarrationRequest(body: string, label: string): void {
+  const defaults = [...body.matchAll(/```json\n([\s\S]*?)\n```/g)]
+    .flatMap((match) => {
+      try {
+        const value: unknown = JSON.parse(match[1]);
+        return isRecord(value)
+          && ["version", "provider", "voice", "lang", "speed", "lines"].every((key) => key in value)
+          ? [value]
+          : [];
+      } catch {
+        return [];
+      }
+    });
+
+  assert.equal(defaults.length, 1, `${label}: expected exactly one parseable default request`);
+  const request = defaults[0]!;
+  assert.deepEqual(Object.keys(request), Object.keys(DEFAULT_NARRATION_REQUEST), `${label}: default field order`);
+  assert.deepEqual(request, DEFAULT_NARRATION_REQUEST, `${label}: exact FR-1 request`);
+}
+
+function assertNarrationPolicyRules(body: string, label: string): void {
+  assert.match(body, /For non-English narration, supply a compatible explicit voice; do not use am_michael\./, label);
+  assert.match(body, /more than 18(?: lexical)? words[\s\S]{0,120}(?:fails|failure)[\s\S]{0,120}approv/i, label);
+  assert.match(body, /comma does not count as a strong sentence boundary/i, label);
+}
+
 test("mandatory skill references are byte-identical to authoritative standards", () => {
   assert.deepEqual(
     SKILL_REFERENCE_MAP.map((entry) => entry.destination),
@@ -74,6 +132,231 @@ test("narration timing policy is authoritative and synchronized", () => {
     assert.match(body, /end past.*clamped/i, label);
     assert.match(body, /does not extend.*(?:WAV|duration_s)/i, label);
     assert.match(body, /(?:build.*verify|verify.*build).*fail.*path.*voice.*word/is, label);
+  }
+});
+
+test("canonical standards and the skill define one Kokoro narration workflow", () => {
+  const canonical = readFileSync(join(REPO_ROOT, "docs", "standards", "video-generation.md"), "utf8");
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+
+  for (const [label, text] of [["canonical", canonical], ["skill", skill]] as const) {
+    for (const term of [
+      "\"version\": 1",
+      "\"provider\": \"kokoro\"",
+      "\"voice\": \"am_michael\"",
+      "\"lang\": \"en\"",
+      "\"speed\": 0.9",
+      "6–14",
+      "more than 18",
+      "comma does not count as a strong sentence boundary",
+      "md2vid narration-check",
+      "/media-use",
+      "md2vid transcribe",
+      "narration_evidence.json",
+      "For non-English narration, supply a compatible explicit voice; do not use am_michael.",
+      "There is no `md2vid audio` command.",
+    ]) assert.match(text, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${label}: ${term}`);
+  }
+
+  const startMarker = "<!-- md2vid-narration-workflow:start -->";
+  const endMarker = "<!-- md2vid-narration-workflow:end -->";
+  const workflow = sectionBetween(skill, startMarker, endMarker, "narration workflow");
+  const ordered = [
+    "spoken narration script",
+    "md2vid narration-check",
+    "Kokoro",
+    "md2vid transcribe",
+    "visual_beats.json",
+    "npm run plan",
+    "npm run build",
+    "npm run check",
+    "review",
+    "render",
+  ];
+  assertOrder(workflow, ordered, "narration workflow");
+  assert.ok(workflow.includes("<!-- md2vid-media-contract:start -->"), "workflow must retain media contract");
+  assert.ok(workflow.includes("<!-- md2vid-media-contract:end -->"), "workflow must retain media contract");
+
+  for (const forbidden of [
+    "/hyperframes-media",
+    "provider: \"auto\"",
+    "say -v",
+    "estimate word timings",
+    "author visuals before transcription",
+  ]) assert.equal(skill.includes(forbidden), false, `forbidden guidance remains: ${forbidden}`);
+});
+
+test("policy-owning public surfaces serialize the exact FR-1 narration request", () => {
+  const documents = [
+    ["README", readFileSync(join(REPO_ROOT, "README.md"), "utf8")],
+    ["canonical standard", readFileSync(join(REPO_ROOT, "docs", "standards", "video-generation.md"), "utf8")],
+    ["skill", readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8")],
+  ] as const;
+
+  for (const [label, body] of documents) {
+    assertExactDefaultNarrationRequest(body, label);
+    assertNarrationPolicyRules(body, label);
+  }
+
+  const readme = documents[0][1];
+  assert.throws(
+    () => assertExactDefaultNarrationRequest(readme.replace('"speed": 0.9', '"speed": 1'), "mutated README"),
+    /exact FR-1 request/,
+  );
+});
+
+test("duplicate narration workflow marker pairs are rejected", () => {
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+  const startMarker = "<!-- md2vid-narration-workflow:start -->";
+  const endMarker = "<!-- md2vid-narration-workflow:end -->";
+  const duplicate = `${skill}\n${startMarker}\ncontradictory workflow\n${endMarker}\n`;
+
+  assert.throws(
+    () => sectionBetween(duplicate, startMarker, endMarker, "duplicated narration workflow"),
+    /expected exactly one workflow start marker/,
+  );
+});
+
+test("canonical and bundled standards require v2 continuous visual timing workflow", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /visual_beats(?:\.json)? v2/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
+    assert.match(body, /continuous npm run (?:check|verify)|continuous verify/i, label);
+    assert.match(body, /--allow-low-fps/, label);
+    assert.doesNotMatch(body, /cue-bound visual authoring/i, label);
+    assert.doesNotMatch(body, /planned-beat coverage/i, label);
+    assertOrder(body, ["source", "storyboard semantic", "script", "narration", "transcription", "visual_beats v2", "npm run plan", "build/visual_timing.json", "bind framework visibility", "npm run build", "npm run check", "preview", "manual semantic review", "render"], label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame.md")) {
+    assert.match(body, /every narrated (?:node|row|card|code line|station).*beat ID/is, label);
+    assert.match(body, /no copied semantic offsets/i, label);
+    assert.match(body, /front-loaded workflows/i, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/knowledge-expression.md")) {
+    assert.match(body, /ordered beat coverage/i, label);
+    assert.match(body, /grouped source references/i, label);
+    for (const treatment of ["Flow", "Enumerate", "Matrix", "Contrast"]) assert.match(body, new RegExp(`\\b${treatment}\\b`), label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /data-md2vid-beat/, label);
+    assert.match(body, /data-md2vid-custom-bindings/, label);
+    assert.match(body, /--profile final\|draft\|gif/, label);
+    assert.match(body, /owned helper/i, label);
+    assert.match(body, /visual_bindings\.json/, label);
+    assert.match(body, /seek-safe/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /static.*visual_bindings\.json/is, label);
+    assert.match(body, /VisualBeatProvider/, label);
+    assert.match(body, /BeatReveal/, label);
+    assert.match(body, /30 FPS/, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
+    assert.match(body, /one registered parent timeline may compose generated and authored child timelines/i, label);
+  }
+});
+
+test("canonical and bundled standards require continuous semantic visual coverage", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/video-generation.md")) {
+    assert.match(body, /continuous semantic visual coverage/i, label);
+    assert.match(body, /first spoken word.*held landing/is, label);
+    assert.match(body, /captions.*do not.*satisfy/is, label);
+    assert.match(body, /maxUncoveredGap/, label);
+    assert.match(body, /opening.*middle.*ending/is, label);
+    assert.match(body, /manifest.*freshness/is, label);
+    assert.match(body, /project-standard marker/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame.md")) {
+    assert.match(body, /active focal semantic state = narration concept = caption concept/i, label);
+    assert.match(body, /static focal state/i, label);
+    assert.match(body, /held landing/i, label);
+    assert.match(body, /shell.*not.*focal coverage/is, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/knowledge-expression.md")) {
+    assert.match(body, /At every narrated timestamp/i, label);
+    assert.match(body, /active focal semantic state = narration concept = caption concept/i, label);
+    assert.match(body, /static holds are valid/i, label);
+    assert.match(body, /concept change requires a new state/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/design/frame-content.md")) {
+    assert.match(body, /framework-owned binding paths/i, label);
+    assert.match(body, /owned semantic activation/i, label);
+    assert.match(body, /owned semantic exit/i, label);
+    assert.match(body, /generated evidence matches runtime behavior/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    assert.match(body, /md2vid-continuous-visual-coverage: 2/, label);
+    assert.match(body, /data-md2vid-coverage="planned"/, label);
+    assert.match(body, /owned semantic exit/i, label);
+    assert.match(body, /raw authored.*digest/i, label);
+    assert.match(body, /host retention.*frameDur/i, label);
+  }
+
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    assert.match(body, /md2vid-continuous-visual-coverage: 2/, label);
+    assert.match(body, /BeatState/, label);
+    assert.match(body, /BeatReveal/, label);
+    assert.match(body, /registry v2/i, label);
+    assert.match(body, /authored input digest/i, label);
+    assert.match(body, /shared boundary quantization/i, label);
+  }
+});
+
+test("skill and README document the continuous coverage workflow and migration", () => {
+  const skill = readFileSync(join(SKILL_ROOT, "SKILL.md"), "utf8");
+  const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf8");
+
+  for (const [label, body] of [["skill", skill], ["README", readme]] as const) {
+    assert.match(body, /source coverage.*storyboard semantic coverage map.*script/is, label);
+    assert.match(body, /visual_beats(?:\.json)? v2/i, label);
+    assert.match(body, /opening\/body\/final focal states/i, label);
+    assert.match(body, /build\/visual_timing\.json/i, label);
+    assert.match(body, /inspect resolved (?:coverage )?(?:build\/visual_timing\.json )?intervals/i, label);
+    assert.match(body, /continuous (?:npm run )?(?:check|verify)|continuous verify/i, label);
+    assert.match(body, /preview\/manual semantic review|manual semantic review/i, label);
+    assert.match(body, /captions.*(?:title|background).*insufficient|(?:title|background).*captions.*insufficient/is, label);
+    assert.match(body, /no fixed motion cadence|does not require.*fixed motion cadence/i, label);
+    assert.doesNotMatch(body, /transcription\s*→\s*visual_beats\.json\s*→\s*(?:md2vid|npm run) plan\b/is, label);
+    assert.doesNotMatch(body, /beat coverage(?!.*interval)/i, label);
+  }
+
+  assert.match(readme, /v1.*compatibility/i);
+  assert.match(readme, /"version"\s*:\s*2/);
+  assert.match(readme, /coverageMode/);
+  assert.match(readme, /manifest.*freshness/i);
+  assert.match(readme, /HyperFrames.*Remotion/is);
+  assert.match(readme, /manual.*refresh.*\.md2vid\/standards/i);
+});
+
+test("framework onboarding resolves visual timing before framework authoring", () => {
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/hyperframes.md")) {
+    const onboarding = sectionBetween(body, "## First run", "### Existing generated projects", label);
+    assertOrder(
+      onboarding,
+      ["source", "storyboard semantic", "script", "audio_meta.json", "npm run transcribe", "visual_beats.json", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "compositions/frames", "npm run build", "npm run check", "preview", "manual semantic review", "render"],
+      label,
+    );
+    assert.match(onboarding, /"plan": "md2vid plan \."/, label);
+    assert.doesNotMatch(onboarding, /Author `visual_beats\.json` against the transcribed WAV words/i, label);
+  }
+  for (const { label, body } of readSourceAndCopy("docs/standards/frameworks/remotion.md")) {
+    const onboarding = sectionBetween(body, "## Generated-project pipeline", "## Cue-bound visual timing", label);
+    assertOrder(
+      onboarding,
+      ["source", "storyboard semantic", "script", "npm run transcribe", "visual_beats.json", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "src/scenes", "npm run build", "npm run check", "preview", "manual semantic review", "render"],
+      label,
+    );
+    assert.match(onboarding, /"plan": "md2vid plan \."/, label);
+    assert.doesNotMatch(onboarding, /Author visual_beats\.json against the transcribed WAV words/i, label);
   }
 });
 

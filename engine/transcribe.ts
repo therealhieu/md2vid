@@ -25,12 +25,19 @@ import {
 } from "../scripts/hyperframes_cli.ts";
 import { normalizeTranscriptWords, validateAudioMeta } from "./audio_meta.ts";
 import type { AudioMeta, Word } from "./types.ts";
-import { captureVoiceWavSnapshots } from "./voice_assets.ts";
+import { captureVoiceWavSnapshots, type VoiceWavSnapshot } from "./voice_assets.ts";
 
 type HyperframesRunner = (
   args: string[],
   options?: Pick<RunHyperframesOptions, "cwd">,
 ) => number;
+
+export interface TranscribeResult {
+  meta: AudioMeta;
+  ok: number;
+  total: number;
+  voiceSnapshots: VoiceWavSnapshot[];
+}
 
 // Transcribe every voice wav referenced by meta.voices (paths are relative to
 // baseDir), normalize provider timings, and fill `words` only after every voice
@@ -42,7 +49,7 @@ export function transcribeVoices(
     model = "small.en",
     run = runHyperframes,
   }: { model?: string; run?: HyperframesRunner } = {},
-): { meta: AudioMeta; ok: number; total: number } {
+): TranscribeResult {
   const validated = validateAudioMeta(meta, "audio_meta.json", { allowInvalidWords: true });
   const snapshots = captureVoiceWavSnapshots(baseDir, validated.voices.map((voice) => voice.path));
   const snapshotsByPath = new Map(snapshots.map((snapshot) => [snapshot.path, snapshot]));
@@ -83,8 +90,15 @@ export function transcribeVoices(
         rmSync(tempDir, { recursive: true, force: true });
       }
     }
-    if (ok !== validated.voices.length) return { meta, ok, total: validated.voices.length };
-    return { meta: { voices: completed }, ok, total: validated.voices.length };
+    if (ok !== validated.voices.length) {
+      return { meta, ok, total: validated.voices.length, voiceSnapshots: snapshots };
+    }
+    return {
+      meta: { ...validated, voices: completed },
+      ok,
+      total: validated.voices.length,
+      voiceSnapshots: snapshots,
+    };
   } finally {
     rmSync(snapshotRoot, { recursive: true, force: true });
   }

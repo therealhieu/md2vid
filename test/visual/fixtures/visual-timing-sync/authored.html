@@ -1,0 +1,21 @@
+<template data-composition-id="reserve-flow">
+  <div id="reserve-flow-root" data-composition-id="reserve-flow" data-duration="18">
+    <div id="reserve" data-md2vid-beat="reserve" data-md2vid-enter="none"></div>
+    <div id="execute"></div>
+    <div id="settle"></div>
+    <script type="application/json" data-md2vid-custom-bindings>
+      {"bindings":[
+        {"beat":"execute","target":"#execute","method":"from","duration":0.25},
+        {"beat":"settle","target":"#settle","method":"from","duration":0.25}
+      ]}
+    </script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const timeline = gsap.timeline({ paused: true });
+      window.__timelines["reserve-flow"] = timeline;
+      const timing = window.__md2vidTiming.forFrame("reserve-flow");
+      timing.from(timeline, "execute", "#execute", { autoAlpha: 0, duration: 0.25 });
+      timing.from(timeline, "settle", "#settle", { autoAlpha: 0, duration: 0.25 });
+    </script>
+  </div>
+</template>

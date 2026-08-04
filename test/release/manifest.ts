@@ -1,6 +1,17 @@
+export const NARRATION_PACKED_FILES = [
+  "dist/engine/narration_request.js",
+  "dist/engine/narration_evidence.js",
+  "dist/scripts/narration_check.js",
+  "dist/docs/standards/video-generation.md",
+  "dist/docs/standards/frameworks/hyperframes.md",
+  "dist/docs/standards/frameworks/remotion.md",
+] as const;
+
 export const REQUIRED_PACKED_FILES = [
   "dist/bin/md2vid.js",
   "dist/scripts/build.js",
+  "dist/scripts/plan.js",
+  "dist/scripts/plan_project.js",
   "dist/scripts/check_release_name.js",
   "dist/scripts/cli_args.js",
   "dist/scripts/hyperframes_cli.js",
@@ -14,7 +25,12 @@ export const REQUIRED_PACKED_FILES = [
   "dist/scripts/project_layout.js",
   "dist/scripts/scaffold_project.js",
   "dist/scripts/skill_references.js",
+  "dist/engine/visual_beats.js",
+  "dist/engine/visual_evidence.js",
+  "dist/engine/visual_sync.js",
   "dist/frameworks/assets.js",
+  "dist/frameworks/hyperframes/visual_timing.js",
+  "dist/frameworks/remotion/visual_bindings.js",
   "dist/frameworks/hyperframes/templates/caption-skin.html",
   "dist/frameworks/remotion/templates/render.ts",
   "dist/frameworks/remotion/templates/remotion.config.ts",
@@ -22,6 +38,7 @@ export const REQUIRED_PACKED_FILES = [
   "dist/frameworks/remotion/templates/src/index.ts",
   "dist/frameworks/remotion/templates/src/Root.tsx",
   "dist/frameworks/remotion/templates/src/Video.tsx",
+  "dist/frameworks/remotion/templates/src/VisualBeats.tsx",
   "dist/docs/standards/frameworks/remotion.md",
   "docs/standards/frameworks/remotion.md",
   "postinstall.mjs",
@@ -35,6 +52,7 @@ export const REQUIRED_PACKED_FILES = [
   "skill/md2vid/references/standards/frameworks/remotion.md",
   "README.md",
   "LICENSE",
+  ...NARRATION_PACKED_FILES,
 ] as const;
 
 export const FORBIDDEN_PACKED_PREFIXES = [

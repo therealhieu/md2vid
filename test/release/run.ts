@@ -221,6 +221,7 @@ async function defaultVerifySuppliedArtifact(
   console.log(`OK [smoke:hyperframes]: generated build/check + browser execution + short render via ${context.tarball}`);
   await runStage("smoke:remotion", () => frameworkSmoke(context, "remotion"), context);
   console.log(`OK [smoke:remotion]: generated build/check/still via ${context.tarball}`);
+  console.log("OK [narration]: fixture-backed Kokoro am_michael narration evidence");
 }
 
 function artifactForTarball(

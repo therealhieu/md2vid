@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -13,6 +14,8 @@ import {
   assertPackedFiles,
   assertRegistryIntegrity,
   createReleaseContext,
+  deriveSmokeCoverageChecks,
+  deriveSmokeRevealChecks,
   finishReleaseContext,
   packArtifact,
   packedFileListing,
@@ -29,6 +32,8 @@ import {
   parseGsapUrls,
   parseVoiceUrls,
   REPO_ROOT,
+  RETAINED_NARRATION_STAGES,
+  RetainedNarrationStageSequence,
   runInstalledCli,
   runStage,
   runWithHyperframesReadinessRetry,
@@ -36,6 +41,7 @@ import {
   stopProcessTree,
   terminateProcessTree,
   useSuppliedArtifact,
+  validateRetainedAbsoluteWords,
   waitForExit,
   withPackLock,
   type CommandRunner,
@@ -43,6 +49,7 @@ import {
 import { FORBIDDEN_PACKED_FILES, REQUIRED_PACKED_FILES } from "./manifest.ts";
 import { readPackageManagerMetadata } from "../../scripts/package_root.ts";
 import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
+import { captureVoiceWavSnapshot } from "../../engine/voice_assets.ts";
 import {
   currentNpmVersion,
   parseReleaseArguments,
@@ -63,6 +70,145 @@ test("release smoke status reports generated check scripts for both frameworks",
   assert.match(source, /smoke:hyperframes[^\n]*generated build\/check.*browser.*render/i);
   assert.match(source, /smoke:remotion[^\n]*generated build\/check\/still/);
   assert.doesNotMatch(source, /build\/typecheck\/still/);
+});
+
+test("packed release narration declares and enforces its semantic stage order", async () => {
+  assert.deepEqual(RETAINED_NARRATION_STAGES, [
+    "assert scaffold audio_request.json.example",
+    "copy versioned retained fixture request",
+    "run installed narration-check",
+    "capture test-owned media arguments",
+    "copy retained Kokoro/Michael WAVs",
+    "run installed transcribe with injected transcript provider",
+    "assert narration_evidence.json",
+    "mutate spoken text and prove planning rejects stale evidence",
+    "restore request",
+    "build/check HyperFrames",
+    "build/check Remotion",
+  ]);
+  const sequence = new RetainedNarrationStageSequence();
+  await sequence.run(RETAINED_NARRATION_STAGES[0], () => undefined);
+  await assert.rejects(
+    sequence.run(RETAINED_NARRATION_STAGES[2], () => undefined),
+    /must run after copy versioned retained fixture request/,
+  );
+
+  const hyperframesSequence = new RetainedNarrationStageSequence();
+  for (const stage of RETAINED_NARRATION_STAGES.slice(0, 10)) {
+    await hyperframesSequence.run(stage, () => undefined);
+  }
+  assert.doesNotThrow(() => hyperframesSequence.complete("build/check HyperFrames"));
+
+  const remotionSequence = new RetainedNarrationStageSequence();
+  for (const stage of RETAINED_NARRATION_STAGES.slice(0, 9)) {
+    await remotionSequence.run(stage, () => undefined);
+  }
+  await remotionSequence.run("build/check Remotion", () => undefined);
+  assert.doesNotThrow(() => remotionSequence.complete("build/check Remotion"));
+
+  const status = readFileSync(join(import.meta.dirname, "run.ts"), "utf8");
+  assert.match(status, /fixture-backed Kokoro am_michael narration evidence/);
+  assert.doesNotMatch(status, /fresh Kokoro synthesis/);
+});
+
+test("retained Kokoro fixture preserves actual WAV and absolute transcript integrity", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "release", "fixtures", "kokoro-am-michael");
+  const fixture = JSON.parse(readFileSync(join(fixtureRoot, "fixture.json"), "utf8")) as {
+    version: number;
+    kind: string;
+    freshSynthesisDuringTest: boolean;
+    freshTranscriptionDuringTest: boolean;
+    provider: string;
+    voice: string;
+    requestedSpeed: number;
+    transcriptSource: string;
+    transcriptSha256: string;
+    sourceLines: Record<string, string>;
+    wavSha256: Record<string, string>;
+  };
+  assert.deepEqual({
+    version: fixture.version,
+    kind: fixture.kind,
+    freshSynthesisDuringTest: fixture.freshSynthesisDuringTest,
+    freshTranscriptionDuringTest: fixture.freshTranscriptionDuringTest,
+    provider: fixture.provider,
+    voice: fixture.voice,
+    requestedSpeed: fixture.requestedSpeed,
+    transcriptSource: fixture.transcriptSource,
+  }, {
+    version: 1,
+    kind: "retained-kokoro-fixture",
+    freshSynthesisDuringTest: false,
+    freshTranscriptionDuringTest: false,
+    provider: "kokoro",
+    voice: "am_michael",
+    requestedSpeed: 0.9,
+    transcriptSource: "retained-md2vid-transcribe",
+  });
+  assert.deepEqual(fixture.sourceLines, {
+    intro: "Introduce the topic.",
+    followup: "Recap the key idea.",
+  });
+
+  for (const [relativePath, expected] of Object.entries(fixture.wavSha256)) {
+    const actual = createHash("sha256").update(readFileSync(join(fixtureRoot, relativePath))).digest("hex");
+    assert.equal(actual, expected, `retained WAV hash ${relativePath}`);
+  }
+  const transcriptBytes = readFileSync(join(fixtureRoot, "expected_words.json"));
+  assert.equal(createHash("sha256").update(transcriptBytes).digest("hex"), fixture.transcriptSha256);
+
+  const request = JSON.parse(readFileSync(join(fixtureRoot, "audio_request.json"), "utf8"));
+  assert.deepEqual(request, {
+    version: 1,
+    provider: "kokoro",
+    voice: "am_michael",
+    lang: "en",
+    speed: 0.9,
+    lines: [
+      { id: "intro", text: "Introduce the topic." },
+      { id: "followup", text: "Recap the key idea." },
+    ],
+  });
+  const metadata = JSON.parse(readFileSync(join(fixtureRoot, "audio_meta.json"), "utf8")) as {
+    tts_provider: string;
+    voice_id: string;
+    voices: Array<{ id: string; path: string; duration_s: number; words: unknown[] }>;
+  };
+  assert.equal(metadata.tts_provider, "kokoro");
+  assert.equal(metadata.voice_id, "am_michael");
+  const expectedWords = JSON.parse(transcriptBytes.toString("utf8")) as Record<string, Array<{
+    id: string;
+    text: string;
+    start: number;
+    end: number;
+    [field: string]: unknown;
+  }>>;
+  assert.deepEqual(Object.keys(expectedWords), metadata.voices.map((voice) => voice.id));
+  for (const voice of metadata.voices) {
+    assert.deepEqual(voice.words, [], `${voice.id} must retain pre-transcription metadata`);
+    const snapshot = captureVoiceWavSnapshot(fixtureRoot, voice.path);
+    assert.equal(voice.duration_s, snapshot.duration_s, `${voice.id} safe WAV duration`);
+    const words = expectedWords[voice.id];
+    assert.ok(Array.isArray(words) && words.length > 0, `${voice.id} retained transcript must be non-empty`);
+    assert.deepEqual(
+      validateRetainedAbsoluteWords(voice.id, words, snapshot.duration_s),
+      words,
+      `${voice.id} must retain only ordered, safe absolute word timing`,
+    );
+  }
+});
+
+test("retained transcript validation rejects an alternative proportional timing field before replay", () => {
+  assert.throws(
+    () => validateRetainedAbsoluteWords("intro", [{
+      id: "w0",
+      text: "Introduce",
+      start: 0.13,
+      end: 0.7,
+      timeRatio: 0.5,
+    }], 1.792),
+    /must contain only id, text, start, and end/,
+  );
 });
 
 test("HyperFrames smoke retries one exact zero-duration readiness failure", () => {
@@ -95,6 +241,111 @@ test("HyperFrames smoke does not retry unrelated or repeated failures", () => {
     }));
     assert.equal(attempts, expectedAttempts);
   }
+});
+
+test("HyperFrames smoke derives semantic coverage seek samples from manifest intervals", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /coverageStart/);
+  assert.match(source, /coverageEnd/);
+  assert.match(source, /firstFrameAtOrAfter\(binding\.coverageStart\)/);
+  assert.match(source, /lastFrameBefore\(binding\.coverageEnd\)/);
+  assert.match(source, /direct.*sequential.*reverse/s);
+  assert.match(source, /voiceDur.*frameDur|frameDur.*voiceDur/s);
+});
+
+test("HyperFrames smoke coverage probes include every v2 binding", () => {
+  const checks = deriveSmokeCoverageChecks(
+    [
+      { slug: "01-smoke", start: 0, frameDur: 4 },
+      { slug: "02-smoke", start: 5, frameDur: 4 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", coverageStart: 1, coverageEnd: 4 },
+      { frameSlug: "01-smoke", target: "#s01-extra", coverageStart: 2, coverageEnd: 3 },
+      { frameSlug: "02-smoke", target: "#s02-future", coverageStart: 1.5, coverageEnd: 3 },
+    ],
+    100,
+  );
+
+  assert.deepEqual(checks.map((check) => check.target), ["#s01-future", "#s01-extra", "#s02-future"]);
+  assert.deepEqual(checks[0].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
+    ["before", 0.99, 0.99, false],
+    ["start", 1, 1, true],
+    ["inside", 1.1, 1.1, true],
+    ["before-end", 3.99, 3.99, true],
+    ["end", 4, 4, true],
+  ]);
+  assert.deepEqual(checks[2].samples.map((sample) => [sample.phase, sample.localTime, sample.globalTime, sample.expectedVisible]), [
+    ["before", 1.49, 6.49, false],
+    ["start", 1.5, 6.5, true],
+    ["inside", 1.6, 6.6, true],
+    ["before-end", 2.99, 7.99, true],
+    ["end", 3, 8, false],
+  ]);
+});
+
+test("HyperFrames smoke semantic visibility treats opacity-zero targets as hidden", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /Number\.parseFloat\(style\.opacity\)\s*>\s*0\.01/);
+});
+
+test("HyperFrames smoke coverage probes derive expectations from quantized seek time", () => {
+  for (const fps of [24, 30, 60]) {
+    const [check] = deriveSmokeCoverageChecks(
+      [{ slug: "01-smoke", start: 0, frameDur: 1 }],
+      [{ frameSlug: "01-smoke", target: "#fractional", coverageStart: 0.13, coverageEnd: 0.57 }],
+      fps,
+    );
+    const byPhase = new Map(check.samples.map((sample) => [sample.phase, sample]));
+    assert.equal(byPhase.get("before")?.expectedVisible, false, `${fps} before`);
+    assert.equal(byPhase.get("start")?.expectedVisible, true, `${fps} quantized start`);
+    assert.equal(byPhase.get("inside")?.expectedVisible, true, `${fps} inside`);
+    assert.equal(byPhase.get("before-end")?.expectedVisible, true, `${fps} before-end`);
+    assert.equal(byPhase.get("end")?.expectedVisible, false, `${fps} end`);
+
+    const actualExpectations = new Map<string, boolean>();
+    for (const sample of check.samples) {
+      const previous = actualExpectations.get(sample.globalTime.toFixed(6));
+      if (previous !== undefined) assert.equal(previous, sample.expectedVisible, `${fps} conflicting ${sample.globalTime}`);
+      actualExpectations.set(sample.globalTime.toFixed(6), sample.expectedVisible);
+    }
+  }
+});
+
+test("HyperFrames smoke derives each cue probe from generated binding evidence", () => {
+  const checks = deriveSmokeRevealChecks(
+    [
+      { slug: "01-smoke", start: 0 },
+      { slug: "02-smoke", start: 4 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", revealStart: 1.3, revealDuration: 0.2 },
+      { frameSlug: "02-smoke", target: "#s02-future", revealStart: 0.6, revealDuration: 0.4 },
+    ],
+    30,
+  );
+
+  assert.equal(checks.length, 2);
+  assert.ok(Math.abs(checks[0].before - (1.3 - 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[0].after - (1.3 + 0.2 + 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[1].before - (4 + 0.6 - 1 / 30)) < 1e-9);
+  assert.ok(Math.abs(checks[1].after - (4 + 0.6 + 0.4 + 1 / 30)) < 1e-9);
+});
+
+test("HyperFrames cue samples use the same floor-to-frame seek contract", () => {
+  const [check] = deriveSmokeRevealChecks(
+    [
+      { slug: "01-smoke", start: 0 },
+      { slug: "02-smoke", start: 1 },
+    ],
+    [
+      { frameSlug: "01-smoke", target: "#s01-future", revealStart: 0.13, revealDuration: 0.2 },
+      { frameSlug: "02-smoke", target: "#s02-future", revealStart: 0.1, revealDuration: 0.2 },
+    ],
+    30,
+  );
+  assert.equal(check.before, 2 / 30);
+  assert.equal(check.after, 10 / 30);
 });
 
 test("packed HyperFrames smoke starts pristine and relies on proxy self-healing", () => {
@@ -159,10 +410,17 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.doesNotMatch(source, /frame1Timeline\.seek\(time\)/);
   assert.doesNotMatch(source, /frame2Timeline\.seek\(time\)/);
   assert.doesNotMatch(source, /captions\.seek\(time\)/);
-  assert.match(source, /frame2HostStart\s*-\s*0\.1/);
-  assert.match(source, /frame2HostStart\s*\+\s*0\.1/);
-  assert.match(source, /frame2HostStart\s*\+\s*2\.4/);
-  assert.match(source, /frame2HostStart\s*\+\s*2\.9/);
+  assert.match(source, /visualBindingArtifact/);
+  assert.match(source, /deriveSmokeRevealChecks/);
+  assert.match(source, /generated main root.*FPS/);
+  assert.match(source, /check\.before/);
+  assert.match(source, /check\.after/);
+  assert.match(source, /before\.every/);
+  assert.match(source, /after\.every/);
+  assert.match(source, /stageFixtureSmokeFrame/);
+  assert.doesNotMatch(source, /frame2HostStart\s*\+\s*2\.4/);
+  assert.doesNotMatch(source, /frame2HostStart\s*\+\s*2\.9/);
+  assert.match(source, /frame2HostStart\s*\+\s*frame2\.frameDur\s*-\s*0\.1/);
   assert.match(source, /caption-word is-active/);
   assert.match(source, /caption-word is-spoken/);
   assert.match(source, /caption-host/);
@@ -174,6 +432,84 @@ test("packed HyperFrames smoke uses real GSAP and verifies two composed frame ti
   assert.match(source, /--fps",\s*"1"/);
   assert.match(source, /--workers",\s*"1"/);
   assert.match(source, /smoke\.mp4/);
+});
+
+test("release smoke supplies required visual timing inputs and consumes draft render policy", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /coverageMode:\s*"required"/);
+  assert.match(source, /maxUncoveredGap:\s*0\.5/);
+  assert.match(source, /visual_beats\.json/);
+  assert.match(source, /data-md2vid-beat/);
+  assert.match(source, /visual_bindings\.json/);
+  assert.match(source, /VisualBeatProvider/);
+  assert.match(source, /BeatState/);
+  assert.match(source, /BeatReveal/);
+  assert.match(source, /OpeningContext/);
+  assert.match(source, /FinalLanding/);
+  assert.match(source, /target: "FinalLanding", enter: "none"/);
+  assert.match(source, /smoke-opening/);
+  assert.match(source, /smoke-landing/);
+  assert.match(source, /MD2VID_REMOTION_PROBE/);
+  assert.match(source, /assertRemotionRuntimeProbe/);
+  assert.match(source, /openBrowser/);
+  assert.match(source, /browser\.close\(\{ silent: true \}\)/);
+  assert.match(source, /held-landing/);
+  assert.match(source, /--profile",\s*"draft"/);
+  assert.match(source, /--profile",\s*"draft"[\s\S]*?--fps",\s*"1"/);
+  assert.match(source, /--fps",\s*"1"[\s\S]*?--quality",\s*"draft"/);
+  assert.match(source, /md2vid-render\.json/);
+  assert.match(source, /mutateHyperframesFrameAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /mutateRemotionRegistryAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /mutateRemotionSourceAndAssertVerifyRejectsStaleVisualEvidence/);
+  assert.match(source, /stale_visual_evidence/);
+  assert.match(source, /Run `md2vid build` to regenerate semantic visual evidence/);
+});
+
+test("retained Kokoro smoke uses exact coverage states and transcript indexes", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /id: "opening-context"/);
+  assert.doesNotMatch(source, /id: "opening-context"[\s\S]{0,240}?coverage: \{ until: "next-state" \}/);
+  assert.match(source, /id: "final-landing"/);
+  assert.match(source, /cue: \{ frameStart: true \}/);
+  assert.match(source, /cue: \{ wordIndex: 1 \}/);
+  assert.match(source, /cue: \{ wordIndex: 0 \}/);
+  assert.doesNotMatch(source, /cue: \{ wordIndex: [23] \}/);
+  assert.doesNotMatch(source, /id: "reveal"/);
+});
+
+test("HyperFrames smoke derives assertions from frame-quantized seeks", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /function frameSafeSeekTime/);
+  assert.match(source, /Math\.floor\(\(time \+ 1e-9\) \* fps\) \/ fps/);
+});
+
+test("HyperFrames smoke samples the first-frame hidden state before its generated cue", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /sampleAt\(frame1Reveal\.before\)\.frame1FutureOpacity/);
+  assert.doesNotMatch(source, /sampleAt\(0\.5\)\.frame1FutureOpacity/);
+});
+
+test("HyperFrames smoke labels true initial, pre-cue, and pre-host samples distinctly", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /const initialGlobalSample = frameSafeSeekTime\(0, fps\)/);
+  assert.match(source, /const frame2PreHostSample = frameSafeSeekTime\(frame2HostStart, fps\)/);
+  assert.match(source, /hidden at global time zero/);
+  assert.match(source, /hidden immediately before its resolved cue/);
+  assert.match(source, /frame-quantized pre-host sample/);
+  assert.doesNotMatch(source, /frame 1 future element must start hidden/);
+  assert.doesNotMatch(source, /zero at host start/);
+});
+
+test("HyperFrames smoke derives post-start local time from the frame-safe global sample", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /afterFrame2 - frame2HostStart/);
+  assert.doesNotMatch(source, /frame2LocalTime - 0\.1/);
+});
+
+test("HyperFrames smoke derives caption visibility from transcribed caption expectations", () => {
+  const source = readFileSync(join(import.meta.dirname, "harness.ts"), "utf8");
+  assert.match(source, /browserExpectations\.find/);
+  assert.doesNotMatch(source, /Math\.abs\(sample\.time - beforeFrame2\)/);
 });
 
 test("release harness has no Windows command or process execution path", () => {
@@ -472,6 +808,20 @@ test("extracts canonical local GSAP URLs from generated and authored HTML", () =
     <script src="assets/gsap/gsap.min.js"></script>
     <script>gsap.timeline();</script>
   `), ["assets/gsap/gsap.min.js"]);
+});
+
+test("HyperFrames smoke leaves beat-bound target scheduling to the generated helper", () => {
+  const fixtureRoot = join(REPO_ROOT, "test", "cli", "fixtures", "smoke");
+  for (const [frameSlug, titleTarget, futureTarget] of [
+    ["01-smoke", "s01-title", "s01-future"],
+    ["02-smoke", "s02-title", "s02-future"],
+  ] as const) {
+    const frame = readFileSync(join(fixtureRoot, `${frameSlug}.html`), "utf8");
+    assert.match(frame, new RegExp(`id="${titleTarget}"[^>]*data-md2vid-beat="opening-context"[^>]*data-md2vid-enter="none"[^>]*data-md2vid-coverage="planned"`));
+    assert.match(frame, new RegExp(`id="${futureTarget}"[^>]*data-md2vid-beat="final-landing"[^>]*data-md2vid-enter="none"[^>]*data-md2vid-coverage="planned"`));
+    assert.doesNotMatch(frame, /data-md2vid-beat="reveal"/);
+    assert.doesNotMatch(frame, new RegExp(`tl\\.(?:set|to|from|fromTo)\\("#${futureTarget}"`));
+  }
 });
 
 test("HyperFrames smoke fixture composition roots declare the light frame theme", () => {

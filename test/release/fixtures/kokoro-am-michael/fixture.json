@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "retained-kokoro-fixture",
+  "freshSynthesisDuringTest": false,
+  "freshTranscriptionDuringTest": false,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "requestedSpeed": 0.9,
+  "transcriptSource": "retained-md2vid-transcribe",
+  "transcriptSha256": "9c96065bae53fb3c34e1ccd3186f40ee0034555cba0ae5faa46de4b16802b963",
+  "sourceLines": {
+    "intro": "Introduce the topic.",
+    "followup": "Recap the key idea."
+  },
+  "wavSha256": {
+    "assets/voice/intro.wav": "4334b64e55f587ac639be63c75ec7986452556af6ad044147dd20b4cbf1f168d",
+    "assets/voice/followup.wav": "cda8b701f2c9b60db41685793014ee1cb61e903fb7276b0b9345b7053af63405"
+  }
+}

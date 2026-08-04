@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { pathToFileURL } from "node:url";
 import { buildPublicSnapshot } from "../../scripts/public_snapshot.ts";
@@ -50,6 +50,30 @@ function createSourceRepository(t: TestContext): string {
   writeFileSync(join(root, "README.md"), "# Public\n");
   mkdirSync(join(root, "engine"));
   writeFileSync(join(root, "engine", "index.ts"), "export {};\n");
+  for (const path of [
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
+    "engine/narration_request.ts",
+    "engine/narration_evidence.ts",
+    "scripts/narration_check.ts",
+    "skill/md2vid/SKILL.md",
+    "skill/md2vid/references/standards/video-generation.md",
+    "test/release/harness.ts",
+    "test/release/fixtures/kokoro-am-michael/fixture.json",
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), path.endsWith(".json") ? "{}\n" : "export {};\n");
+  }
+  mkdirSync(join(root, "test/release/fixtures/kokoro-am-michael/assets/voice"), { recursive: true });
+  writeFileSync(
+    join(root, "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav"),
+    Buffer.from("524946460400000057415645", "hex"),
+  );
   mkdirSync(join(root, "bin"));
   writeFileSync(join(root, "bin", "tool.js"), "#!/usr/bin/env node\n");
   git(root, ["add", "--all"]);
@@ -67,6 +91,51 @@ async function repositoryValidator(): Promise<(root: string) => boolean> {
   const module = await import("../../scripts/public_snapshot_checkout.ts") as typeof import("../../scripts/public_snapshot_checkout.ts") & Record<string, any>;
   return module.isPublicSnapshotRepositoryCheckout;
 }
+
+test("checkout snapshots retain visual timing public sources", async (t) => {
+  const source = createSourceRepository(t);
+  const parent = temporaryDirectory(t, "md2vid-snapshot-visual-timing-");
+  const snapshot = join(parent, "snapshot");
+  const template = join(parent, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts");
+  checker.initializePublicSnapshotRepository(snapshot, template);
+
+  const paths = git(snapshot, ["ls-tree", "-r", "--name-only", "HEAD"]).split("\n");
+  for (const path of [
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
+  ]) assert.ok(paths.includes(path), `missing ${path}`);
+});
+
+test("checkout snapshots retain narration public sources", async (t) => {
+  const source = createSourceRepository(t);
+  const parent = temporaryDirectory(t, "md2vid-snapshot-narration-");
+  const snapshot = join(parent, "snapshot");
+  const template = join(parent, "empty-template");
+  mkdirSync(template);
+  buildPublicSnapshot({ repo: source, output: snapshot });
+  const checker = await import("../../scripts/check_public_snapshot.ts");
+  checker.initializePublicSnapshotRepository(snapshot, template);
+
+  const paths = git(snapshot, ["ls-tree", "-r", "--name-only", "HEAD"]).split("\n");
+  for (const required of [
+    "engine/narration_request.ts",
+    "engine/narration_evidence.ts",
+    "scripts/narration_check.ts",
+    "skill/md2vid/SKILL.md",
+    "skill/md2vid/references/standards/video-generation.md",
+    "test/release/harness.ts",
+    "test/release/fixtures/kokoro-am-michael/fixture.json",
+    "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav",
+  ]) assert.ok(paths.includes(required), `missing ${required}`);
+});
 
 test("authentic generated one-commit public snapshot checkout is recognized", async (t) => {
   const source = createSourceRepository(t);

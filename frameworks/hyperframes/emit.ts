@@ -14,7 +14,7 @@
 // trackIndex (frameNum%2) and crossfade pairs are HF LAYERING artifacts derived
 // HERE from plan.frames + plan.timing — the neutral IR does not carry them.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -23,12 +23,19 @@ import type {
   EmitOptions,
   FrameworkPreparation,
   VideoConfig,
+  VisualBindingManifest,
+  VisualBindingV1,
+  VisualBindingV2,
 } from "../../engine/types.ts";
 import {
   captureVoiceWavSnapshots,
   validateVoiceAssets,
 } from "../../engine/voice_assets.ts";
 import { collectVoicePaths, stageVoiceAssets } from "../assets.ts";
+import { resolveVisualSyncPolicy } from "../../engine/plan.ts";
+import { digestAuthoredInputs, hashCoveragePlan } from "../../engine/visual_evidence.ts";
+import { collectHyperframesAuthoredFrameInputs } from "./authored_inputs.ts";
+import { prepareFrameVisualTiming } from "./visual_timing.ts";
 import {
   extractCompositionTemplate,
   moveTopLevelTransportElementsIntoCompositionRoot,
@@ -187,6 +194,7 @@ export function buildIndexHtml(
   const { width, height } = plan.canvas;
   const total = plan.totalDuration;
   const xfade = plan.timing.xfade;
+  const fps = config.render?.fps ?? 30;
   const gsapSrc = config.gsapSrc ?? DEFAULT_GSAP_SRC;
   const gsapAttribute = gsapScriptSrcAttribute(gsapSrc, "index.html");
   const frames = plan.frames;
@@ -256,6 +264,7 @@ export function buildIndexHtml(
       data-duration="${total.toFixed(3)}"
       data-width="${width}"
       data-height="${height}"
+      data-fps="${fps}"
     >
 ${mounts}
 
@@ -319,16 +328,76 @@ export function preflight(
     ? [...voiceSnapshots]
     : captureVoiceWavSnapshots(voiceSourceDir, voicePaths);
   validateVoiceAssets(sourceDir, voicePaths, { allowMissing: true });
-  const embeddedFrameTemplates = plan.frames.map((frame) => {
-    const documentPath = `compositions/frames/${frame.slug}.html`;
-    return sanitizeCompositionTemplate(
-      readFileSync(join(outputDir, "compositions", "frames", `${frame.slug}.html`), "utf8"),
+  const policy = resolveVisualSyncPolicy(config);
+  const mode = policy.mode === "required" || policy.coverageMode === "required"
+    ? "required"
+    : policy.mode === "warn" || policy.coverageMode === "warn"
+      ? "warn"
+      : "off";
+  const authoredInputs = collectHyperframesAuthoredFrameInputs(plan, outputDir, { missing: "throw" });
+  const preparedFrames = authoredInputs.map(({ frame, path: relativePath, bytes }) => {
+    const authoredHtml = bytes.toString("utf8");
+    const sanitizedHtml = sanitizeCompositionTemplate(
+      authoredHtml,
       frame.slug,
       gsapSrc,
-      documentPath,
+      relativePath,
     );
+    const prepared = prepareFrameVisualTiming({
+      frame,
+      authoredHtml: sanitizedHtml,
+      documentPath: relativePath,
+      mode,
+    });
+    return {
+      template: prepared.html,
+      bindings: prepared.bindings,
+      duration: prepared.authoredDuration === undefined
+        ? undefined
+        : { frameSlug: frame.slug, authoredDuration: prepared.authoredDuration },
+    };
   });
-  return { embeddedFrameTemplates, voiceSnapshots: capturedVoiceSnapshots };
+  const hasCoverageV2 = plan.frames.some((frame) => frame.visualSpecVersion === 2);
+  const frames = preparedFrames.flatMap((frame) => frame.duration ? [frame.duration] : []);
+  let manifest: VisualBindingManifest;
+  if (hasCoverageV2) {
+    const bindings = preparedFrames
+      .flatMap((frame) => frame.bindings)
+      .filter((binding): binding is VisualBindingV2 => "coverageStart" in binding && "coverageEnd" in binding);
+    manifest = {
+      version: 2,
+      framework: "hyperframes",
+      planSha256: hashCoveragePlan(plan),
+      authoredInputs: digestAuthoredInputs(authoredInputs.map(({ path, bytes }) => ({
+        path,
+        bytes,
+      }))),
+      bindings,
+      frames,
+    };
+  } else {
+    const bindings: VisualBindingV1[] = preparedFrames.flatMap((frame) => frame.bindings).map((binding) => ({
+      frameSlug: binding.frameSlug,
+      beatId: binding.beatId,
+      target: binding.target,
+      revealStart: binding.revealStart,
+      revealDuration: binding.revealDuration,
+      source: binding.source === "static" ? "declarative" : binding.source,
+      ...(binding.authoredDuration === undefined ? {} : { authoredDuration: binding.authoredDuration }),
+      ...(binding.outerDuration === undefined ? {} : { outerDuration: binding.outerDuration }),
+    }));
+    manifest = {
+      version: 1,
+      framework: "hyperframes",
+      bindings,
+      frames,
+    };
+  }
+  return {
+    embeddedFrameTemplates: preparedFrames.map((frame) => frame.template),
+    bindingManifest: manifest,
+    voiceSnapshots: capturedVoiceSnapshots,
+  };
 }
 
 // The adapter contract: plan in, framework files out. Idempotent.
@@ -363,6 +432,9 @@ export function emit(
   if (preparation.embeddedFrameTemplates?.length !== plan.frames.length) {
     throw new Error("prepared frame template count does not match the build plan");
   }
+  if (!preparation.bindingManifest) {
+    throw new Error("full emit preflight did not prepare a visual binding manifest");
+  }
   const emittedConfig = {
     ...config,
     gsapSrc: config.gsapSrc ?? DEFAULT_GSAP_SRC,
@@ -395,4 +467,7 @@ export function emit(
     join(outputDir, "index.html"),
     buildIndexHtml(plan, emittedConfig, embeddedTemplates),
   );
+  const bindingManifestPath = join(outputDir, "build", "visual_bindings.json");
+  mkdirSync(dirname(bindingManifestPath), { recursive: true });
+  writeFileSync(bindingManifestPath, `${JSON.stringify(preparation.bindingManifest, null, 2)}\n`);
 }

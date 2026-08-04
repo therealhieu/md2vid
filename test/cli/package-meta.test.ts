@@ -51,6 +51,29 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type DependencyGroups = {
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+
+function hasMediaUseDependency(groups: DependencyGroups): boolean {
+  return Object.entries({
+    ...(groups.dependencies ?? {}),
+    ...(groups.optionalDependencies ?? {}),
+    ...(groups.devDependencies ?? {}),
+  }).some(([name, spec]) => /media-use/i.test(`${name}\0${String(spec)}`));
+}
+
+function assertOrder(body: string, fragments: string[], label: string): void {
+  let cursor = -1;
+  for (const fragment of fragments) {
+    const next = body.indexOf(fragment, cursor + 1);
+    assert.ok(next > cursor, `${label}: expected ${JSON.stringify(fragment)} after offset ${cursor}`);
+    cursor = next;
+  }
+}
+
 function incrementPatchVersion(version: string): string {
   const [major, minor, patch] = version.split(".").map(Number);
   return `${major}.${minor}.${patch + 1}`;
@@ -145,6 +168,34 @@ test("public README documents supported install, usage, rendering, and release f
   assert.doesNotMatch(readme, /Actual publication and tagging require explicit maintainer approval/);
   assert.doesNotMatch(readme, /git push origin main v\d+\.\d+\.\d+/);
   assert.doesNotMatch(readme, /npm install -g md2vid@\d+\.\d+\.\d+/);
+});
+
+test("public README documents semantic timing and final-render policy", () => {
+  for (const term of [
+    "md2vid plan <dir>",
+    "visual_beats.json",
+    "legacy warn vs scaffold required",
+    "--profile final|draft|gif",
+    "--allow-low-fps",
+    "30 FPS final default / 24 FPS minimum",
+    "<output>.md2vid-render.json",
+  ]) assert.match(readme, new RegExp(escapeRegex(term)), term);
+});
+
+test("public README gives both framework workflows cue-first ordering", () => {
+  const hyperframes = readme.slice(readme.indexOf("HyperFrames projects:"), readme.indexOf("New projects use the exact GSAP"));
+  assertOrder(
+    hyperframes,
+    ["npm run plan", "npm run build", "npm run check", "npm run dev", "npm run render"],
+    "HyperFrames README workflow",
+  );
+
+  const remotion = readme.slice(readme.indexOf("Remotion projects:"), readme.indexOf("`npm run dev` is long-running"));
+  assertOrder(
+    remotion,
+    ["source coverage", "storyboard semantic", "script", "npm run transcribe", "visual_beats v2", "opening/body/final focal states", "npm run plan", "build/visual_timing.json", "src/scenes", "npm run build", "npm run check", "npm run still", "npm run studio", "npm run render"],
+    "Remotion README workflow",
+  );
 });
 
 test("public README uses synchronized upgrade with manual recovery", () => {
@@ -510,4 +561,49 @@ test("private:true is dropped for publish", () => {
 test("build:dist compiles and copies distribution assets", () => {
   assert.match(pkg.scripts?.["build:dist"] ?? "", /tsconfig\.dist\.json/);
   assert.match(pkg.scripts?.["build:dist"] ?? "", /copy_dist_assets/);
+});
+
+test("public README documents the versioned Kokoro narration workflow", () => {
+  const narration = readme.slice(readme.indexOf("## Narration"), readme.indexOf("## Semantic visual timing"));
+  for (const term of [
+    "\"version\": 1",
+    "\"provider\": \"kokoro\"",
+    "\"voice\": \"am_michael\"",
+    "\"lang\": \"en\"",
+    "\"speed\": 0.9",
+    "For non-English narration, supply a compatible explicit voice; do not use am_michael.",
+    "There is no `md2vid audio` command.",
+  ]) assert.match(narration, new RegExp(escapeRegex(term)), term);
+  assertOrder(
+    narration,
+    [
+      "cp audio_request.json.example audio_request.json",
+      "md2vid narration-check .",
+      "/media-use Kokoro path",
+      "npm run transcribe",
+      "npm run plan",
+      "npm run build",
+      "npm run check",
+    ],
+    "README narration workflow",
+  );
+  assert.doesNotMatch(narration, /\/hyperframes-media/);
+});
+
+test("package keeps narration validation while excluding media-use and synthesis commands", () => {
+  assert.equal(hasMediaUseDependency(pkg), false);
+
+  const help = spawnSync(process.execPath, [join(REPO_ROOT, "bin", "md2vid.ts"), "--help"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /^\s*narration-check\b/m);
+  assert.doesNotMatch(help.stdout, /^\s*audio(?:\s|$)/m);
+});
+
+test("package dependency boundary detects media-use aliases across dependency groups", () => {
+  assert.equal(hasMediaUseDependency({ dependencies: { tts: "npm:media-use@1.0.0" } }), true);
+  assert.equal(hasMediaUseDependency({ optionalDependencies: { media: "npm:media-use@1.0.0" } }), true);
+  assert.equal(hasMediaUseDependency({ devDependencies: { "media-use": "1.0.0" } }), true);
 });

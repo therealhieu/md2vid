@@ -24,16 +24,8 @@ import {
   readdirSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { readAudioMeta } from "../engine/audio_meta.ts";
-import {
-  captureVoiceWavSnapshots,
-  validateAudioMetaVoiceSnapshots,
-} from "../engine/voice_assets.ts";
-import { loadConfig } from "../engine/config.ts";
-import { plan as buildPlan } from "../engine/plan.ts";
 import { getAdapter } from "../frameworks/index.ts";
 import { parseCommand } from "./cli_args.ts";
 import { isMainModule } from "./main-guard.ts";
@@ -44,6 +36,7 @@ import {
   type ManagedFileTransactionDependencies,
 } from "./managed_file_transaction.ts";
 import { resolveProjectLayout } from "./project_layout.ts";
+import { createProjectPlan, stageNeutralArtifacts } from "./plan_project.ts";
 
 class BuildError extends Error {}
 
@@ -155,16 +148,12 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
     const metaPath = join(SHARED, "audio_meta.json");
     if (!existsSync(metaPath)) throw new BuildError(missingAudioMeta(metaPath));
 
-    const meta = readAudioMeta(metaPath);
-    const voiceSnapshots = captureVoiceWavSnapshots(
-      SHARED,
-      meta.voices.map((voice) => voice.path),
-    );
-    validateAudioMetaVoiceSnapshots(meta, voiceSnapshots, metaPath);
-    const config = loadConfig(SHARED, OUTPUT);
-    const PLAN = buildPlan(meta, config);
+    const planning = createProjectPlan(OUTPUT);
+    for (const warning of planning.warnings) console.warn(`WARN [build] ${warning}`);
+    const PLAN = planning.plan;
+    const config = planning.adapterConfig;
+    const { voiceSnapshots } = planning;
     const { frames, totalDuration: TOTAL, captionGroups: groups } = PLAN;
-    const { width: WIDTH, height: HEIGHT } = PLAN.canvas;
 
     const adapter = (dependencies.getAdapter ?? getAdapter)(config.framework);
     const prepared = adapter.preflight(PLAN, SHARED, OUTPUT, config, {
@@ -225,33 +214,11 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
     stagingRoot = mkdtempSync(join(projectRoot, ".md2vid-build-"));
     const stagedShared = join(stagingRoot, "shared");
     const stagedOutput = join(stagingRoot, "output");
-    const stagedBuildDir = join(stagedShared, "build");
-    mkdirSync(stagedBuildDir, { recursive: true });
     mkdirSync(stagedOutput, { recursive: true });
 
     // ── Stage the complete neutral IR before framework emission. ────────────────
-    const cues = frames.map((f) => ({
-      frame: f.frameNum,
-      slug: f.slug,
-      start: f.start,
-      voiceDur: f.voiceDur,
-      frameDur: f.frameDur,
-      words: f.words.map((w) => ({ text: w.text, start: w.start, end: w.end })),
-    }));
-    const stagedCuesPath = join(stagedShared, "cues.json");
+    const neutralArtifacts = stageNeutralArtifacts(PLAN, stagedShared);
     const stagedCaptionGroupsPath = join(stagedShared, "caption_groups.json");
-    const stagedNeutralPlanPath = join(stagedBuildDir, "build_plan.json");
-    writeFileSync(stagedCuesPath, JSON.stringify(cues, null, 2) + "\n");
-    writeFileSync(
-      stagedCaptionGroupsPath,
-      JSON.stringify({
-        total_duration_s: +TOTAL.toFixed(3),
-        width: WIDTH,
-        height: HEIGHT,
-        groups,
-      }, null, 2) + "\n",
-    );
-    writeFileSync(stagedNeutralPlanPath, JSON.stringify(PLAN, null, 2) + "\n");
 
     // ── Emit only into staging; authored frames/src remain source inputs. ───────
     adapter.emit(PLAN, stagedShared, stagedOutput, config, {
@@ -276,15 +243,10 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
 
     const stagedFrameworkPath = join(stagedOutput, adapter.captionArtifactPath);
     const managedFiles: ManagedFile[] = [
-      { target: relative(projectRoot, join(SHARED, "cues.json")), staged: stagedCuesPath },
-      {
-        target: relative(projectRoot, join(SHARED, "caption_groups.json")),
-        staged: stagedCaptionGroupsPath,
-      },
-      {
-        target: relative(projectRoot, join(SHARED, "build", "build_plan.json")),
-        staged: stagedNeutralPlanPath,
-      },
+      ...neutralArtifacts.map(({ target, staged }) => ({
+        target: relative(projectRoot, join(SHARED, target)),
+        staged,
+      })),
       {
         target: relative(projectRoot, join(OUTPUT, adapter.captionArtifactPath)),
         staged: stagedFrameworkPath,
@@ -296,6 +258,13 @@ export function run(argv: string[], dependencies: BuildDependencies = {}): numbe
       managedFiles.push({
         target: relative(projectRoot, join(OUTPUT, adapter.captionIndexArtifactPath)),
         staged: join(stagedOutput, adapter.captionIndexArtifactPath),
+      });
+    }
+    if (adapter.bindingManifestPath) {
+      excludedOutputPaths.add(adapter.bindingManifestPath);
+      managedFiles.push({
+        target: relative(projectRoot, join(OUTPUT, adapter.bindingManifestPath)),
+        staged: join(stagedOutput, adapter.bindingManifestPath),
       });
     }
     addMissingRuntimeFiles(

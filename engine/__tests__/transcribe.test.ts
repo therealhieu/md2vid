@@ -96,6 +96,66 @@ test("transcribe invokes the package-owned runner once per existing WAV", () => 
   }
 });
 
+test("transcribe preserves root provenance and returns the pre-provider WAV snapshots", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-transcribe-provenance-"));
+  try {
+    mkdirSync(join(root, "assets", "voice"), { recursive: true });
+    writeFileSync(join(root, "assets", "voice", "intro.wav"), ONE_SECOND_WAV);
+    const meta: AudioMeta & { tts_provider: string; voice_id: string } = {
+      tts_provider: "kokoro",
+      voice_id: "am_michael",
+      voices: [{ id: "intro", path: "assets/voice/intro.wav", duration_s: 999, words: [] }],
+    };
+
+    const result = transcribeVoices(meta, root, {
+      run(args) {
+        const outDir = args[args.indexOf("--dir") + 1]!;
+        writeFileSync(join(outDir, "transcript.json"), JSON.stringify([
+          { text: "Hello", start: 0, end: 0.5 },
+        ]));
+        return 0;
+      },
+    });
+
+    assert.equal((result.meta as typeof meta).tts_provider, "kokoro");
+    assert.equal((result.meta as typeof meta).voice_id, "am_michael");
+    assert.equal(result.voiceSnapshots.length, 1);
+    assert.equal(result.voiceSnapshots[0]!.path, "assets/voice/intro.wav");
+    assert.equal(result.meta.voices[0]!.duration_s, result.voiceSnapshots[0]!.duration_s);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("transcribe snapshot result remains tied to bytes captured before provider execution", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-transcribe-result-snapshot-"));
+  try {
+    mkdirSync(join(root, "assets", "voice"), { recursive: true });
+    const voicePath = join(root, "assets", "voice", "intro.wav");
+    const original = Buffer.from(ONE_SECOND_WAV);
+    writeFileSync(voicePath, original);
+    const meta: AudioMeta = {
+      voices: [{ id: "intro", path: "assets/voice/intro.wav", duration_s: 1, words: [] }],
+    };
+
+    const result = transcribeVoices(meta, root, {
+      run(args) {
+        writeFileSync(voicePath, makePcmWav({ sampleRate: 48_000, sampleFrames: 96_000 }));
+        const outDir = args[args.indexOf("--dir") + 1]!;
+        writeFileSync(join(outDir, "transcript.json"), JSON.stringify([
+          { text: "Hello", start: 0, end: 0.5 },
+        ]));
+        return 0;
+      },
+    });
+
+    assert.deepEqual(result.voiceSnapshots[0]!.readBytes(), original);
+    assert.notDeepEqual(result.voiceSnapshots[0]!.readBytes(), readFileSync(voicePath));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("transcribe normalizes provider final-word overruns without extending voice duration", () => {
   const root = mkdtempSync(join(tmpdir(), "md2vid-transcribe-"));
   try {
@@ -463,7 +523,11 @@ test("transcribe removes the temp directory after a nonzero runner status", () =
       },
     });
 
-    assert.deepEqual(result, { meta, ok: 0, total: 1 });
+    assert.equal(result.meta, meta);
+    assert.equal(result.ok, 0);
+    assert.equal(result.total, 1);
+    assert.equal(result.voiceSnapshots.length, 1);
+    assert.deepEqual(result.voiceSnapshots[0]!.readBytes(), ONE_SECOND_WAV);
     assert.deepEqual(meta, original);
     assert.notEqual(outDir, "");
     assert.equal(existsSync(outDir), false);

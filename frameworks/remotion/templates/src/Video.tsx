@@ -5,6 +5,7 @@ import type { BuildPlan, PlanFrame } from "./types";
 import { THEME } from "./theme";
 import { Captions } from "./Captions";
 import { sceneOpacity, secToFrames } from "./primitives";
+import { VisualBeatProvider } from "./VisualBeats";
 // Ensure fonts load for the whole composition tree.
 import "./fonts";
 
@@ -36,8 +37,14 @@ const SCENES: Record<string, React.FC<SceneProps>> = {};
 
 // durationInFrames must be passed in — useVideoConfig().durationInFrames is the
 // full composition length, not the Sequence length.
-const SceneRouter: React.FC<{ frame: PlanFrame; xfade: number; durationInFrames: number }> = ({
+const SceneRouter: React.FC<{
+  frame: PlanFrame;
+  bindings: NonNullable<BuildPlan["visualBindings"]>[string];
+  xfade: number;
+  durationInFrames: number;
+}> = ({
   frame,
+  bindings,
   xfade,
   durationInFrames,
 }) => {
@@ -46,8 +53,8 @@ const SceneRouter: React.FC<{ frame: PlanFrame; xfade: number; durationInFrames:
   const xf = Math.max(1, secToFrames(xfade, fps));
   const opacity = sceneOpacity(f, durationInFrames, xf);
   const Comp = SCENES[frame.slug];
-  if (Comp) return <Comp opacity={opacity} />;
-  return <TitleCard opacity={opacity} frame={frame} />;
+  const scene = Comp ? <Comp opacity={opacity} /> : <TitleCard opacity={opacity} frame={frame} />;
+  return <VisualBeatProvider frame={frame} bindings={bindings}>{scene}</VisualBeatProvider>;
 };
 
 export const Video: React.FC<{ plan: BuildPlan }> = ({ plan }) => {
@@ -56,9 +63,12 @@ export const Video: React.FC<{ plan: BuildPlan }> = ({ plan }) => {
     <AbsoluteFill style={{ backgroundColor: THEME.cream }}>
       {plan.frames.map((frame) => {
         const dur = secToFrames(frame.frameDur, fps);
+        const bindings = plan.visualBindings && Object.hasOwn(plan.visualBindings, frame.slug)
+          ? plan.visualBindings[frame.slug]
+          : [];
         return (
           <Sequence key={frame.id} from={secToFrames(frame.start, fps)} durationInFrames={dur} name={frame.slug}>
-            <SceneRouter frame={frame} xfade={plan.timing.xfade} durationInFrames={dur} />
+            <SceneRouter frame={frame} bindings={bindings} xfade={plan.timing.xfade} durationInFrames={dur} />
             <Audio src={staticFile(frame.voicePath)} />
           </Sequence>
         );

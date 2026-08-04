@@ -1,13 +1,141 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   loadConfig,
+  loadConfigFiles,
   validateSlugMappings,
   validateVideoConfig,
 } from "../config.ts";
+
+const VALID_SYNC = {
+  mode: "required",
+  coverageMode: "required",
+  maxLead: 0.25,
+  maxLag: 0.75,
+  maxUncoveredGap: 0.5,
+  minLanding: 1,
+} as const;
+
+test("visualSync accepts required reveal and coverage policy", () => {
+  const config = validateVideoConfig({ visualSync: VALID_SYNC }, "video.config.json");
+  assert.deepEqual(config.visualSync, VALID_SYNC);
+});
+
+for (const coverageMode of ["off", "warn", "required"] as const) {
+  test(`visualSync accepts coverageMode=${coverageMode}`, () => {
+    const config = validateVideoConfig(
+      { visualSync: { coverageMode } },
+      "video.config.json",
+    );
+    assert.equal(config.visualSync?.coverageMode, coverageMode);
+  });
+}
+
+for (const value of [-0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
+  test(`visualSync rejects maxUncoveredGap=${String(value)}`, () => {
+    assert.throws(
+      () => validateVideoConfig(
+        { visualSync: { maxUncoveredGap: value } },
+        "video.config.json",
+      ),
+      /visualSync\.maxUncoveredGap.*finite non-negative/,
+    );
+  });
+}
+
+test("visualSync accepts a zero uncovered-gap threshold", () => {
+  const config = validateVideoConfig(
+    { visualSync: { maxUncoveredGap: 0 } },
+    "video.config.json",
+  );
+  assert.equal(config.visualSync?.maxUncoveredGap, 0);
+});
+
+for (const [field, value] of [
+  ["maxLead", -0.01],
+  ["maxLag", Number.NaN],
+  ["minLanding", Number.POSITIVE_INFINITY],
+] as const) {
+  test(`visualSync rejects ${field}=${String(value)}`, () => {
+    assert.throws(
+      () => validateVideoConfig({ visualSync: { ...VALID_SYNC, [field]: value } }, "video.config.json"),
+      new RegExp(`visualSync\\.${field}`),
+    );
+  });
+}
+
+for (const minLanding of [0, 0.49]) {
+  test(`visualSync rejects minLanding=${minLanding} below the standards floor`, () => {
+    assert.throws(
+      () => validateVideoConfig({ visualSync: { ...VALID_SYNC, minLanding } }, "video.config.json"),
+      /visualSync\.minLanding.*>= 0\.5/,
+    );
+  });
+}
+
+test("render policy accepts explicit final defaults", () => {
+  const config = validateVideoConfig({
+    render: { profile: "final", fps: 30, minimumFinalFps: 24 },
+  }, "output.config.json");
+  assert.deepEqual(config.render, { profile: "final", fps: 30, minimumFinalFps: 24 });
+});
+
+for (const minimumFinalFps of [1, 23]) {
+  test(`render policy rejects minimumFinalFps=${minimumFinalFps} below 24`, () => {
+    assert.throws(
+      () => validateVideoConfig({ render: { minimumFinalFps } }, "output.config.json"),
+      /render\.minimumFinalFps.*>= 24/,
+    );
+  });
+}
+
+test("render policy accepts a stricter 30 fps minimum", () => {
+  const config = validateVideoConfig({ render: { minimumFinalFps: 30 } }, "output.config.json");
+  assert.equal(config.render?.minimumFinalFps, 30);
+});
+
+test("accepts visual sync and render policy numeric boundaries", () => {
+  assert.deepEqual(
+    validateVideoConfig({
+      visualSync: { mode: "off", maxLead: 0, maxLag: 0, minLanding: 0.5 },
+      render: { profile: "gif", fps: 1, minimumFinalFps: 24 },
+    }, "output.config.json"),
+    {
+      visualSync: { mode: "off", maxLead: 0, maxLag: 0, minLanding: 0.5 },
+      render: { profile: "gif", fps: 1, minimumFinalFps: 24 },
+    },
+  );
+});
+
+test("rejects malformed visual sync and render policy values", () => {
+  const cases: Array<[string, unknown, string, RegExp]> = [
+    ["visualSync mode", { visualSync: { mode: "strict" } }, "video.config.json", /visualSync\.mode/],
+    ["visualSync maxLead negative", { visualSync: { maxLead: -0.01 } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLead non-finite", { visualSync: { maxLead: Number.NaN } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLead wrong type", { visualSync: { maxLead: "0" } }, "video.config.json", /visualSync\.maxLead/],
+    ["visualSync maxLag negative", { visualSync: { maxLag: -0.01 } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync maxLag non-finite", { visualSync: { maxLag: Number.POSITIVE_INFINITY } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync maxLag wrong type", { visualSync: { maxLag: "0" } }, "video.config.json", /visualSync\.maxLag/],
+    ["visualSync minLanding below floor", { visualSync: { minLanding: 0.49 } }, "video.config.json", /visualSync\.minLanding/],
+    ["visualSync minLanding non-finite", { visualSync: { minLanding: Number.NaN } }, "video.config.json", /visualSync\.minLanding/],
+    ["visualSync minLanding wrong type", { visualSync: { minLanding: "1" } }, "video.config.json", /visualSync\.minLanding/],
+    ["render profile", { render: { profile: "preview" } }, "output.config.json", /render\.profile/],
+    ["render fps zero", { render: { fps: 0 } }, "output.config.json", /render\.fps/],
+    ["render fps negative", { render: { fps: -1 } }, "output.config.json", /render\.fps/],
+    ["render fps non-finite", { render: { fps: Number.POSITIVE_INFINITY } }, "output.config.json", /render\.fps/],
+    ["render fps wrong type", { render: { fps: "30" } }, "output.config.json", /render\.fps/],
+    ["render minimumFinalFps below floor", { render: { minimumFinalFps: 23 } }, "output.config.json", /render\.minimumFinalFps/],
+    ["render minimumFinalFps non-finite", { render: { minimumFinalFps: Number.NaN } }, "output.config.json", /render\.minimumFinalFps/],
+    ["render minimumFinalFps wrong type", { render: { minimumFinalFps: "24" } }, "output.config.json", /render\.minimumFinalFps/],
+  ];
+
+  for (const [name, config, path, expected] of cases) {
+    assert.throws(() => validateVideoConfig(config, path), expected, name);
+  }
+});
 
 test("accepts optional defaults and null-prototype config records", () => {
   const slugs = Object.create(null) as Record<string, string>;
@@ -209,6 +337,27 @@ test("rejects malformed nested and framework-local config fields", () => {
       ? "output.config.json"
       : "video.config.json";
     assert.throws(() => validateVideoConfig(config, path), expected);
+  }
+});
+
+test("rejects neutral-only configuration keys in output config", () => {
+  const root = mkdtempSync(join(tmpdir(), "md2vid-config-local-neutral-"));
+  const output = join(root, "hyperframes");
+  try {
+    writeFileSync(join(root, "video.config.json"), JSON.stringify({ slugs: { intro: "01-intro" } }));
+    for (const field of ["slugs", "timing", "canvas", "visualSync"] as const) {
+      mkdirSync(output, { recursive: true });
+      writeFileSync(join(output, "output.config.json"), JSON.stringify({
+        framework: "hyperframes",
+        [field]: field === "slugs" ? { intro: "local" } : {},
+      }));
+      assert.throws(
+        () => loadConfigFiles(root, output),
+        new RegExp(`output\\.config\\.json\\.${field} is neutral-only; move it to video\\.config\\.json`),
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "frames": {
+    "continuous-coverage": {
+      "kind": "focal",
+      "beats": [
+        {
+          "id": "support",
+          "text": "Decorative support",
+          "role": "supporting",
+          "cue": {
+            "frameStart": true
+          },
+          "coverage": {
+            "until": "frame-end"
+          }
+        }
+      ],
+      "coverageExemptions": []
+    }
+  }
+}

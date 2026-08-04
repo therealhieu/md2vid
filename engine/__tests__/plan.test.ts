@@ -2,7 +2,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { plan } from "../plan.ts";
+import { plan, resolveVisualSyncPolicy } from "../plan.ts";
 
 // Minimal audio meta: two voices, each with two words (local, 0-based times).
 function meta(voices: any) {
@@ -32,6 +32,271 @@ test("keeps meaningful IDs while deriving frame order", () => {
     { id: "recap", frameNum: 3, slug: "03-recap" },
   ]);
   assert.deepEqual(p.captionGroups.map((group) => group.frame), [1, 2, 3]);
+});
+
+test("legacy frames omit optional visual timing fields", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "Intro", start: 0, end: 1 }])]),
+    CFG({ slugs: { intro: "01-intro" } }),
+  );
+  assert.equal(Object.hasOwn(result.frames[0], "visualKind"), false);
+  assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
+test("serializes a legacy plan without visual timing keys", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "Intro", start: 1, end: 1.5 }])]),
+    CFG({ slugs: { intro: "01-intro" } }),
+  );
+  const serialized = JSON.parse(JSON.stringify(result));
+
+  assert.deepEqual(serialized.frames[0], {
+    id: "intro",
+    frameNum: 1,
+    slug: "01-intro",
+    voicePath: "assets/voice/intro.wav",
+    voiceDur: 5,
+    frameDur: 5,
+    start: 0,
+    words: [{ text: "Intro", start: 1, end: 1.5 }],
+  });
+  assert.equal(Object.hasOwn(serialized.frames[0], "visualKind"), false);
+  assert.equal(Object.hasOwn(serialized.frames[0], "visualBeats"), false);
+});
+
+test("plan attaches resolved visual beats by frame slug", () => {
+  const metadata = meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]);
+  const result = plan(metadata, CFG({ slugs: { intro: "intro" } }), {
+    version: 1,
+    frames: {
+      intro: {
+        kind: "workflow",
+        beats: [{ id: "first", text: "First", cue: { wordIndex: 0 }, workflowStep: 1 }],
+      },
+    },
+  });
+
+  assert.equal(result.frames[0].visualSpecVersion, 1);
+  assert.equal(result.frames[0].visualKind, "workflow");
+  assert.equal(result.frames[0].visualBeats?.[0].id, "first");
+  assert.equal(result.frames[0].visualBeats?.[0].start, metadata.voices[0].words[0].start);
+});
+
+test("attaches beats only to frames named by the visual specification", () => {
+  const metadata = meta([
+    V("intro", 5, [{ text: "First", start: 1, end: 1.5 }]),
+    V("outro", 6, [{ text: "Last", start: 2, end: 2.5 }]),
+  ]);
+  const config = CFG({ slugs: { intro: "intro", outro: "outro" } });
+  const legacy = plan(metadata, config);
+  const result = plan(metadata, config, {
+    version: 1,
+    frames: {
+      intro: {
+        kind: "focal",
+        beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }],
+      },
+    },
+  });
+  const serialized = JSON.parse(JSON.stringify(result));
+
+  assert.equal(result.frames[0].visualKind, "focal");
+  assert.equal(result.frames[0].visualBeats?.[0].id, "first");
+  assert.equal(Object.hasOwn(result.frames[1], "visualKind"), false);
+  assert.equal(Object.hasOwn(result.frames[1], "visualBeats"), false);
+  assert.equal(Object.hasOwn(serialized.frames[1], "visualKind"), false);
+  assert.equal(Object.hasOwn(serialized.frames[1], "visualBeats"), false);
+  assert.deepEqual(result.frames[1], legacy.frames[1]);
+  assert.deepEqual(result.captionGroups, legacy.captionGroups);
+});
+
+test("plan mode off ignores supplied beat data and omits visual fields", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "off" },
+    },
+    {
+      version: 1,
+      frames: {
+        intro: { beats: [{ id: "ignored", text: "Ignored", cue: { wordIndex: 0 } }] },
+      },
+    },
+  );
+
+  assert.equal(Object.hasOwn(result.frames[0], "visualBeats"), false);
+});
+
+test("required v2 coverage rejects missing narrated frames", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      { version: 2, frames: {} },
+    ),
+    /missing narrated frame "intro".*coverageMode=required/,
+  );
+});
+
+for (const slug of ["constructor", "toString"]) {
+  test(`required v2 coverage rejects omitted prototype-like frame ${slug}`, () => {
+    assert.throws(
+      () => plan(
+        meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+        {
+          ...CFG({ slugs: { intro: slug } }),
+          visualSync: { mode: "off", coverageMode: "required" },
+        },
+        { version: 2, frames: {} },
+      ),
+      new RegExp(`missing narrated frame "${slug}".*coverageMode=required`),
+    );
+  });
+}
+
+test("required v2 coverage rejects supporting-only narrated frames", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      {
+        version: 2,
+        frames: {
+          intro: {
+            beats: [{
+              id: "label",
+              text: "Supporting label",
+              role: "supporting",
+              cue: { frameStart: true },
+            }],
+          },
+        },
+      },
+    ),
+    /must contain at least one focal beat.*coverageMode=required/,
+  );
+});
+
+test("coverage-required planning rejects a v1 visual specification with migration guidance", () => {
+  assert.throws(
+    () => plan(
+      meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+      {
+        ...CFG({ slugs: { intro: "intro" } }),
+        visualSync: { mode: "off", coverageMode: "required" },
+      },
+      {
+        version: 1,
+        frames: {
+          intro: { beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }] },
+        },
+      },
+    ),
+    /coverageMode=required requires visual_beats\.json version 2.*migrate.*version 2/i,
+  );
+});
+
+test("v1 visual specifications remain compatible in coverage warn mode", () => {
+  assert.doesNotThrow(() => plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    {
+      version: 1,
+      frames: {
+        intro: { beats: [{ id: "first", text: "First", cue: { wordIndex: 0 } }] },
+      },
+    },
+  ));
+});
+
+test("warn-mode v2 frames retain authored version without focal beats", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    { version: 2, frames: { intro: { beats: [] } } },
+  );
+  assert.equal(result.frames[0].visualSpecVersion, 2);
+  assert.deepEqual(result.frames[0].visualBeats, []);
+});
+
+test("warn-mode omitted v2 narrated frames retain v2 provenance and zero beats", () => {
+  const result = plan(
+    meta([V("intro", 5, [{ text: "First", start: 1, end: 1.5 }])]),
+    {
+      ...CFG({ slugs: { intro: "intro" } }),
+      visualSync: { mode: "off", coverageMode: "warn" },
+    },
+    { version: 2, frames: {} },
+  );
+  assert.equal(result.frames[0].visualSpecVersion, 2);
+  assert.deepEqual(result.frames[0].visualBeats, []);
+});
+
+test("legacy visual coverage defaults to warn", () => {
+  assert.deepEqual(resolveVisualSyncPolicy({}), {
+    mode: "warn",
+    coverageMode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  });
+});
+
+test("coverage planning remains enabled when reveal timing is off", () => {
+  const policy = resolveVisualSyncPolicy({
+    visualSync: { mode: "off", coverageMode: "required" },
+  });
+  assert.equal(policy.mode, "off");
+  assert.equal(policy.coverageMode, "required");
+});
+
+test("resolves supplied visual sync policy keys over legacy defaults", () => {
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { mode: "off" } }), {
+    mode: "off",
+    coverageMode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLead: 0 } }), {
+    mode: "warn",
+    coverageMode: "warn",
+    maxLead: 0,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { maxLag: 1.5 } }), {
+    mode: "warn",
+    coverageMode: "warn",
+    maxLead: 0.25,
+    maxLag: 1.5,
+    maxUncoveredGap: 0.5,
+    minLanding: 1,
+  });
+  assert.deepEqual(resolveVisualSyncPolicy({ visualSync: { minLanding: 0.5 } }), {
+    mode: "warn",
+    coverageMode: "warn",
+    maxLead: 0.25,
+    maxLag: 0.75,
+    maxUncoveredGap: 0.5,
+    minLanding: 0.5,
+  });
 });
 
 test("rejects duplicate voice IDs", () => {

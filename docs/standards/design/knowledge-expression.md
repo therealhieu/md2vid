@@ -61,17 +61,30 @@ rail at ~40% is the proven pairing.
 
 Every frame carries the **same beat across all three channels at the same timestamp**:
 
+```text
+At every narrated timestamp:
+active focal semantic state = narration concept = caption concept
+```
+
 - The **focal** on screen is what the narration is describing *right now*.
 - Each diagram node, table row, list card, and code line reveals on its **VO cue** — one spoken
   sentence, one visual reveal.
+- Static holds are valid while the narration remains on the same concept; a concept change requires a new state or an explicit declaration that the existing state continues to represent it.
+- Captions, shell chrome, backgrounds, logos, and persistent section headings do not satisfy focal coverage by themselves.
 - The **caption** shows the words being spoken, chunked into readable lines (see the caption standard
   in `../video-generation.md`) so the reader's eye tracks the voice, not a lagging or racing
   subtitle.
 
 The 3-scene spine is universal: anchor the headline + focal by t≤0.5s (Scene 1), reveal beat-by-beat
-on VO cues (Scene 2), land and hold (Scene 3).
+on VO cues (Scene 2), land and hold (Scene 3). The held landing remains semantically covered through frame end.
 
-## 4. Escape hatch
+## 4. Ordered beat coverage and grouped sources
+
+Flow, Enumerate, Matrix, and Contrast treatments require **ordered beat coverage**: each narrated station, item, row, or compared pair has a resolved beat ID and appears on that cue in source order. A visual may stay on screen after its beat; it may not reveal early merely to make the frame look complete.
+
+When several source steps intentionally share one visual beat, record the grouping explicitly with **grouped source references** on that beat. Do not silently collapse a source item: the grouped references make the coverage and the treatment reviewable. This rule applies equally to a Flow station, Enumerate card, Matrix row, and Contrast pair.
+
+## 5. Escape hatch
 
 If a unit of knowledge genuinely fits no row in §1, do not force it into the nearest treatment.
 Name the new knowledge type and the treatment it needs, author it against the atoms in `frame.md`,

@@ -7,7 +7,8 @@
 
 import { emit, preflight } from "./emit.ts";
 import { ensureRuntime, scaffoldSpec, writeScaffoldRuntime } from "./scaffold.ts";
-import { verify, verifyRemotionCaptionArtifact } from "./verify.ts";
+import { resolveVerificationFps, verify, verifyRemotionCaptionArtifact } from "./verify.ts";
+import { collectRemotionVisualBindingInputs } from "./visual_bindings.ts";
 import type { FrameworkAdapter } from "../../engine/types.ts";
 
 const adapter: FrameworkAdapter = {
@@ -20,6 +21,12 @@ const adapter: FrameworkAdapter = {
   captionArtifactPath: "build_plan.json",
   managedVoiceArtifactPath: "public/assets/voice",
   verifyCaptionArtifact: verifyRemotionCaptionArtifact,
-  verify,
+  bindingManifestPath: "build/visual_bindings.json",
+  collectVisualBindingInputs: ({ videoDir }) => collectRemotionVisualBindingInputs(videoDir),
+  resolveVerificationFps,
+  verify(context, sharedDir, options) {
+    if (typeof context === "string") return verify(context, sharedDir, options);
+    return verify(context);
+  },
 };
 export default adapter;

@@ -1,0 +1,22 @@
+{
+  "timing": {
+    "tail": 1.0,
+    "xfade": 0,
+    "gap": 0
+  },
+  "canvas": {
+    "width": 1920,
+    "height": 1080
+  },
+  "slugs": {
+    "continuous-coverage": "continuous-coverage"
+  },
+  "visualSync": {
+    "mode": "required",
+    "coverageMode": "required",
+    "maxLead": 0.25,
+    "maxLag": 0.75,
+    "maxUncoveredGap": 0.5,
+    "minLanding": 1
+  }
+}

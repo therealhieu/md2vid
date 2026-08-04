@@ -46,6 +46,41 @@ Rules:
 - **Vary framing between consecutive same-type frames** so two lists (or two flows) never read as the same slide.
 - **Allocate breather frames on purpose** — against dense neighbors, hold some frames calm (a single line, a two-card pair) for rhythm.
 
+## Cue-bound visual timing and render policy
+
+Semantic timing is a required workflow gate, not an animation afterthought:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
+```
+
+- After narration has word timings, author `visual_beats.json` v2 with stable beat IDs, transcript anchors, source references, and opening/body/final focal states for every narrated frame.
+- Run `npm run plan` before authoring framework visuals. It resolves anchors against the transcript and writes the neutral timing authority; inspect `build/visual_timing.json` intervals before binding targets to beat IDs rather than copying numeric semantic offsets.
+- `npm run check` is the continuous semantic gate: it verifies bound focal interval coverage, cue lead/lag, workflow order, manifest freshness, landing time, and framework duration before preview/manual semantic review or render.
+- Existing projects without visual beats remain in actionable legacy **warn** mode. New scaffolds use **required** mode and must provide binding evidence.
+- For MP4/MOV delivery, the final profile defaults to 30 FPS and rejects an effective rate below 24 FPS. Use `--profile draft` or `--profile gif` for intentionally low-rate work, or pass `--allow-low-fps` only as an explicit final-delivery override. `--quality` remains independent from the md2vid profile.
+- Review still judges source interpretation, treatment, hierarchy, and polish. Machine checks judge the declared timing contract; manual review does not waive it.
+
+### Continuous semantic visual coverage
+
+Every narrated frame maintains at least one bound focal semantic state from its first spoken word through its held landing. A state may remain completely static while narration continues to explain the same concept. Captions, backgrounds, logos, decoration, persistent headings, and shell chrome do not satisfy coverage by themselves. No unapproved uncovered interval may exceed `visualSync.maxUncoveredGap`; this applies before the first focal, between states, and through frame end.
+
+Use this workflow consistently:
+
+```text
+source coverage → storyboard semantic coverage map → script
+  → narration/transcription → visual_beats v2 with opening/body/final focal states
+  → npm run plan → inspect build/visual_timing.json intervals
+  → bind framework visibility → npm run build
+  → continuous npm run check → preview/manual semantic review → render
+```
+
+Manual review judges semantic honesty and treatment quality: whether the declared focal actually explains the narrated concept, whether a title is true content rather than shell, and whether the expression triad is honest. Machine verification proves declared and bound continuity, manifest freshness, timing tolerance, workflow order, and duration. It does not create a fixed motion cadence; a static focal diagram is valid for a long explanation.
+
 ## Storyboard requirements
 
 - The storyboard must include a source coverage map from document sections to video frames.
@@ -62,7 +97,49 @@ Rules:
 
 ### Narration input contract
 
-Every generated scaffold includes `audio_request.json.example` as an onboarding example. Review it, then use `/md2vid` with `/hyperframes-media` to prepare WAV files and `audio_meta.json`; there is no `md2vid audio` command.
+Every generated scaffold includes `audio_request.json.example` as an onboarding example. Materialize and review the versioned request before narration synthesis:
+
+```json
+{
+  "version": 1,
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "lang": "en",
+  "speed": 0.9,
+  "lines": [
+    { "id": "intro", "text": "Introduce the topic." },
+    { "id": "recap", "text": "Recap the key idea." }
+  ]
+}
+```
+
+- English defaults apply only when the user has not selected another supported provider or voice. Persist each effective value in `audio_request.json`.
+- For non-English narration, supply a compatible explicit voice; do not use am_michael.
+- Target 6–14 lexical words per spoken sentence; more than 18 lexical words fails `md2vid narration-check` unless the user approves that exact sentence.
+- Split one conceptual idea into each spoken sentence. A comma does not count as a strong sentence boundary; commas, dashes, colons, semicolons, and parentheses do not reset the hard count.
+- The `/md2vid` skill is the sole synthesis orchestrator. There is no `md2vid audio` command.
+- Never fall back to `say`, provider auto-selection, or a cloud provider silently.
+- Run `md2vid narration-check` before synthesis. After explicit Kokoro `am_michael` synthesis through `/media-use`, run `md2vid transcribe` before authoring visual beats.
+- A versioned request requires fresh matching `narration_evidence.json` before plan, build, regroup, or verify. If narration changes, re-synthesize and transcribe before regenerating cues, captions, bindings, and render evidence.
+
+Use this complete order:
+
+```text
+source coverage
+  → storyboard semantic coverage map
+  → script
+  → md2vid narration-check
+  → explicit Kokoro am_michael synthesis through /media-use
+  → md2vid transcribe
+  → visual_beats v2 with opening/body/final focal states
+  → npm run plan
+  → inspect build/visual_timing.json intervals
+  → bind framework visibility
+  → npm run build
+  → continuous npm run check
+  → preview/manual semantic review
+  → render
+```
 
 Voice WAV files live under `assets/voice/`. Their `path` values are relative to the flat project root or, in canonical multi-framework layout, the sibling `shared/` root. The minimal metadata fields are:
 
@@ -199,6 +276,13 @@ Before rendering, verify:
 - [ ] No content sits under the reserved caption band (bottom ~14% / ~150px @1080).
 - [ ] Frame 1 is an intro with an agenda; the final frame is a recap.
 - [ ] Each frame ends on a >= 0.5s held landing.
+- [ ] Every narrated frame has a v2 focal semantic state covering the opening from the first spoken word.
+- [ ] Middle coverage is continuous: no unapproved gap between focal states exceeds `visualSync.maxUncoveredGap`.
+- [ ] Ending coverage holds the final focal through frame end, including the held landing.
+- [ ] Explicit coverage exemptions are reviewed, reasoned, and visible in verification output.
+- [ ] Captions, title-only shell, backgrounds, logos, and decoration are not counted as focal coverage unless explicitly authored as the active semantic focal.
+- [ ] `build/visual_bindings.json` is manifest v2 evidence with current plan/source manifest freshness; stale manifests are rebuilt with a full build.
+- [ ] Project-local framework standards contain the project-standard marker `md2vid-continuous-visual-coverage: 2`; refresh manually from the current canonical framework standard if missing.
 - [ ] The visual focal, narration, and caption carry the same beat (the expression triad).
 - [ ] The final duration matches the content needs, not a preset.
 - [ ] `CLAUDE.md` and `AGENTS.md` each @import `.md2vid/standards/hyperframes.md` (no pasted boilerplate).

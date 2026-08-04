@@ -8,7 +8,7 @@ export const secToFrames = (s: number, fps: number) => Math.round(s * fps);
 /** Triangle opacity: fade in first xfadeFrames, fade out last xfadeFrames. */
 export const sceneOpacity = (f: number, durationInFrames: number, xfadeFrames: number): number => {
   const xf = Math.max(1, xfadeFrames);
-  const fadeIn = interpolate(f, [0, xf], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const fadeIn = interpolate(f, [0, xf], [1 / xf, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   const fadeOut = interpolate(f, [Math.max(0, durationInFrames - xf), durationInFrames], [1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",

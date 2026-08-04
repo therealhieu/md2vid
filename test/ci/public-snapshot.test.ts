@@ -18,6 +18,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   buildPublicSnapshot,
+  writePublicSnapshotManifest,
   parsePublicSnapshotArgs,
   PUBLIC_SNAPSHOT_MANIFEST,
   type PublicSnapshotReport,
@@ -25,6 +26,7 @@ import {
 import { isolatedGitEnvironment } from "../../scripts/git_environment.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
+const SNAPSHOT_CLI = join(ROOT, "scripts", "public_snapshot.ts");
 const NOREPLY_EMAIL = "1+snapshot-tests@users.noreply.github.com";
 const historicalMarkers = [
   ["07", "ch7", "finetuning"].join("-"),
@@ -234,6 +236,43 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
   assert.equal(paths.some((path) => path === ".git" || path.startsWith(".git/")), false);
   const packageFiles = JSON.parse(readFileSync(join(output, "package.json"), "utf8")).files as string[];
   assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
+});
+
+test("manifest regeneration writes the current repository report without self-reference", (t) => {
+  const repo = createRepository(t, {
+    "README.md": "# Public\n",
+    "engine/visual_beats.ts": "export {};\n",
+    "frameworks/remotion/visual_bindings.ts": "export {};\n",
+  });
+
+  const report = writePublicSnapshotManifest(repo);
+  const tracked = JSON.parse(readFileSync(join(repo, PUBLIC_SNAPSHOT_MANIFEST), "utf8")) as PublicSnapshotReport;
+
+  assert.deepEqual(tracked, report);
+  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
+  assert.ok(report.paths.some((entry) => entry.path === "engine/visual_beats.ts"));
+  assert.ok(report.paths.some((entry) => entry.path === "frameworks/remotion/visual_bindings.ts"));
+});
+
+test("no-argument snapshot CLI regenerates the root manifest", (t) => {
+  const repo = createRepository(t, {
+    "README.md": "# Public\n",
+    "engine/visual_beats.ts": "export {};\n",
+  });
+  const manifestPath = join(repo, PUBLIC_SNAPSHOT_MANIFEST);
+  writeFileSync(manifestPath, "{}\n");
+
+  const result = spawnSync(process.execPath, [SNAPSHOT_CLI], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(readFileSync(manifestPath, "utf8")) as PublicSnapshotReport;
+  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
+  assert.match(result.stdout, new RegExp(`${report.count} files ${report.hash}`));
+  assert.deepEqual(report, writePublicSnapshotManifest(repo));
 });
 
 test("snapshot rejects symlinks, submodules, and non-blob selected entries", (t) => {
@@ -752,6 +791,33 @@ test("actual repository HEAD snapshot contains required public code and excludes
     ref: process.env.MD2VID_PUBLIC_SNAPSHOT_REF ?? "HEAD",
   });
   const paths = snapshotPaths(output);
+  const narrationDeliveryPaths = [
+    "engine/narration_request.ts",
+    "engine/narration_evidence.ts",
+    "scripts/narration_check.ts",
+    "bin/md2vid.ts",
+    "test/cli/narration-check.test.ts",
+    "README.md",
+    "docs/standards/video-generation.md",
+    "docs/standards/frameworks/hyperframes.md",
+    "docs/standards/frameworks/remotion.md",
+    "skill/md2vid/SKILL.md",
+    "skill/md2vid/references/standards/video-generation.md",
+    "skill/md2vid/references/standards/frameworks/hyperframes.md",
+    "skill/md2vid/references/standards/frameworks/remotion.md",
+    "test/release/manifest.ts",
+    "test/cli/pack.test.ts",
+    "test/cli/package-meta.test.ts",
+    "test/release/harness.ts",
+    "test/release/harness.test.ts",
+    "test/release/run.ts",
+    "test/release/fixtures/kokoro-am-michael/audio_request.json",
+    "test/release/fixtures/kokoro-am-michael/audio_meta.json",
+    "test/release/fixtures/kokoro-am-michael/expected_words.json",
+    "test/release/fixtures/kokoro-am-michael/fixture.json",
+    "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav",
+    "test/release/fixtures/kokoro-am-michael/assets/voice/followup.wav",
+  ] as const;
 
   for (const required of [
     ".github/workflows/ci.yml",
@@ -760,9 +826,19 @@ test("actual repository HEAD snapshot contains required public code and excludes
     "examples/hash-table/remotion/README.md",
     "examples/hash-table/remotion/src/Video.tsx",
     "frameworks/hyperframes/scaffold.ts",
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
     "test/golden/fixtures/hash-table-example/expected/index.html",
   ]) {
     assert.ok(paths.includes(required), `missing actual HEAD content: ${required}`);
+  }
+  for (const required of narrationDeliveryPaths) {
+    assert.ok(paths.includes(required), `missing actual HEAD narration content: ${required}`);
   }
   for (const forbiddenRoot of [".git/", ".claude/", "docs/superpowers/", "inputs/", "outputs/", "node_modules/", "dist/"]) {
     assert.equal(paths.some((path) => path.startsWith(forbiddenRoot)), false, `included ${forbiddenRoot}`);

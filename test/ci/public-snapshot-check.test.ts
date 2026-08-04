@@ -1,14 +1,42 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test, type TestContext } from "node:test";
-import { buildPublicSnapshot } from "../../scripts/public_snapshot.ts";
+import { assertTrackedPublicSnapshotManifest } from "../../scripts/check_public_snapshot.ts";
+import { buildPublicSnapshot, writePublicSnapshotManifest } from "../../scripts/public_snapshot.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const CHECKER = join(ROOT, "scripts", "check_public_snapshot.ts");
+const narrationDeliveryPaths = [
+  "engine/narration_request.ts",
+  "engine/narration_evidence.ts",
+  "scripts/narration_check.ts",
+  "bin/md2vid.ts",
+  "test/cli/narration-check.test.ts",
+  "README.md",
+  "docs/standards/video-generation.md",
+  "docs/standards/frameworks/hyperframes.md",
+  "docs/standards/frameworks/remotion.md",
+  "skill/md2vid/SKILL.md",
+  "skill/md2vid/references/standards/video-generation.md",
+  "skill/md2vid/references/standards/frameworks/hyperframes.md",
+  "skill/md2vid/references/standards/frameworks/remotion.md",
+  "test/release/manifest.ts",
+  "test/cli/pack.test.ts",
+  "test/cli/package-meta.test.ts",
+  "test/release/harness.ts",
+  "test/release/harness.test.ts",
+  "test/release/run.ts",
+  "test/release/fixtures/kokoro-am-michael/audio_request.json",
+  "test/release/fixtures/kokoro-am-michael/audio_meta.json",
+  "test/release/fixtures/kokoro-am-michael/expected_words.json",
+  "test/release/fixtures/kokoro-am-michael/fixture.json",
+  "test/release/fixtures/kokoro-am-michael/assets/voice/intro.wav",
+  "test/release/fixtures/kokoro-am-michael/assets/voice/followup.wav",
+] as const;
 
 function temporaryDirectory(t: TestContext, prefix: string): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
@@ -31,6 +59,17 @@ function git(cwd: string, args: string[]): string {
   }).trim();
 }
 
+function createCommittedPublicSource(t: TestContext): string {
+  const source = temporaryDirectory(t, "md2vid-checker-source-");
+  git(source, ["init", "--initial-branch=main"]);
+  mkdirSync(join(source, "engine"));
+  writeFileSync(join(source, "README.md"), "# Public\n");
+  writeFileSync(join(source, "engine", "timing.ts"), "export const timing = 1;\n");
+  git(source, ["add", "--all"]);
+  git(source, ["commit", "-m", "source"]);
+  return source;
+}
+
 async function createAuthenticSnapshot(t: TestContext): Promise<string> {
   const root = temporaryDirectory(t, "md2vid-checker-authentic-");
   const source = join(root, "source");
@@ -47,6 +86,56 @@ async function createAuthenticSnapshot(t: TestContext): Promise<string> {
   checker.initializePublicSnapshotRepository(snapshot, template);
   return snapshot;
 }
+
+test("tracked public snapshot records visual timing delivery files", () => {
+  const tracked = JSON.parse(readFileSync(join(ROOT, "public-snapshot.json"), "utf8")) as {
+    paths: Array<{ path: string }>;
+  };
+  for (const path of [
+    "engine/visual_beats.ts",
+    "engine/visual_sync.ts",
+    "frameworks/hyperframes/visual_timing.ts",
+    "frameworks/remotion/visual_bindings.ts",
+    "frameworks/remotion/templates/src/VisualBeats.tsx",
+    "scripts/plan.ts",
+    "scripts/plan_project.ts",
+  ]) assert.ok(tracked.paths.some((entry) => entry.path === path), `missing ${path}`);
+});
+
+test("tracked public snapshot records narration delivery files", () => {
+  const tracked = JSON.parse(readFileSync(join(ROOT, "public-snapshot.json"), "utf8")) as {
+    paths: Array<{ path: string }>;
+  };
+  for (const required of narrationDeliveryPaths) {
+    assert.ok(tracked.paths.some((entry) => entry.path === required), `missing ${required}`);
+  }
+});
+
+test("tracked manifest rejects every stale report field from committed HEAD", (t) => {
+  const source = createCommittedPublicSource(t);
+  const report = writePublicSnapshotManifest(source);
+  const manifestPath = join(source, "public-snapshot.json");
+  const clean = readFileSync(manifestPath, "utf8");
+  git(source, ["add", "public-snapshot.json"]);
+  git(source, ["commit", "-m", "snapshot"]);
+
+  assert.doesNotThrow(() => assertTrackedPublicSnapshotManifest(source));
+  for (const [label, mutate] of [
+    ["path hash", (value: typeof report) => { value.paths[0].sha256 = "0".repeat(64); }],
+    ["aggregate hash", (value: typeof report) => { value.hash = "sha256:stale"; }],
+    ["count", (value: typeof report) => { value.count += 1; }],
+    ["path entry", (value: typeof report) => { value.paths.pop(); }],
+  ] as const) {
+    const stale = JSON.parse(clean) as typeof report;
+    mutate(stale);
+    writeFileSync(manifestPath, `${JSON.stringify(stale, null, 2)}\n`);
+    assert.throws(
+      () => assertTrackedPublicSnapshotManifest(source),
+      /tracked public snapshot manifest is stale.*npm run public:snapshot/i,
+      label,
+    );
+  }
+});
 
 test("source boundary accepts deterministic regeneration of an authentic public snapshot", async (t) => {
   const source = await createAuthenticSnapshot(t);

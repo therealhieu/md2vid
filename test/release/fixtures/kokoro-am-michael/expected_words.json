@@ -1,0 +1,48 @@
+{
+  "intro": [
+    {
+      "id": "w0",
+      "text": "Introduce",
+      "start": 0.13,
+      "end": 0.7
+    },
+    {
+      "id": "w1",
+      "text": "the",
+      "start": 0.7,
+      "end": 0.88
+    },
+    {
+      "id": "w2",
+      "text": "topic.",
+      "start": 0.94,
+      "end": 1.51
+    }
+  ],
+  "followup": [
+    {
+      "id": "w0",
+      "text": "Recap",
+      "start": 0.1,
+      "end": 0.45
+    },
+    {
+      "id": "w1",
+      "text": "the",
+      "start": 0.56,
+      "end": 0.74
+    },
+    {
+      "id": "w2",
+      "text": "key",
+      "start": 0.78,
+      "end": 1.06
+    },
+    {
+      "id": "w3",
+      "text": "idea.",
+      "start": 1.06,
+      "end": 1.52
+    }
+  ]
+}
