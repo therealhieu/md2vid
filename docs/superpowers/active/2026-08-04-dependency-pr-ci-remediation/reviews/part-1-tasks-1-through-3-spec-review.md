@@ -26,11 +26,11 @@
 
 **Evidence**
 
-- The updated plan explicitly removes the root mirror and says Task 7 produces no manifest commit:  
+- The updated plan explicitly removes the root mirror and says Task 7 produces no manifest commit:
   `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/dynamic-public-snapshot/docs/superpowers/active/2026-08-04-dependabot-automerge-reliability/2026-08-04-dependabot-automerge-reliability-plan-4.md:65-68`
-- But its branch-readiness script still requires the obsolete snapshot commit subject `chore(snapshot): refresh Dependabot automation hashes`:  
+- But its branch-readiness script still requires the obsolete snapshot commit subject `chore(snapshot): refresh Dependabot automation hashes`:
   `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/dynamic-public-snapshot/docs/superpowers/active/2026-08-04-dependabot-automerge-reliability/2026-08-04-dependabot-automerge-reliability-plan-4.md:70-103`
-- The plan index retains the same obsolete required subject:  
+- The plan index retains the same obsolete required subject:
   `/Users/hieunguyen/git/hieu/projects/md2vid-public/.worktrees/dynamic-public-snapshot/docs/superpowers/active/2026-08-04-dependabot-automerge-reliability/2026-08-04-dependabot-automerge-reliability-plan.md:121-134`
 - Executing the documented readiness check fails because the expected original implementation subjects are already below `origin/main`, while this scope contains only:
   - `test(snapshot): define dynamic public authority`
