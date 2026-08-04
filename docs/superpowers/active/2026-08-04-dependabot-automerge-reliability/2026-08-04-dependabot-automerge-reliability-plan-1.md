@@ -19,7 +19,7 @@
 - Test: `.github/workflows/ci.yml`
 - Test: `.github/workflows/dependabot-auto-merge.yml`
 
-- [ ] **Step 1: Add one helper that changes every synchronized fixture ref**
+- [x] **Step 1: Add one helper that changes every synchronized fixture ref**
 
 Add after `makePolicyFixture`:
 
@@ -36,7 +36,7 @@ function setPolicyHead(fixture: PolicyFixture, head: string): PolicyFixture {
 
 Use this helper wherever a test needs to change the event, run-associated PR, and live PR head together.
 
-- [ ] **Step 2: Replace grouped-title rejection cases with exact positive families**
+- [x] **Step 2: Replace grouped-title rejection cases with exact positive families**
 
 Use `assertPrTitleAccepted` with these cases:
 
@@ -113,7 +113,7 @@ for (const input of valid) assertPrTitleAccepted(yaml, input);
 
 Keep the existing accepted/rejected human-title cases unchanged.
 
-- [ ] **Step 3: Add exact negative title mutations**
+- [x] **Step 3: Add exact negative title mutations**
 
 ```ts
 const invalid: PrTitleInput[] = [
@@ -172,7 +172,7 @@ const invalid: PrTitleInput[] = [
 for (const input of invalid) assertPrTitleRejected(yaml, input);
 ```
 
-- [ ] **Step 4: Add trusted non-policy no-op tests**
+- [x] **Step 4: Add trusted non-policy no-op tests**
 
 Use this exact expected result:
 
@@ -230,7 +230,7 @@ for (const head of [
 
 Retain actor, repository, base, live-head, maintainer-change, commit-count, commit-author, and verification mutations as failures.
 
-- [ ] **Step 5: Verify the red state**
+- [x] **Step 5: Verify the red state**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -238,7 +238,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: FAIL in generated-title and trusted non-policy no-op tests. Current title validation rejects current grouped and individual forms; current trusted policy either rejects dotted/slashed refs or attempts grouped metadata parsing.
 
-- [ ] **Step 6: Commit the red contract**
+- [x] **Step 6: Commit the red contract**
 
 ```bash
 git add test/ci/workflows.test.ts
@@ -251,11 +251,11 @@ git commit -m "test(ci): define Dependabot title and no-op policy"
 - Modify: `.github/workflows/ci.yml`
 - Modify: `.github/workflows/dependabot-auto-merge.yml`
 
-- [ ] **Step 1: Preserve the existing human title path**
+- [x] **Step 1: Preserve the existing human title path**
 
 Do not change the conventional-title expression, punctuation rule, non-Dependabot identity requirement, or 72-character limit.
 
-- [ ] **Step 2: Replace the Dependabot fallback with exact title-family logic**
+- [x] **Step 2: Replace the Dependabot fallback with exact title-family logic**
 
 After the human path, require exact bot identity and a supported namespace:
 
@@ -332,7 +332,7 @@ fi
 exit 1
 ```
 
-- [ ] **Step 3: Broaden only the trusted generic namespace check**
+- [x] **Step 3: Broaden only the trusted generic namespace check**
 
 In `.github/workflows/dependabot-auto-merge.yml`, replace the current event head-ref restriction with:
 
@@ -342,7 +342,7 @@ In `.github/workflows/dependabot-auto-merge.yml`, replace the current event head
 
 Do not broaden any exact patch-group regex in `policies`.
 
-- [ ] **Step 4: Return before grouped metadata parsing when no policy exists**
+- [x] **Step 4: Return before grouped metadata parsing when no policy exists**
 
 Immediately after full provenance validation and `policies.find`:
 
@@ -380,7 +380,7 @@ Leave both write steps guarded by:
 if: steps.policy.outputs.eligible == 'true'
 ```
 
-- [ ] **Step 5: Run focused verification**
+- [x] **Step 5: Run focused verification**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -388,7 +388,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: PASS. Exact patch groups remain eligible; individual, manual-family, unknown, and near-prefix supported refs return the four no-op outputs; unsupported namespaces and provenance mutations fail.
 
-- [ ] **Step 6: Commit the implementation**
+- [x] **Step 6: Commit the implementation**
 
 ```bash
 git add .github/workflows/ci.yml .github/workflows/dependabot-auto-merge.yml

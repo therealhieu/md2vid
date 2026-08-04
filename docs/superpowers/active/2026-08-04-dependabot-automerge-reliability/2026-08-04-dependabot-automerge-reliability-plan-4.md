@@ -15,7 +15,7 @@
 **Files:**
 - Regenerate: `public-snapshot.json`
 
-- [ ] **Step 1: Prove the snapshot is stale before regeneration**
+- [x] **Step 1: Prove the snapshot is stale before regeneration**
 
 ```bash
 corepack npm run public:snapshot:check
@@ -23,7 +23,7 @@ corepack npm run public:snapshot:check
 
 Expected: FAIL because changed public workflows, configuration, and tests no longer match `public-snapshot.json`.
 
-- [ ] **Step 2: Regenerate and immediately check the snapshot**
+- [x] **Step 2: Regenerate and immediately check the snapshot**
 
 ```bash
 corepack npm run public:snapshot
@@ -32,7 +32,7 @@ corepack npm run public:snapshot:check
 
 Expected: both commands exit `0`; the first reports the generated file count and SHA-256 manifest hash.
 
-- [ ] **Step 3: Run every focused and full check**
+- [x] **Step 3: Run every focused and full check**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -57,14 +57,14 @@ Expected:
 - All 1,258 pre-change tests still exist and pass, plus the newly added tests. Do not require a frozen final aggregate count.
 - No snapshot drift or whitespace errors remain.
 
-- [ ] **Step 4: Commit the regenerated manifest**
+- [x] **Step 4: Commit the regenerated manifest**
 
 ```bash
 git add public-snapshot.json
 git commit -m "chore(snapshot): refresh Dependabot automation hashes"
 ```
 
-- [ ] **Step 5: Verify the implementation branch is ready**
+- [x] **Step 5: Verify the implementation branch is ready**
 
 ```bash
 git status --short

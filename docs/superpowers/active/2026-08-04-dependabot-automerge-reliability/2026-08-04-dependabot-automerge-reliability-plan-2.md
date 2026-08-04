@@ -19,7 +19,7 @@
 - Test: `.github/dependabot.yml`
 - Test: `.github/workflows/dependabot-auto-merge.yml`
 
-- [ ] **Step 1: Extend the Dependabot configuration assertion**
+- [x] **Step 1: Extend the Dependabot configuration assertion**
 
 Require this exact npm group order:
 
@@ -62,7 +62,7 @@ assert.deepEqual(development["update-types"], ["patch"]);
 assert.deepEqual(actionPatches["update-types"], ["patch"]);
 ```
 
-- [ ] **Step 2: Prove manual groups are absent from privileged policy**
+- [x] **Step 2: Prove manual groups are absent from privileged policy**
 
 Use only the extracted policy script, not the whole repository text:
 
@@ -82,7 +82,7 @@ for (const group of [
 
 Retain exact assertions that the three patch-group regexes each occur once.
 
-- [ ] **Step 3: Add mutation resistance**
+- [x] **Step 3: Add mutation resistance**
 
 Refactor the group assertion into `assertDependabotGroupPolicy(body)` and prove it rejects:
 
@@ -125,7 +125,7 @@ Mutate the privileged `policies` array by inserting:
 
 Require `assertDependabotAutoMergePolicy` to reject that mutation.
 
-- [ ] **Step 4: Verify the red state**
+- [x] **Step 4: Verify the red state**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -133,7 +133,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: FAIL because the three manual family groups do not exist.
 
-- [ ] **Step 5: Commit the red contract**
+- [x] **Step 5: Commit the red contract**
 
 ```bash
 git add test/ci/workflows.test.ts
@@ -145,7 +145,7 @@ git commit -m "test(deps): define synchronized family groups"
 **Files:**
 - Modify: `.github/dependabot.yml`
 
-- [ ] **Step 1: Add groups after `dev-patches`**
+- [x] **Step 1: Add groups after `dev-patches`**
 
 Use exactly:
 
@@ -176,7 +176,7 @@ Use exactly:
 
 Do not change runtime, development, or Action patch groups. Do not add ignore rules.
 
-- [ ] **Step 2: Run focused tests**
+- [x] **Step 2: Run focused tests**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -185,7 +185,7 @@ node --test test/cli/dependency-versions.test.ts
 
 Expected: PASS. Dependency-version tests continue proving React/React DOM, React types, and root Remotion packages must stay synchronized.
 
-- [ ] **Step 3: Commit the configuration**
+- [x] **Step 3: Commit the configuration**
 
 ```bash
 git add .github/dependabot.yml

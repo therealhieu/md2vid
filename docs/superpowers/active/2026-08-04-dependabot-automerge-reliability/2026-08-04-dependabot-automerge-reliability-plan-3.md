@@ -18,7 +18,7 @@
 - Modify: `test/ci/workflows.test.ts`
 - Test future file: `.github/workflows/dependabot-branch-refresh.yml`
 
-- [ ] **Step 1: Register the future workflow**
+- [x] **Step 1: Register the future workflow**
 
 Add to `WORKFLOW_POLICY_CHECKERS`:
 
@@ -34,7 +34,7 @@ Add to `EXPECTED_JOB_RUNNERS`:
 },
 ```
 
-- [ ] **Step 2: Require the exact workflow boundary**
+- [x] **Step 2: Require the exact workflow boundary**
 
 `assertDependabotBranchRefreshPolicy` must require:
 
@@ -79,7 +79,7 @@ GH_TOKEN: ${{ steps.app-token.outputs.token }}
 
 Reject `${{ github.token }}`, PAT-like secrets, checkout, local actions, any second external action, artifacts, caches, npm/corepack, project scripts, PR reviews, approvals, direct merge, admin bypass, and `enablePullRequestAutoMerge`.
 
-- [ ] **Step 3: Require exact queue and mutation markers**
+- [x] **Step 3: Require exact queue and mutation markers**
 
 Assert the workflow source contains:
 
@@ -122,7 +122,7 @@ assert.deepEqual(
 
 Normalize duplicate occurrences before comparing if the implementation writes a reason in more than one branch; the contract is the exact unique set, not a fixed occurrence count.
 
-- [ ] **Step 4: Add an executable refresh fixture harness**
+- [x] **Step 4: Add an executable refresh fixture harness**
 
 Extract the queue-selection and validation inline Node scripts using the same pattern as `dependabotPolicyScript`. Define:
 
@@ -244,7 +244,7 @@ const validRefreshFixture: RefreshFixture = {
 };
 ```
 
-- [ ] **Step 5: Test queue-head behavior and every validation class**
+- [x] **Step 5: Test queue-head behavior and every validation class**
 
 Add executable cases for:
 
@@ -303,7 +303,7 @@ both live IDs/OIDs match
 
 Also mutate either live repository identity or pull-request node ID and require the same no-unsafe-write behavior for that stage.
 
-- [ ] **Step 6: Add structural mutation tests**
+- [x] **Step 6: Add structural mutation tests**
 
 Mutations must fail if they:
 
@@ -321,7 +321,7 @@ Mutations must fail if they:
 - request auto-merge for the new head;
 - remove a reason code or add title/body/API error text to the summary.
 
-- [ ] **Step 7: Verify the red state**
+- [x] **Step 7: Verify the red state**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -329,7 +329,7 @@ node --test test/ci/workflows.test.ts
 
 Expected: FAIL because `dependabot-branch-refresh.yml` does not exist and workflow inventory no longer matches.
 
-- [ ] **Step 8: Commit the red contract**
+- [x] **Step 8: Commit the red contract**
 
 ```bash
 git add test/ci/workflows.test.ts
@@ -341,7 +341,7 @@ git commit -m "test(ci): define Dependabot branch refresh policy"
 **Files:**
 - Create: `.github/workflows/dependabot-branch-refresh.yml`
 
-- [ ] **Step 1: Create the exact workflow envelope**
+- [x] **Step 1: Create the exact workflow envelope**
 
 ```yaml
 name: Dependabot branch refresh
@@ -363,7 +363,7 @@ jobs:
     permissions: {}
 ```
 
-- [ ] **Step 2: Initialize fail-closed summary state before token creation**
+- [x] **Step 2: Initialize fail-closed summary state before token creation**
 
 ```yaml
       - name: Initialize refresh summary
@@ -375,7 +375,7 @@ jobs:
             > "$RUNNER_TEMP/dependabot-branch-refresh-summary.json"
 ```
 
-- [ ] **Step 3: Mint the exact repository installation token**
+- [x] **Step 3: Mint the exact repository installation token**
 
 ```yaml
       - name: Create repository-scoped App token
@@ -390,7 +390,7 @@ jobs:
 
 Do not set `continue-on-error`; failed token creation must fail the job while the final `always()` summary reports `app-token-unavailable`.
 
-- [ ] **Step 4: Inventory all open PR pages with only the App token**
+- [x] **Step 4: Inventory all open PR pages with only the App token**
 
 ```yaml
       - name: Inventory open pull requests
@@ -411,7 +411,7 @@ Do not set `continue-on-error`; failed token creation must fail the job while th
           printf 'inventory_file=%s\n' "$INVENTORY_FILE" >> "$GITHUB_OUTPUT"
 ```
 
-- [ ] **Step 5: Select only the oldest exact patch-group queue head**
+- [x] **Step 5: Select only the oldest exact patch-group queue head**
 
 Add this named step boundary, then place the inline Node.js selector in its `run` block:
 
@@ -464,7 +464,7 @@ pr_number=<validated positive integer>
 group=runtime-patches|dev-patches|actions-patches
 ```
 
-- [ ] **Step 6: Fetch selected REST and GraphQL state**
+- [x] **Step 6: Fetch selected REST and GraphQL state**
 
 Use the exact step ID and guard:
 
@@ -561,7 +561,7 @@ query($owner: String!, $name: String!, $number: Int!) {
 
 Expose only response-file paths through `GITHUB_OUTPUT`.
 
-- [ ] **Step 7: Validate the queue head before any write**
+- [x] **Step 7: Validate the queue head before any write**
 
 Use an inline Node.js validation step with exact ID `policy`, input paths `steps.state.outputs.pr_file`, `steps.state.outputs.commits_file`, and `steps.state.outputs.graphql_file`, plus queue outputs `pr_number` and `group`.
 
@@ -620,7 +620,7 @@ group=<exact group>
 expected_head_oid=<40 lowercase hex characters>
 ```
 
-- [ ] **Step 8: Perform the exact mutation sequence in one App-token step**
+- [x] **Step 8: Perform the exact mutation sequence in one App-token step**
 
 Guard with:
 
@@ -680,7 +680,7 @@ rebase failure → failed / rebase-failed
 
 Do not copy raw API errors into the summary state file.
 
-- [ ] **Step 9: Render the exact final summary**
+- [x] **Step 9: Render the exact final summary**
 
 Use `if: always()`. Parse the state file and validate every value against closed allowlists before rendering exactly:
 
@@ -695,7 +695,7 @@ Use `if: always()`. Parse the state file and validate every value against closed
 
 Write the same trusted lines to stdout and `$GITHUB_STEP_SUMMARY`. Do not render titles, bodies, dependency strings, token values, raw responses, or arbitrary exceptions.
 
-- [ ] **Step 10: Run focused tests and Actionlint**
+- [x] **Step 10: Run focused tests and Actionlint**
 
 ```bash
 node --test test/ci/workflows.test.ts
@@ -709,7 +709,7 @@ fi
 
 Expected: workflow tests pass. Actionlint prints no diagnostics when installed.
 
-- [ ] **Step 11: Commit the workflow**
+- [x] **Step 11: Commit the workflow**
 
 ```bash
 git add .github/workflows/dependabot-branch-refresh.yml
