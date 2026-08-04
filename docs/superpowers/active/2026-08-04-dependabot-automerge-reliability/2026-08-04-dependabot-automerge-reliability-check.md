@@ -68,14 +68,18 @@
 ## Rollout Status
 
 - [x] Local implementation is complete through Task 7.
-- [ ] Task 8 must wait for a protected PR merge of the implementation branch to `main` and explicit authorization before dispatching the live #47 canary.
-- [ ] Task 9 must wait for successful #47 evidence and explicit authorization before touching #48.
+- [ ] Task 8 received explicit authorization for the #47 canary, but the authorized preflight failed closed before dispatch with `FAIL stage=preflight reason=pr-state`; this is recorded in `evidence/pr-47-refresh-canary.md` and Task 8 is not marked complete.
+- [ ] Task 9 / #48 is intentionally not run because Task 8 did not produce successful #47 evidence; #48 remains untouched.
 - [ ] #49 remains manual and is not modified, closed, refreshed, or made eligible by this local implementation.
+- [x] Implementation PR #50 merged to `main` at `242fdc382f2e99da6c557eb1d8329f5295b31b5f` before the #47 preflight.
+- [x] The #47 preflight confirmed the GitHub App credential names and manual installation verification, then stopped because PR #47 was current (`behind_by=0`) with `mergeStateStatus=BLOCKED`, not the required `BEHIND` precondition.
+- [x] No `workflow_dispatch` occurred, no refresh run ID exists, the App performed no branch write, and PR #48 was untouched.
 
 ## Risks / Follow-ups
 
-- [ ] Implementation must merge through protected PR before Task 8 can begin.
-- [ ] GitHub App installation scope and live GraphQL behavior remain remote validation items.
-- [ ] #47 and then #48 canaries remain pending explicit dispatch, push, and PR authorization.
+- [x] Protected implementation merge prerequisite is satisfied by PR #50 at `242fdc382f2e99da6c557eb1d8329f5295b31b5f`.
+- [x] GitHub App installation scope and live GraphQL behavior were validated for the safe #47 preflight only; the credential values and private key remain undisclosed.
+- [ ] Task 8 remains incomplete because the required stale-branch `BEHIND` precondition was not present when checked; rollout stopped per plan.
+- [ ] Task 9 / #48 remains intentionally not run unless a future plan explicitly reauthorizes it after successful #47 evidence.
 - [ ] #49 remains manual.
 - [ ] The pre-existing timing test is a bounded gate reliability risk under load.
