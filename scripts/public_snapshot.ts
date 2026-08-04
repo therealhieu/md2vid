@@ -187,6 +187,70 @@ function fail(message: string): never {
   throw new Error(`public snapshot: ${message}`);
 }
 
+export function validatePublicSnapshotReport(
+  report: PublicSnapshotReport,
+): void {
+  if (report.formatVersion !== 1 || !Array.isArray(report.paths)) {
+    fail("report format is invalid");
+  }
+  if (!Number.isSafeInteger(report.count) || report.count < 0) {
+    fail("report count must be a non-negative safe integer");
+  }
+  if (report.count !== report.paths.length) {
+    fail(
+      `report count ${report.count} does not match paths length ${report.paths.length}`,
+    );
+  }
+
+  const aggregate = createHash("sha256");
+  let previousPath: string | undefined;
+  for (const entry of report.paths) {
+    if (
+      !entry ||
+      typeof entry.path !== "string" ||
+      entry.path.length === 0 ||
+      entry.path.includes("\0") ||
+      entry.path.includes("\\") ||
+      entry.path.split("/").some(
+        (segment) => segment.length === 0 || segment === "." || segment === "..",
+      ) ||
+      !isPublicPath(entry.path)
+    ) {
+      fail("report contains an invalid or non-public path");
+    }
+    if (
+      previousPath !== undefined &&
+      previousPath.localeCompare(entry.path, "en") >= 0
+    ) {
+      fail("report paths must be unique and strictly ordered");
+    }
+    if (entry.mode !== "100644" && entry.mode !== "100755") {
+      fail(`report path ${entry.path} has invalid mode`);
+    }
+    if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0) {
+      fail(`report path ${entry.path} has invalid byte length`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(entry.sha256)) {
+      fail(`report path ${entry.path} has invalid SHA-256`);
+    }
+
+    aggregate.update(entry.path);
+    aggregate.update("\0");
+    aggregate.update(entry.mode);
+    aggregate.update("\0");
+    aggregate.update(String(entry.bytes));
+    aggregate.update("\0");
+    aggregate.update(entry.sha256);
+    aggregate.update("\n");
+    previousPath = entry.path;
+  }
+
+  const expectedHash = `sha256:${aggregate.digest("hex")}`;
+  if (report.hash !== expectedHash) {
+    fail(`report aggregate hash differs: expected ${expectedHash}, got ${report.hash}`);
+  }
+}
+
 function git(repo: string, args: string[], encoding: "utf8"): string;
 function git(repo: string, args: string[], encoding?: undefined): Buffer;
 function git(repo: string, args: string[], encoding?: "utf8"): string | Buffer {
@@ -507,6 +571,7 @@ function stagedFilePaths(root: string, directory = root): string[] {
 }
 
 export function verifyMaterializedSnapshot(root: string, report: PublicSnapshotReport): void {
+  validatePublicSnapshotReport(report);
   const expectedPaths = [...report.paths.map((entry) => entry.path), PUBLIC_SNAPSHOT_MANIFEST].sort();
   const actualPaths = stagedFilePaths(root).sort();
   if (actualPaths.length !== expectedPaths.length
@@ -538,21 +603,11 @@ export function publicSnapshotReport(
 ): PublicSnapshotReport {
   const gitRoot = resolveGitRoot(repo);
   const { commit, entries } = parseTree(gitRoot, ref);
-  return createReport(entries, scanSelectedContent(gitRoot, commit, entries));
-}
-
-export function writePublicSnapshotManifest(
-  repo = process.cwd(),
-  ref = "HEAD",
-): PublicSnapshotReport {
-  const gitRoot = resolveGitRoot(repo);
-  const report = publicSnapshotReport(gitRoot, ref);
-  const target = join(gitRoot, PUBLIC_SNAPSHOT_MANIFEST);
-  const existing = existingLstat(target);
-  if (existing?.isSymbolicLink() || (existing !== undefined && !existing.isFile())) {
-    fail(`tracked public snapshot manifest is not a regular file: ${target}`);
-  }
-  writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`);
+  const report = createReport(
+    entries,
+    scanSelectedContent(gitRoot, commit, entries),
+  );
+  validatePublicSnapshotReport(report);
   return report;
 }
 
@@ -564,6 +619,7 @@ export function buildPublicSnapshot(options: BuildPublicSnapshotOptions): Public
     const { commit, entries } = parseTree(gitRoot, options.ref ?? "HEAD");
     const appliedExceptions = scanSelectedContent(gitRoot, commit, entries);
     const report = createReport(entries, appliedExceptions);
+    validatePublicSnapshotReport(report);
     materialize(output.staging, entries, report);
     verifyMaterializedSnapshot(output.staging.path, report);
     publishOutput(output);
@@ -601,7 +657,7 @@ function main(): void {
   try {
     const args = process.argv.slice(2);
     const report = args.length === 0
-      ? writePublicSnapshotManifest()
+      ? publicSnapshotReport()
       : (() => {
           const options = parsePublicSnapshotArgs(args);
           return buildPublicSnapshot({ output: options.output, ref: options.ref });
