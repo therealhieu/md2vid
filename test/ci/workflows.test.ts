@@ -776,7 +776,7 @@ function assertDependabotGroupPolicy(body: string): void {
 
 function assertPolicyFailedWithoutOutputs(
   result: { status: number | null; values: Record<string, string> },
-  label?: string,
+  label: string,
 ): void {
   assert.notEqual(result.status, 0, label);
   assert.deepEqual(result.values, {}, label);
