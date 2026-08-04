@@ -27,6 +27,12 @@ const packageJson = JSON.parse(
   devDependencies: Record<string, string>;
 };
 
+const MANUAL_DEPENDABOT_FAMILIES = {
+  "react-family": ["react", "react-dom"],
+  "react-types-family": ["@types/react", "@types/react-dom"],
+  "remotion-family": ["remotion", "@remotion/google-fonts", "@remotion/media"],
+} as const;
+
 type WorkflowPolicyChecker = (yaml: string) => void;
 const WORKFLOW_POLICY_CHECKERS: Record<string, WorkflowPolicyChecker> = {
   "ci.yml": assertSafeWorkflowPolicy,
@@ -405,9 +411,12 @@ function assertDependabotAutoMergePolicy(yaml: string): void {
   assert.equal((String(policy.run).match(/node --input-type=module/g) ?? []).length, 1);
   assert.doesNotMatch(script, /from ["']node:(?:child_process|http|https|net|tls|url|process)["']|fetch\(|spawn\(|exec\(|https?\./);
   assert.match(script, /const patchUpdateType = "version-update:semver-patch";/);
-  assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/runtime-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
-  assert.match(script, /branch: \/\^dependabot\\\/npm_and_yarn\\\/dev-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
-  assert.match(script, /branch: \/\^dependabot\\\/github_actions\\\/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$\//);
+  for (const group of Object.keys(MANUAL_DEPENDABOT_FAMILIES)) {
+    assert.equal(script.includes(`group: "${group}"`), false);
+  }
+  assert.equal((script.match(/runtime-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
+  assert.equal((script.match(/dev-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
+  assert.equal((script.match(/actions-patches\(\?:-\[a-z0-9\]\+\)\?\$/g) ?? []).length, 1);
   const setValues = (name: string): string[] => {
     const match = script.match(new RegExp(`const ${name} = new Set\\((\\[[^;]+\\])\\);`));
     assert.ok(match, `missing ${name}`);
@@ -689,6 +698,80 @@ function assertPrTitleAccepted(yaml: string, input: PrTitleInput): void {
 
 function assertPrTitleRejected(yaml: string, input: PrTitleInput): void {
   assert.notEqual(runPrTitlePolicy(yaml, input).status, 0, input.title);
+}
+
+function assertDependabotGroupPolicy(body: string): void {
+  const { value } = parseWorkflow(body);
+  assert.equal(value.version, 2);
+  assert.equal(Array.isArray(value.updates), true);
+
+  const updates = value.updates as WorkflowRecord[];
+  assert.equal(updates.length, 2);
+  const npm = updates.find(
+    (entry) => entry["package-ecosystem"] === "npm",
+  );
+  const actions = updates.find(
+    (entry) => entry["package-ecosystem"] === "github-actions",
+  );
+  assert.ok(npm);
+  assert.ok(actions);
+
+  assert.deepEqual(npm.schedule, {
+    interval: "weekly",
+    day: "monday",
+    time: "04:17",
+  });
+  assert.deepEqual(actions.schedule, {
+    interval: "weekly",
+    day: "monday",
+    time: "04:23",
+  });
+  assert.equal(npm["open-pull-requests-limit"], 5);
+  assert.equal(actions["open-pull-requests-limit"], 5);
+  assert.deepEqual(npm["commit-message"], { prefix: "chore(deps)" });
+  assert.deepEqual(actions["commit-message"], { prefix: "chore(deps)" });
+
+  const npmGroups = asRecord(npm.groups, "npm groups");
+  const actionGroups = asRecord(actions.groups, "actions groups");
+  assert.deepEqual(Object.keys(npmGroups), [
+    "runtime-patches",
+    "dev-patches",
+    "react-family",
+    "react-types-family",
+    "remotion-family",
+  ]);
+  assert.deepEqual(Object.keys(actionGroups), ["actions-patches"]);
+
+  const runtime = asRecord(npmGroups["runtime-patches"], "runtime-patches");
+  const development = asRecord(npmGroups["dev-patches"], "dev-patches");
+  const actionPatches = asRecord(
+    actionGroups["actions-patches"],
+    "actions-patches",
+  );
+
+  const expectedRuntime = [
+    ...Object.keys(packageJson.dependencies),
+    ...Object.keys(packageJson.optionalDependencies),
+  ].sort();
+  assert.deepEqual(
+    [...runtime.patterns as string[]].sort(),
+    expectedRuntime,
+  );
+  assert.deepEqual(runtime["update-types"], ["patch"]);
+  assert.equal(development["dependency-type"], "development");
+  assert.deepEqual(development["update-types"], ["patch"]);
+  assert.deepEqual(actionPatches.patterns, ["*"]);
+  assert.deepEqual(actionPatches["update-types"], ["patch"]);
+
+  for (const [group, patterns] of Object.entries(MANUAL_DEPENDABOT_FAMILIES)) {
+    const value = asRecord(npmGroups[group], group);
+    assert.deepEqual(value.patterns, patterns);
+    assert.deepEqual(value["update-types"], ["minor", "major"]);
+    assert.deepEqual(Object.keys(value).sort(), ["patterns", "update-types"]);
+  }
+
+  assert.equal(Object.hasOwn(npm, "ignore"), false);
+  assert.equal(Object.hasOwn(actions, "ignore"), false);
 }
 
 function assertPolicyFailedWithoutOutputs(
@@ -1097,70 +1180,49 @@ test("nightly runs one exact latest Node across the native matrix", () => {
   assertNightlyPolicy(workflow("nightly.yml"));
 });
 
-test("Dependabot defines exact weekly patch groups", () => {
+test("Dependabot defines exact weekly patch and manual family groups", () => {
   const body = readFileSync(dependabotPath, "utf8");
-  const { value } = parseWorkflow(body);
-  assert.equal(value.version, 2);
-  assert.equal(Array.isArray(value.updates), true);
+  assertDependabotGroupPolicy(body);
 
-  const updates = value.updates as WorkflowRecord[];
-  assert.equal(updates.length, 2);
-  const npm = updates.find(
-    (entry) => entry["package-ecosystem"] === "npm",
-  );
-  const actions = updates.find(
-    (entry) => entry["package-ecosystem"] === "github-actions",
-  );
-  assert.ok(npm);
-  assert.ok(actions);
+  const reactFamilyBlock = [
+    "      react-family:",
+    "        patterns:",
+    "          - \"react\"",
+    "          - \"react-dom\"",
+    "        update-types:",
+    "          - \"minor\"",
+    "          - \"major\"",
+  ].join("\n");
+  const mutations = [
+    body.replace(
+      reactFamilyBlock,
+      reactFamilyBlock.replace('\n          - "react-dom"', ""),
+    ),
+    body.replace(
+      reactFamilyBlock,
+      reactFamilyBlock.replace(
+        '          - "react-dom"',
+        '          - "react-dom"\n          - "left-pad"',
+      ),
+    ),
+    body.replace(
+      reactFamilyBlock,
+      `${reactFamilyBlock}\n          - "patch"`,
+    ),
+    body.replace(
+      '          - "patch"\n      dev-patches:',
+      '          - "patch"\n          - "minor"\n      dev-patches:',
+    ),
+    body.replace(
+      "      react-family:",
+      "      remotion-family:\n        patterns: []\n        update-types: [minor, major]\n      react-family:",
+    ),
+  ];
 
-  assert.deepEqual(npm.schedule, {
-    interval: "weekly",
-    day: "monday",
-    time: "04:17",
-  });
-  assert.deepEqual(actions.schedule, {
-    interval: "weekly",
-    day: "monday",
-    time: "04:23",
-  });
-  assert.equal(npm["open-pull-requests-limit"], 5);
-  assert.equal(actions["open-pull-requests-limit"], 5);
-  assert.deepEqual(npm["commit-message"], { prefix: "chore(deps)" });
-  assert.deepEqual(actions["commit-message"], { prefix: "chore(deps)" });
-
-  const npmGroups = asRecord(npm.groups, "npm groups");
-  const actionGroups = asRecord(actions.groups, "actions groups");
-  assert.deepEqual(
-    Object.keys(npmGroups).sort(),
-    ["dev-patches", "runtime-patches"],
-  );
-  assert.deepEqual(Object.keys(actionGroups), ["actions-patches"]);
-
-  const runtime = asRecord(npmGroups["runtime-patches"], "runtime-patches");
-  const development = asRecord(npmGroups["dev-patches"], "dev-patches");
-  const actionPatches = asRecord(
-    actionGroups["actions-patches"],
-    "actions-patches",
-  );
-
-  const expectedRuntime = [
-    ...Object.keys(packageJson.dependencies),
-    ...Object.keys(packageJson.optionalDependencies),
-  ].sort();
-  assert.deepEqual(
-    [...runtime.patterns as string[]].sort(),
-    expectedRuntime,
-  );
-  assert.deepEqual(runtime["update-types"], ["patch"]);
-  assert.equal(development["dependency-type"], "development");
-  assert.deepEqual(development["update-types"], ["patch"]);
-  assert.deepEqual(actionPatches.patterns, ["*"]);
-  assert.deepEqual(actionPatches["update-types"], ["patch"]);
-
-  assert.equal(Object.hasOwn(npm, "ignore"), false);
-  assert.equal(Object.hasOwn(actions, "ignore"), false);
-  assert.doesNotMatch(body, /update-types:[\s\S]{0,80}-\s+"?(?:minor|major)"?/);
+  for (const mutated of mutations) {
+    assert.notEqual(mutated, body);
+    assert.throws(() => assertDependabotGroupPolicy(mutated));
+  }
 });
 
 test("Dependabot trusted run PR extraction accepts one numeric run-object PR", () => {
@@ -1645,6 +1707,10 @@ test("Dependabot privileged workflow rejects every broadened boundary", () => {
     yaml.replace("(dependency-version|dependency-type|update-type|dependency-group)", "(dependency-type|update-type|dependency-group)"),
     yaml.replace("[\"dependency-group\", \"dependency-name\", \"dependency-type\", \"dependency-version\", \"update-type\"]", "[\"dependency-group\", \"dependency-name\", \"dependency-type\", \"update-type\"]"),
     yaml.replace("runtime-patches(?:-[a-z0-9]+)?$", "(?:runtime-patches|other)(?:-[a-z0-9]+)?$"),
+    yaml.replace(
+      '            {\n              group: "actions-patches",',
+      '            {\n              group: "react-family",\n              branch: /^dependabot\\/npm_and_yarn\\/react-family(?:-[a-z0-9]+)?$/,\n              allowed: new Set(["react", "react-dom"]),\n            },\n            {\n              group: "actions-patches",',
+    ),
     yaml.replace('"remotion"]);', '"remotion", "left-pad"]);'),
     yaml.replace("      - name: Revalidate live head", "      - name: Create workflow review side effect\n        if: steps.policy.outputs.eligible == 'true'\n        shell: bash\n        env:\n          GH_TOKEN: ${{ github.token }}\n          REPOSITORY: therealhieu/md2vid\n          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}\n          EXPECTED_HEAD_SHA: ${{ steps.policy.outputs.expected_head_sha }}\n        run: gh pr review \"$PR_NUMBER\" --approve\n\n      - name: Revalidate live head"),
     yaml.replace("current_head=$(gh api --method GET \"repos/$REPOSITORY/pulls/$PR_NUMBER\" --jq .head.sha)", "current_head=$(gh api --method POST \"repos/$REPOSITORY/pulls/$PR_NUMBER/reviews\" -f event=APPROVE)"),
