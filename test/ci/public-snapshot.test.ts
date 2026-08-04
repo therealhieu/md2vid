@@ -18,12 +18,13 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
   buildPublicSnapshot,
-  writePublicSnapshotManifest,
+  publicSnapshotReport,
   parsePublicSnapshotArgs,
   PUBLIC_SNAPSHOT_MANIFEST,
   type PublicSnapshotReport,
 } from "../../scripts/public_snapshot.ts";
 import { isolatedGitEnvironment } from "../../scripts/git_environment.ts";
+import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const SNAPSHOT_CLI = join(ROOT, "scripts", "public_snapshot.ts");
@@ -95,6 +96,23 @@ function createRepository(
 
 function absentOutput(t: TestContext): string {
   return join(temporaryDirectory(t, "md2vid-public-output-parent-"), "snapshot");
+}
+
+function aggregateReportHash(
+  paths: PublicSnapshotReport["paths"],
+): string {
+  const aggregate = createHash("sha256");
+  for (const entry of paths) {
+    aggregate.update(entry.path);
+    aggregate.update("\0");
+    aggregate.update(entry.mode);
+    aggregate.update("\0");
+    aggregate.update(String(entry.bytes));
+    aggregate.update("\0");
+    aggregate.update(entry.sha256);
+    aggregate.update("\n");
+  }
+  return `sha256:${aggregate.digest("hex")}`;
 }
 
 function snapshotPaths(output: string): string[] {
@@ -238,41 +256,41 @@ test("snapshot uses the exact public allowlist and preserves its own policy", (t
   assert.equal(packageFiles.some((path) => path === "examples" || path.startsWith("examples/")), false);
 });
 
-test("manifest regeneration writes the current repository report without self-reference", (t) => {
+test("report generation does not create a repository-root manifest", (t) => {
   const repo = createRepository(t, {
     "README.md": "# Public\n",
     "engine/visual_beats.ts": "export {};\n",
-    "frameworks/remotion/visual_bindings.ts": "export {};\n",
   });
 
-  const report = writePublicSnapshotManifest(repo);
-  const tracked = JSON.parse(readFileSync(join(repo, PUBLIC_SNAPSHOT_MANIFEST), "utf8")) as PublicSnapshotReport;
+  const first = publicSnapshotReport(repo);
+  const second = publicSnapshotReport(repo);
 
-  assert.deepEqual(tracked, report);
-  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
-  assert.ok(report.paths.some((entry) => entry.path === "engine/visual_beats.ts"));
-  assert.ok(report.paths.some((entry) => entry.path === "frameworks/remotion/visual_bindings.ts"));
+  assert.deepEqual(second, first);
+  assert.equal(existsSync(join(repo, PUBLIC_SNAPSHOT_MANIFEST)), false);
 });
 
-test("no-argument snapshot CLI regenerates the root manifest", (t) => {
+test("no-argument snapshot CLI reports committed HEAD without mutating files", (t) => {
   const repo = createRepository(t, {
     "README.md": "# Public\n",
     "engine/visual_beats.ts": "export {};\n",
   });
   const manifestPath = join(repo, PUBLIC_SNAPSHOT_MANIFEST);
-  writeFileSync(manifestPath, "{}\n");
+  const sentinel = '{"advisory":"must remain untouched"}\n';
+  writeFileSync(manifestPath, sentinel);
 
+  const report = publicSnapshotReport(repo);
+  const beforeStatus = git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]);
   const result = spawnSync(process.execPath, [SNAPSHOT_CLI], {
     cwd: repo,
     encoding: "utf8",
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
   });
+  const afterStatus = git(repo, ["status", "--porcelain=v1", "--untracked-files=all"]);
 
   assert.equal(result.status, 0, result.stderr);
-  const report = JSON.parse(readFileSync(manifestPath, "utf8")) as PublicSnapshotReport;
-  assert.equal(report.paths.some((entry) => entry.path === PUBLIC_SNAPSHOT_MANIFEST), false);
+  assert.equal(readFileSync(manifestPath, "utf8"), sentinel);
+  assert.equal(afterStatus, beforeStatus);
   assert.match(result.stdout, new RegExp(`${report.count} files ${report.hash}`));
-  assert.deepEqual(report, writePublicSnapshotManifest(repo));
 });
 
 test("snapshot rejects symlinks, submodules, and non-blob selected entries", (t) => {
@@ -659,22 +677,86 @@ test("POSIX output parents reject unsafe non-sticky write permissions", (t) => {
   assert.equal(existsSync(output), false);
 });
 
+test("report validation rejects count, ordering, path, and aggregate corruption", async () => {
+  const module = await import("../../scripts/public_snapshot.ts") as
+    typeof import("../../scripts/public_snapshot.ts") &
+    Record<string, unknown>;
+
+  assert.equal(typeof module.validatePublicSnapshotReport, "function");
+  const validate = module.validatePublicSnapshotReport as
+    (report: PublicSnapshotReport) => void;
+
+  const content = Buffer.from("verified\n");
+  const path = {
+    path: "README.md",
+    mode: "100644" as const,
+    bytes: content.byteLength,
+    sha256: createHash("sha256").update(content).digest("hex"),
+  };
+  const valid: PublicSnapshotReport = {
+    formatVersion: 1,
+    count: 1,
+    paths: [path],
+    hash: aggregateReportHash([path]),
+    contentScan: { scope: "test", exclusions: [] },
+  };
+
+  assert.doesNotThrow(() => validate(valid));
+
+  for (const [label, mutate] of [
+    ["count", (report: PublicSnapshotReport) => { report.count += 1; }],
+    ["aggregate", (report: PublicSnapshotReport) => {
+      report.hash = `sha256:${"0".repeat(64)}`;
+    }],
+    ["duplicate", (report: PublicSnapshotReport) => {
+      report.paths.push({ ...report.paths[0] });
+      report.count = report.paths.length;
+      report.hash = aggregateReportHash(report.paths);
+    }],
+    ["unsafe path", (report: PublicSnapshotReport) => {
+      report.paths[0].path = "../private";
+      report.hash = aggregateReportHash(report.paths);
+    }],
+    ["invalid mode", (report: PublicSnapshotReport) => {
+      (report.paths[0] as { mode: string }).mode = "120000";
+      report.hash = aggregateReportHash(report.paths);
+    }],
+    ["invalid bytes", (report: PublicSnapshotReport) => {
+      report.paths[0].bytes = -1;
+      report.hash = aggregateReportHash(report.paths);
+    }],
+    ["invalid sha", (report: PublicSnapshotReport) => {
+      report.paths[0].sha256 = "stale";
+      report.hash = aggregateReportHash(report.paths);
+    }],
+  ] as const) {
+    const corrupted = structuredClone(valid);
+    mutate(corrupted);
+    assert.throws(
+      () => validate(corrupted),
+      /report|count|hash|path|mode|bytes|sha|order|duplicate|public/i,
+      label,
+    );
+  }
+});
+
 test("staged files are hash- and size-verified before atomic publication", async (t) => {
   const module = await import("../../scripts/public_snapshot.ts") as typeof import("../../scripts/public_snapshot.ts") & Record<string, any>;
   assert.equal(typeof module.verifyMaterializedSnapshot, "function");
   const staging = temporaryDirectory(t, "md2vid-staged-verify-");
   const content = Buffer.from("verified\n");
   writeFileSync(join(staging, "README.md"), content);
+  const paths: PublicSnapshotReport["paths"] = [{
+    path: "README.md",
+    mode: "100644",
+    bytes: content.byteLength,
+    sha256: createHash("sha256").update(content).digest("hex"),
+  }];
   const report: PublicSnapshotReport = {
     formatVersion: 1,
-    count: 1,
-    hash: `sha256:${"0".repeat(64)}`,
-    paths: [{
-      path: "README.md",
-      mode: "100644",
-      bytes: content.byteLength,
-      sha256: createHash("sha256").update(content).digest("hex"),
-    }],
+    count: paths.length,
+    hash: aggregateReportHash(paths),
+    paths,
     contentScan: { scope: "test", exclusions: [] },
   };
   writeFileSync(join(staging, PUBLIC_SNAPSHOT_MANIFEST), `${JSON.stringify(report, null, 2)}\n`);
@@ -781,6 +863,23 @@ test("package scripts split focused snapshot tests from the fresh-repository int
     "node --test test/ci/public-snapshot.test.ts test/ci/public-snapshot-check.test.ts test/ci/public-snapshot-checkout.test.ts",
   );
   assert.equal(packageMetadata.scripts["public:snapshot:check"], "node scripts/check_public_snapshot.ts");
+});
+
+test("actual repository root excludes the obsolete snapshot mirror", () => {
+  const manifestPath = join(ROOT, PUBLIC_SNAPSHOT_MANIFEST);
+  if (isAuthenticPublicSnapshotCheckout(ROOT)) {
+    assert.equal(
+      existsSync(manifestPath),
+      true,
+      `generated snapshot must retain ${PUBLIC_SNAPSHOT_MANIFEST}`,
+    );
+    return;
+  }
+  assert.equal(
+    existsSync(manifestPath),
+    false,
+    `obsolete repository-root ${PUBLIC_SNAPSHOT_MANIFEST} must be absent`,
+  );
 });
 
 test("actual repository HEAD snapshot contains required public code and excludes private/generated roots", (t) => {

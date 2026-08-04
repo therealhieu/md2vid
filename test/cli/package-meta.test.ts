@@ -7,6 +7,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
 import { HYPERFRAMES_VERSION } from "../../scripts/dependency_versions.ts";
+import { publicSnapshotReport } from "../../scripts/public_snapshot.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..");
@@ -20,9 +21,7 @@ const hyperframesStandard = readFileSync(
 const releaseRunbook = readFileSync(join(REPO_ROOT, "docs", "release.md"), "utf8");
 const releaseWorkflow = readFileSync(join(REPO_ROOT, ".github", "workflows", "release.yml"), "utf8");
 const gitignore = readFileSync(join(REPO_ROOT, ".gitignore"), "utf8");
-const publicSnapshot = JSON.parse(
-  readFileSync(join(REPO_ROOT, "public-snapshot.json"), "utf8"),
-) as { paths: Array<{ path: string }> };
+const publicSnapshot = publicSnapshotReport(REPO_ROOT);
 const finalGateChecklistPath = join(
   REPO_ROOT,
   "docs",

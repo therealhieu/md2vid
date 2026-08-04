@@ -20,6 +20,18 @@
 - Part 3: `2026-08-04-dependabot-automerge-reliability-plan-3.md`
 - Part 4: `2026-08-04-dependabot-automerge-reliability-plan-4.md`
 
+> **Dynamic snapshot supersession:** The repository-root
+> `public-snapshot.json` contract was removed by the dependency PR CI
+> remediation design. `corepack npm run public:snapshot` is now a non-mutating
+> committed-HEAD report, and `corepack npm run public:snapshot:check` performs
+> the required committed-tree scan, generated-manifest verification, isolated
+> repository construction, package validation, and release smoke. Do not
+> regenerate or commit a repository-root snapshot mirror.
+>
+> Run `corepack npm run public:snapshot` only when a deterministic count/hash
+> report is useful. It must not change `git status`. The required correctness
+> gate is `corepack npm run public:snapshot:check`.
+
 ## Worktree and Pre-Implementation Baseline
 
 The approved companion artifacts must be committed before implementation. From the primary checkout at that commit, create the standard-compliant flat worktree:
@@ -61,7 +73,7 @@ Expected:
 | `.github/dependabot.yml` | Keep patch groups first and add exact minor/major React, React types, and Remotion manual-review groups. |
 | `.github/workflows/dependabot-branch-refresh.yml` | Mint a repository-scoped GitHub App token, validate the oldest exact patch-group queue head, disable old auto-merge, and submit one expected-head-bound GraphQL rebase. |
 | `test/ci/workflows.test.ts` | Execute title, auto-merge, grouping, refresh selection, refresh identity, summary, structural, and mutation contracts. |
-| `public-snapshot.json` | Record hashes for all changed public workflows, configuration, and tests. |
+| `publicSnapshotReport()` and generated snapshot manifest | Validate all changed public workflows, configuration, and tests from committed `HEAD`; the generated snapshot retains its internal manifest. |
 | `evidence/pr-47-refresh-canary.md` | Record exact #47 preflight, refresh, provenance, workflow, authorization, checks, and final merge evidence. |
 | `evidence/pr-48-refresh-canary.md` | Record the same evidence for #48 only after #47 merges. |
 
@@ -106,9 +118,12 @@ After each group completes Mode A:
 
 All grouped tasks have `[Tester: yes]`.
 
-## Required Commits
+## Commit History and Required Delivery Boundaries
 
-Preserve these focused Conventional Commits:
+The original Dependabot implementation commits below predate the dynamic
+snapshot remediation branch and are already contained in `origin/main`; they
+are historical prerequisites, not commits expected above this branch's merge
+base:
 
 ```text
 test(ci): define Dependabot title and no-op policy
@@ -117,7 +132,20 @@ test(deps): define synchronized family groups
 chore(deps): group synchronized dependency families
 test(ci): define Dependabot branch refresh policy
 ci(deps): refresh one stale Dependabot branch
-chore(snapshot): refresh Dependabot automation hashes
+```
+
+The dynamic snapshot remediation must instead preserve these focused commits
+in order above its merge base:
+
+```text
+test(snapshot): define dynamic public authority
+fix(snapshot): validate committed public source dynamically
+docs(snapshot): supersede tracked mirror instructions
+```
+
+The later rollout evidence commits remain:
+
+```text
 docs(deps): record PR 47 refresh canary
 docs(deps): record PR 48 refresh canary
 ```

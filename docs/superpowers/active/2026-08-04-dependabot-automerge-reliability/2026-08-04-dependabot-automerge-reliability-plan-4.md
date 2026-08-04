@@ -10,27 +10,32 @@
 
 ---
 
-### Task 7: Regenerate the snapshot and run the complete local gate [Tester: yes]
+### Task 7: Run dynamic snapshot validation and the complete local gate [Tester: yes]
 
-**Files:**
-- Regenerate: `public-snapshot.json`
+**Files:** none; validation derives the report and generated manifest from committed `HEAD`.
 
-- [x] **Step 1: Prove the snapshot is stale before regeneration**
+> **Dynamic snapshot supersession:** The repository-root
+> `public-snapshot.json` contract was removed by the dependency PR CI
+> remediation design. `corepack npm run public:snapshot` is now a non-mutating
+> committed-HEAD report, and `corepack npm run public:snapshot:check` performs
+> the required committed-tree scan, generated-manifest verification, isolated
+> repository construction, package validation, and release smoke. Do not
+> regenerate or commit a repository-root snapshot mirror.
+
+- [x] **Step 1: Verify the deterministic report and dynamic gate**
 
 ```bash
-corepack npm run public:snapshot:check
-```
-
-Expected: FAIL because changed public workflows, configuration, and tests no longer match `public-snapshot.json`.
-
-- [x] **Step 2: Regenerate and immediately check the snapshot**
-
-```bash
+BEFORE=$(git status --short)
 corepack npm run public:snapshot
+AFTER=$(git status --short)
+test "$AFTER" = "$BEFORE"
+test ! -e public-snapshot.json
 corepack npm run public:snapshot:check
 ```
 
-Expected: both commands exit `0`; the first reports the generated file count and SHA-256 manifest hash.
+Expected: the report prints its committed-HEAD count and SHA-256 hash without
+changing `git status`; the dynamic gate exits `0` after full committed-tree,
+generated-manifest, isolated-repository, package, and release validation.
 
 - [x] **Step 3: Run every focused and full check**
 
@@ -57,12 +62,10 @@ Expected:
 - All 1,258 pre-change tests still exist and pass, plus the newly added tests. Do not require a frozen final aggregate count.
 - No snapshot drift or whitespace errors remain.
 
-- [x] **Step 4: Commit the regenerated manifest**
+- [x] **Step 4: Keep the root mirror absent**
 
-```bash
-git add public-snapshot.json
-git commit -m "chore(snapshot): refresh Dependabot automation hashes"
-```
+No repository-root snapshot manifest is generated or committed. The dynamic
+validation result is the required snapshot evidence.
 
 - [x] **Step 5: Verify the implementation branch is ready**
 
@@ -79,13 +82,9 @@ const subjects = readFileSync(process.argv[2], "utf8")
   .split("\n")
   .filter(Boolean);
 const expected = [
-  "test(ci): define Dependabot title and no-op policy",
-  "ci(deps): accept generated Dependabot PRs",
-  "test(deps): define synchronized family groups",
-  "chore(deps): group synchronized dependency families",
-  "test(ci): define Dependabot branch refresh policy",
-  "ci(deps): refresh one stale Dependabot branch",
-  "chore(snapshot): refresh Dependabot automation hashes",
+  "test(snapshot): define dynamic public authority",
+  "fix(snapshot): validate committed public source dynamically",
+  "docs(snapshot): supersede tracked mirror instructions",
 ];
 
 let cursor = -1;
@@ -97,7 +96,7 @@ NODE
 rm "$COMMIT_SUBJECTS"
 ```
 
-Expected: `git status --short` is empty and the seven planned implementation commit subjects are present in order anywhere in the branch range. A separate earlier companion-artifact documentation commit does not hide an implementation commit from this check.
+Expected: `git status --short` is empty and the three dynamic snapshot commit subjects are present in order anywhere in the branch range. The earlier Dependabot implementation commits already predate this remediation branch and are contained in `origin/main`; they are not expected above this branch's merge base.
 
 The implementation PR must merge to `main` with all five required checks before Task 8.
 

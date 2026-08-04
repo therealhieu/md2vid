@@ -47,6 +47,18 @@ You are a senior implementation agent working in this repository. Follow project
 - Operational risk: the canary may show that App-caused rebase changes commit provenance or fails to start normal workflows. If so, document the failure and stop; do not weaken the one-verified-Dependabot-commit, signature, workflow-approval, or exact auto-merge-actor guards.
 - Remote workflow dispatches, pushes, and PR creation are outward-facing. Obtain explicit user authorization immediately before each such action unless the user has separately granted durable authorization.
 
+> **Dynamic snapshot supersession:** The repository-root
+> `public-snapshot.json` contract was removed by the dependency PR CI
+> remediation design. `corepack npm run public:snapshot` is now a non-mutating
+> committed-HEAD report, and `corepack npm run public:snapshot:check` performs
+> the required committed-tree scan, generated-manifest verification, isolated
+> repository construction, package validation, and release smoke. Do not
+> regenerate or commit a repository-root snapshot mirror.
+>
+> Run `corepack npm run public:snapshot` only when a deterministic count/hash
+> report is useful. It must not change `git status`. The required correctness
+> gate is `corepack npm run public:snapshot:check`.
+
 ## Tasks
 
 - Execute `2026-08-04-dependabot-automerge-reliability-plan.md` and Parts 1–4 task-by-task in the exact order above.
