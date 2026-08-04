@@ -574,6 +574,15 @@ function makePolicyFixture(
   return { event, run, pr, commits };
 }
 
+function setPolicyHead(fixture: PolicyFixture, head: string): PolicyFixture {
+  (fixture.event.head as WorkflowRecord).ref = head;
+  fixture.run.head_branch = head;
+  (((fixture.run.pull_requests as WorkflowRecord[])[0].head) as WorkflowRecord).ref =
+    head;
+  (fixture.pr.head as WorkflowRecord).ref = head;
+  return fixture;
+}
+
 function withDependabotMetadataLines(
   fixture: PolicyFixture,
   lines: string[],
@@ -930,78 +939,148 @@ test("CI pr-title keeps ordinary PRs conventional and at most 72 characters", ()
   });
 });
 
-test("CI pr-title allows only exact grouped Dependabot patch titles for configured groups", () => {
+test("CI pr-title accepts exact generated Dependabot title families", () => {
   const yaml = workflow("ci.yml");
   const bot = "dependabot[bot]";
-  const valid = [
+  const valid: PrTitleInput[] = [
     {
-      title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates",
-      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the dev-patches group across 2 directories with 3 updates",
-      headRef: "dependabot/npm_and_yarn/dev-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the actions-patches group across 1 directory with 2 updates",
-      headRef: "dependabot/github_actions/actions-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the runtime-patches group across 1 directory with 1 update",
-      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the dev-patches group across 2 directories with 2 updates",
-      headRef: "dependabot/npm_and_yarn/dev-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the actions-patches group across 10 directories with 10 updates",
-      headRef: "dependabot/github_actions/actions-patches-abc123",
-    },
-    {
-      title: "chore(deps): bump the runtime-patches group across 11 directories with 101 updates",
-      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
-    },
-  ];
-  for (const input of valid) {
-    assertPrTitleAccepted(yaml, { ...input, actor: bot, author: bot });
-  }
-});
-
-test("CI pr-title rejects broad Dependabot and long-title exemptions", () => {
-  const yaml = workflow("ci.yml");
-  const bot = "dependabot[bot]";
-  const groupedRuntime = {
-    title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates",
-    actor: bot,
-    author: bot,
-    headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
-  };
-  const invalid: PrTitleInput[] = [
-    { ...groupedRuntime, actor: "therealhieu" },
-    { ...groupedRuntime, author: "therealhieu" },
-    { ...groupedRuntime, headRef: "dependabot/npm_and_yarn/unknown-patches-abc123" },
-    { ...groupedRuntime, title: "chore(deps): bump the unknown-patches group across 1 directory with 4 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump hyperframes from 0.7.26 to 0.7.27" },
-    { ...groupedRuntime, title: `chore(deps): ${"not a grouped patch title ".repeat(4)}` },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group with 4 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 0 directories with 4 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directories with 4 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 0 directories with 1 update" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 01 directory with 1 update" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 0 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 01 update" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directories with 1 update" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 2 directories with 1 updates" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across one directory with one update" },
-    { ...groupedRuntime, title: "chore(deps): bump the runtime-patches group across 1 directory with 4 updates." },
-    {
-      title: "chore(deps): bump the dev-patches group across 1 directory with 4 updates",
+      title: "chore(deps): bump the runtime-patches group with 4 updates",
       actor: bot,
       author: bot,
       headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
     },
+    {
+      title:
+        "chore(deps): bump the dev-patches group across 1 directory with 1 update",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/dev-patches-abc123",
+    },
+    {
+      title:
+        "chore(deps): bump the actions-patches group across 2 directories with 3 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/github_actions/actions-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump the react-family group with 2 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/react-family-abc123",
+    },
+    {
+      title:
+        "chore(deps): bump the react-types-family group across 1 directory with 2 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/react-types-family-abc123",
+    },
+    {
+      title: "chore(deps): bump the remotion-family group with 3 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/remotion-family-abc123",
+    },
+    {
+      title: "chore(deps): bump typescript from 5.7.3 to 7.0.2",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/typescript-7.0.2",
+    },
+    {
+      title: "chore(deps): bump @types/node from 26.1.1 to 26.1.2",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/types/node-26.1.2",
+    },
+    {
+      title: "chore(deps): bump actions/setup-node from 6.0.0 to 7.0.0",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/github_actions/actions/setup-node-7.0.0",
+    },
+    {
+      title: "chore(deps): bump typescript from 5.8.0-beta.1 to 5.8.0-rc.1",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/typescript-5.8.0-rc.1",
+    },
   ];
+
+  for (const input of valid) assertPrTitleAccepted(yaml, input);
+});
+
+test("CI pr-title rejects generated Dependabot title mutations", () => {
+  const yaml = workflow("ci.yml");
+  const bot = "dependabot[bot]";
+  const valid: PrTitleInput[] = [
+    {
+      title: "chore(deps): bump the runtime-patches group with 4 updates",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/runtime-patches-abc123",
+    },
+    {
+      title: "chore(deps): bump typescript from 5.7.3 to 7.0.2",
+      actor: bot,
+      author: bot,
+      headRef: "dependabot/npm_and_yarn/typescript-7.0.2",
+    },
+  ];
+  const invalid: PrTitleInput[] = [
+    { ...valid[0], actor: "therealhieu" },
+    { ...valid[0], author: "therealhieu" },
+    { ...valid[0], headRef: "dependabot/pip/runtime-patches-abc123" },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches-extra group with 4 updates",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches group with 0 updates",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches group with 01 update",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches group with +1 update",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches group with 1 updates",
+    },
+    {
+      ...valid[0],
+      title:
+        "chore(deps): bump the runtime-patches group across 1 directories with 4 updates",
+    },
+    {
+      ...valid[0],
+      title:
+        "chore(deps): bump the runtime-patches group across 2 directory with 4 updates",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the runtime-patches group with 4 updates.",
+    },
+    {
+      ...valid[0],
+      title: "chore(deps): bump the dev-patches group with 4 updates",
+    },
+    { ...valid[1], headRef: "dependabot/pip/typescript-7.0.2" },
+    {
+      ...valid[1],
+      title: "chore(deps): bump typescript from 5.7.3 to 7.0.2.",
+    },
+    {
+      ...valid[1],
+      title: "chore(deps): bump typescript from 5.7.3\nto 7.0.2",
+    },
+  ];
+
   for (const input of invalid) assertPrTitleRejected(yaml, input);
 });
 
@@ -1191,6 +1270,50 @@ test("Dependabot trusted policy accepts dependency-version metadata field", () =
   });
 });
 
+test("Dependabot trusted policy no-ops trusted supported non-policy refs", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const expectedNoOp = {
+    status: 0,
+    values: {
+      eligible: "false",
+      group: "none",
+      pr_number: "123",
+      expected_head_sha: "a".repeat(40),
+    },
+  };
+  const nonPolicyHeads = [
+    "dependabot/npm_and_yarn/typescript-7.0.2",
+    "dependabot/npm_and_yarn/types/node-26.1.2",
+    "dependabot/github_actions/actions/setup-node-7.0.0",
+    "dependabot/npm_and_yarn/react-family-abc123",
+    "dependabot/npm_and_yarn/runtime-patchesevil",
+  ];
+
+  for (const head of nonPolicyHeads) {
+    const fixture = setPolicyHead(
+      makePolicyFixture("runtime-patches", ["hyperframes"]),
+      head,
+    );
+    (fixture.commits[0].commit as WorkflowRecord).message =
+      "chore(deps): generated Dependabot update";
+    assert.deepEqual(runDependabotPolicy(yaml, fixture), expectedNoOp);
+  }
+
+  for (const head of [
+    "dependabot/pip/requests-3.0.0",
+    "dependabot/npm_and_yarn/",
+    "feature/typescript-7.0.2",
+  ]) {
+    const fixture = setPolicyHead(
+      makePolicyFixture("runtime-patches", ["hyperframes"]),
+      head,
+    );
+    const result = runDependabotPolicy(yaml, fixture);
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(result.values, {});
+  }
+});
+
 test("Dependabot trusted policy rejects duplicate dependency names", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
   const fixture = withDependabotMetadataLines(
@@ -1302,18 +1425,18 @@ test("Dependabot trusted policy accepts only exact grouped patches", () => {
     makePolicyFixture("runtime-patches", [...runtimeNames, "unknown-runtime"]),
     makePolicyFixture("dev-patches", [...devNames, "unknown-development"]),
   ];
-  const unknownGroup = makePolicyFixture("runtime-patches", runtimeNames);
-  (unknownGroup.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
-  ((unknownGroup.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
-  (unknownGroup.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/unknown-patches-abc123";
-  unknownGroup.run.head_branch = "dependabot/npm_and_yarn/unknown-patches-abc123";
-  invalid.push(unknownGroup);
-  const nearPrefix = makePolicyFixture("runtime-patches", runtimeNames);
-  (nearPrefix.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
-  ((nearPrefix.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
-  (nearPrefix.event.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patchesevil";
-  nearPrefix.run.head_branch = "dependabot/npm_and_yarn/runtime-patchesevil";
-  invalid.push(nearPrefix);
+  invalid.push(
+    setPolicyHead(
+      makePolicyFixture("runtime-patches", runtimeNames),
+      "dependabot/npm_and_yarn/unknown-patches-abc123",
+    ),
+  );
+  invalid.push(
+    setPolicyHead(
+      makePolicyFixture("runtime-patches", runtimeNames),
+      "dependabot/npm_and_yarn/runtime-patchesevil",
+    ),
+  );
 
   for (const fixture of invalid) {
     const result = runDependabotPolicy(yaml, fixture);
