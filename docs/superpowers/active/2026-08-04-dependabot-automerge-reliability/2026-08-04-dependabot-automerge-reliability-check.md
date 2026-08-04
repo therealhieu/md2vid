@@ -43,7 +43,7 @@
 - [x] Trusted non-policy Dependabot PRs complete as successful ineligible no-ops after repository, event, PR, head, commit-count, author, and signature validation.
 - [x] Only `runtime-patches`, `dev-patches`, and `actions-patches` remain privileged for automatic merge eligibility.
 - [x] Manual minor/major family groups are exactly `react-family`, `react-types-family`, and `remotion-family`.
-- [x] Branch refresh is checkout-free, selects one oldest exact patch-group queue head, uses only the repository-scoped GitHub App token, never skips a blocked queue head, and requires exact repository identities.
+- [x] Branch refresh is checkout-free, selects one oldest exact patch-group queue head, uses only the repository-scoped GitHub App token explicitly limited to `contents: write`, `pull requests: write`, and `metadata: read`, never skips a blocked queue head, and requires exact repository identities.
 - [x] Branch refresh disables existing auto-merge before `updatePullRequestBranch` with `updateMethod: REBASE` and `expectedHeadOid`.
 - [x] Branch refresh creates no new-head authorization and renders only the fixed allowlisted summary fields.
 

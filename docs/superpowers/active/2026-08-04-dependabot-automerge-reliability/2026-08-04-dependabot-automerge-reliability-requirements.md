@@ -239,7 +239,7 @@ merge implementation to main
 ## Security Requirements
 
 - Privileged workflows use top-level `permissions: {}` and job-scoped least privilege.
-- The refresh workflow's built-in `GITHUB_TOKEN` remains read-only/unused for mutation. All refresh writes use the repository-scoped GitHub App installation token with `contents: write`, `pull-requests: write`, and implicit metadata read.
+- The refresh workflow's built-in `GITHUB_TOKEN` remains read-only/unused for mutation. All refresh writes use a minted repository-scoped GitHub App installation token explicitly limited by action inputs to `contents: write`, `pull-requests: write`, and `metadata: read`.
 - The refresh workflow uses a fixed global concurrency group with `cancel-in-progress: false`. The existing auto-merge workflow retains its PR/head-oriented cancellation behavior so a stale authorization run cannot outlive a newer head.
 - The only external Action allowed in a privileged workflow is official `actions/create-github-app-token`, pinned to a full 40-character commit SHA and configured for owner `therealhieu` and repository `md2vid` only.
 - Repository, repository ID/URL/name, base ref, head repository, head ref, head SHA, PR number, actor, author, commit author, commit signature, commit count, and `autoMergeRequest.enabledBy` identity are re-queried and cross-checked.

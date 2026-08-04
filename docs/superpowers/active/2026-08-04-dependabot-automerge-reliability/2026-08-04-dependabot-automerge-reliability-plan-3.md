@@ -68,6 +68,9 @@ assert.deepEqual(token.with, {
   "private-key": "${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}",
   owner: "therealhieu",
   repositories: "md2vid",
+  "permission-contents": "write",
+  "permission-pull-requests": "write",
+  "permission-metadata": "read",
 });
 ```
 
@@ -386,9 +389,12 @@ jobs:
           private-key: ${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}
           owner: therealhieu
           repositories: md2vid
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
 ```
 
-Do not set `continue-on-error`; failed token creation must fail the job while the final `always()` summary reports `app-token-unavailable`.
+The pinned `actions/create-github-app-token` action supports these explicit permission inputs; omitted permission inputs inherit all installation permissions, so the workflow must downscope the minted token to `contents: write`, `pull requests: write`, and `metadata: read` explicitly. Do not set `continue-on-error`; failed token creation must fail the job while the final `always()` summary reports `app-token-unavailable`.
 
 - [x] **Step 4: Inventory all open PR pages with only the App token**
 

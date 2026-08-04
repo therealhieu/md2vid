@@ -32,6 +32,9 @@ jobs:
           private-key: ${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}
           owner: therealhieu
           repositories: md2vid
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
 
       - name: Inventory open pull requests
         id: inventory

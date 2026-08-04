@@ -34,7 +34,7 @@ A separate branch-refresh workflow receives narrow branch-mutation authority, bu
 
 The user approved a narrowly scoped GitHub App for branch refresh on 2026-08-04. `GITHUB_TOKEN` is not suitable: GitHub places `pull_request` runs caused by `GITHUB_TOKEN` PR updates into an approval-required state, which would deadlock unattended required checks. A GitHub App installation token causes the branch update as an external integration, allowing the normal `pull_request/synchronize` observer and CI paths to run without workflow approval.
 
-The App is installed only on `therealhieu/md2vid` with `contents: write`, `pull requests: write`, and metadata read. Repository configuration uses:
+The App is installed only on `therealhieu/md2vid`; the minted token is explicitly limited to `contents: write`, `pull requests: write`, and `metadata: read`. Repository configuration uses:
 
 ```text
 Variable: DEPENDABOT_REFRESH_APP_ID
@@ -351,9 +351,12 @@ jobs:
           private-key: ${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}
           owner: therealhieu
           repositories: md2vid
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
 ```
 
-The installed App grants only `contents: write`, `pull requests: write`, and metadata read on `therealhieu/md2vid`. Every GitHub API/CLI step in this workflow receives `GH_TOKEN: ${{ steps.app-token.outputs.token }}` explicitly. No step may fall back to `github.token`.
+The pinned `actions/create-github-app-token` step requests only `contents: write`, `pull requests: write`, and `metadata: read` on `therealhieu/md2vid`; omitted permission inputs would inherit all installation permissions, so the token contract is explicit. Every GitHub API/CLI step in this workflow receives `GH_TOKEN: ${{ steps.app-token.outputs.token }}` explicitly. No step may fall back to `github.token`.
 
 The workflow must contain:
 
@@ -650,7 +653,7 @@ Run Actionlint with `.github/actionlint.yaml` if available.
 
 ### Remote canary
 
-Before dispatch, create and install the GitHub App only on `therealhieu/md2vid`, configure `DEPENDABOT_REFRESH_APP_ID` and `DEPENDABOT_REFRESH_APP_PRIVATE_KEY`, and verify the installation permissions are exactly contents write plus pull requests write.
+Before dispatch, create and install the GitHub App only on `therealhieu/md2vid`, configure `DEPENDABOT_REFRESH_APP_ID` and `DEPENDABOT_REFRESH_APP_PRIVATE_KEY`, and verify the minted token is explicitly limited to `contents: write`, `pull requests: write`, and `metadata: read`.
 
 Record #47 evidence in:
 
@@ -704,7 +707,7 @@ If normal CI/observer runs require approval, the new head fails provenance, or t
 - Manual minor/major family groups align with repository synchronization contracts.
 - Only runtime, development, and Action patch groups can request auto-merge.
 - The refresh workflow is checkout-free, one-target-only, expected-head-bound, and uses only the repository-scoped GitHub App installation token for writes.
-- App token creation is full-SHA pinned, repository-scoped, and has no fallback credential.
+- App token creation is full-SHA pinned, repository-scoped, explicitly permission-limited to `contents: write`, `pull requests: write`, and `metadata: read`, and has no fallback credential.
 - Candidate selection validates the exact Bot/github-actions `autoMergeRequest.enabledBy` tuple.
 - The refresh workflow disables old auto-merge before GraphQL rebase and never authorizes the new head.
 - The App-caused synchronize event starts CI and observer runs without approval; the trusted auto-merge policy independently authorizes the rebased head.

@@ -2124,6 +2124,9 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
     "private-key": "${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}",
     owner: "therealhieu",
     repositories: "md2vid",
+    "permission-contents": "write",
+    "permission-pull-requests": "write",
+    "permission-metadata": "read",
   });
   assert.equal(Object.hasOwn(token, "continue-on-error"), false);
 
@@ -3043,6 +3046,12 @@ test("Dependabot branch refresh structural policy rejects security mutations", (
   const mutations = [
     yaml.replace("permissions: {}", "permissions: { contents: write }"),
     yaml.replace("    permissions: {}", "    permissions: { pull-requests: write }"),
+    yaml.replace("          permission-contents: write\n", ""),
+    yaml.replace("          permission-pull-requests: write\n", ""),
+    yaml.replace("          permission-metadata: read\n", ""),
+    yaml.replace("permission-contents: write", "permission-contents: read"),
+    yaml.replace("permission-pull-requests: write", "permission-pull-requests: read"),
+    yaml.replace("permission-metadata: read", "permission-metadata: write"),
     yaml.replace("owner: therealhieu", "owner: ${{ github.repository_owner }}"),
     yaml.replace("repositories: md2vid", "repositories: md2vid,other"),
     yaml.replace("fee1f7d63c2ff003460e3d139729b119787bc349", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
