@@ -118,9 +118,12 @@ After each group completes Mode A:
 
 All grouped tasks have `[Tester: yes]`.
 
-## Required Commits
+## Commit History and Required Delivery Boundaries
 
-Preserve these focused Conventional Commits:
+The original Dependabot implementation commits below predate the dynamic
+snapshot remediation branch and are already contained in `origin/main`; they
+are historical prerequisites, not commits expected above this branch's merge
+base:
 
 ```text
 test(ci): define Dependabot title and no-op policy
@@ -129,7 +132,20 @@ test(deps): define synchronized family groups
 chore(deps): group synchronized dependency families
 test(ci): define Dependabot branch refresh policy
 ci(deps): refresh one stale Dependabot branch
-chore(snapshot): refresh Dependabot automation hashes
+```
+
+The dynamic snapshot remediation must instead preserve these focused commits
+in order above its merge base:
+
+```text
+test(snapshot): define dynamic public authority
+fix(snapshot): validate committed public source dynamically
+docs(snapshot): supersede tracked mirror instructions
+```
+
+The later rollout evidence commits remain:
+
+```text
 docs(deps): record PR 47 refresh canary
 docs(deps): record PR 48 refresh canary
 ```

@@ -864,6 +864,14 @@ test("package scripts split focused snapshot tests from the fresh-repository int
   assert.equal(packageMetadata.scripts["public:snapshot:check"], "node scripts/check_public_snapshot.ts");
 });
 
+test("actual repository root excludes the obsolete snapshot mirror", () => {
+  assert.equal(
+    existsSync(join(ROOT, PUBLIC_SNAPSHOT_MANIFEST)),
+    false,
+    `obsolete repository-root ${PUBLIC_SNAPSHOT_MANIFEST} must be absent`,
+  );
+});
+
 test("actual repository HEAD snapshot contains required public code and excludes private/generated roots", (t) => {
   const output = absentOutput(t);
   buildPublicSnapshot({

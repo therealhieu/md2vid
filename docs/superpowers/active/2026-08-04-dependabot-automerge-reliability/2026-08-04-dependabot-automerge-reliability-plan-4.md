@@ -82,13 +82,9 @@ const subjects = readFileSync(process.argv[2], "utf8")
   .split("\n")
   .filter(Boolean);
 const expected = [
-  "test(ci): define Dependabot title and no-op policy",
-  "ci(deps): accept generated Dependabot PRs",
-  "test(deps): define synchronized family groups",
-  "chore(deps): group synchronized dependency families",
-  "test(ci): define Dependabot branch refresh policy",
-  "ci(deps): refresh one stale Dependabot branch",
-  "chore(snapshot): refresh Dependabot automation hashes",
+  "test(snapshot): define dynamic public authority",
+  "fix(snapshot): validate committed public source dynamically",
+  "docs(snapshot): supersede tracked mirror instructions",
 ];
 
 let cursor = -1;
@@ -100,7 +96,7 @@ NODE
 rm "$COMMIT_SUBJECTS"
 ```
 
-Expected: `git status --short` is empty and the seven planned implementation commit subjects are present in order anywhere in the branch range. A separate earlier companion-artifact documentation commit does not hide an implementation commit from this check.
+Expected: `git status --short` is empty and the three dynamic snapshot commit subjects are present in order anywhere in the branch range. The earlier Dependabot implementation commits already predate this remediation branch and are contained in `origin/main`; they are not expected above this branch's merge base.
 
 The implementation PR must merge to `main` with all five required checks before Task 8.
 
