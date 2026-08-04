@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "count": 334,
-  "hash": "sha256:3c75e557e5363edf02d23adfe9334852ce6601b62e588b92f06b5ff27f7a92af",
+  "hash": "sha256:0d41f2685bd46b35796918c1799ae01a4c3cb7800ed04beb005cb9c82df02920",
   "paths": [
     {
       "path": ".github/actionlint.yaml",
@@ -36,8 +36,8 @@
     {
       "path": ".github/workflows/dependabot-branch-refresh.yml",
       "mode": "100644",
-      "bytes": 24960,
-      "sha256": "7bf1e95c21fd36f03206a4ff38e4ef5812f37c808d60f724027f605c1a5c3947"
+      "bytes": 25075,
+      "sha256": "75dbc3f559377dc2da3112e8b8b38896f5e0a387583ff58ad109b925d9755746"
     },
     {
       "path": ".github/workflows/nightly.yml",
@@ -942,8 +942,8 @@
     {
       "path": "test/ci/workflows.test.ts",
       "mode": "100644",
-      "bytes": 172313,
-      "sha256": "2d2327fae2fa42148c471af856cbda3737e90dd3bda345df81d3187ddba2b85d"
+      "bytes": 172862,
+      "sha256": "7abaf5fb581e274cc6139b3ff0bf97ae17a033568e666323dbd633d5159d932b"
     },
     {
       "path": "test/cli/audit-policy.test.ts",
