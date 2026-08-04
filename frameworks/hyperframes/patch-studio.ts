@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Patches an upstream HyperFrames Studio bug (present 0.7.26 → 0.7.78):
+// HyperFrames Studio versions observed through 0.7.87 can retry the same
+// failed caption-model fetch indefinitely. This patch recognizes only
+// reviewed exact bundle layouts and fails closed when upstream output changes.
 //
 // The Studio effect ACe auto-targets any composition whose id/src contains
 // "caption", fetches its file, and calls xCe()->yCe() to build an editable
