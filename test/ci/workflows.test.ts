@@ -691,6 +691,14 @@ function assertPrTitleRejected(yaml: string, input: PrTitleInput): void {
   assert.notEqual(runPrTitlePolicy(yaml, input).status, 0, input.title);
 }
 
+function assertPolicyFailedWithoutOutputs(
+  result: { status: number | null; values: Record<string, string> },
+  label?: string,
+): void {
+  assert.notEqual(result.status, 0, label);
+  assert.deepEqual(result.values, {}, label);
+}
+
 function assertActiveJobsPolicy(name: string, yaml: string): void {
   assert.ok(
     Object.hasOwn(EXPECTED_JOB_RUNNERS, name),
@@ -1032,6 +1040,7 @@ test("CI pr-title rejects generated Dependabot title mutations", () => {
     { ...valid[0], actor: "therealhieu" },
     { ...valid[0], author: "therealhieu" },
     { ...valid[0], headRef: "dependabot/pip/runtime-patches-abc123" },
+    { ...valid[0], headRef: "dependabot/npm_and_yarn/runtime-patchesevil" },
     {
       ...valid[0],
       title: "chore(deps): bump the runtime-patches-extra group with 4 updates",
@@ -1314,6 +1323,47 @@ test("Dependabot trusted policy no-ops trusted supported non-policy refs", () =>
   }
 });
 
+test("Dependabot trusted policy rejects untrusted supported non-policy refs before no-op", () => {
+  const yaml = workflow("dependabot-auto-merge.yml");
+  const makeNonPolicyFixture = () => {
+    const fixture = setPolicyHead(
+      makePolicyFixture("runtime-patches", ["hyperframes"]),
+      "dependabot/npm_and_yarn/typescript-7.0.2",
+    );
+    (fixture.commits[0].commit as WorkflowRecord).message =
+      "chore(deps): generated Dependabot update";
+    return fixture;
+  };
+  const invalid: PolicyFixture[] = [];
+  const mutate = (change: (fixture: PolicyFixture) => void) => {
+    const fixture = makeNonPolicyFixture();
+    change(fixture);
+    invalid.push(fixture);
+  };
+
+  mutate((fixture) => { fixture.run.id = 43; });
+  mutate((fixture) => { (fixture.run.actor as WorkflowRecord).login = "other"; });
+  mutate((fixture) => { (fixture.run.repository as WorkflowRecord).full_name = "other/repo"; });
+  mutate((fixture) => { (fixture.run.repository as WorkflowRecord).id = 1; });
+  mutate((fixture) => { (fixture.event.head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { ((fixture.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { (fixture.pr.user as WorkflowRecord).login = "other"; });
+  mutate((fixture) => { (fixture.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/typescript-stale"; });
+  mutate((fixture) => { (fixture.pr.head as WorkflowRecord).sha = "b".repeat(40); });
+  mutate((fixture) => { ((fixture.pr.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
+  mutate((fixture) => { fixture.pr.body = "Maintainer changes:\nChanged by maintainer"; });
+  mutate((fixture) => { fixture.pr.commits = 2; fixture.commits.push(structuredClone(fixture.commits[0])); });
+  mutate((fixture) => { (fixture.commits[0].author as WorkflowRecord).login = "maintainer"; });
+  mutate((fixture) => { ((fixture.commits[0].commit as WorkflowRecord).verification as WorkflowRecord).verified = false; });
+
+  for (const [index, fixture] of invalid.entries()) {
+    assertPolicyFailedWithoutOutputs(
+      runDependabotPolicy(yaml, fixture),
+      `non-policy provenance mutation ${index}`,
+    );
+  }
+});
+
 test("Dependabot trusted policy rejects duplicate dependency names", () => {
   const yaml = workflow("dependabot-auto-merge.yml");
   const fixture = withDependabotMetadataLines(
@@ -1538,6 +1588,8 @@ test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   mutate((fixture) => { ((fixture.run.pull_requests as WorkflowRecord[])[0].head as WorkflowRecord).sha = "b".repeat(40); });
   mutate((fixture) => { (fixture.pr.user as WorkflowRecord).login = "other"; });
   mutate((fixture) => { (fixture.pr.base as WorkflowRecord).ref = "develop"; });
+  mutate((fixture) => { (fixture.pr.head as WorkflowRecord).ref = "dependabot/npm_and_yarn/runtime-patches-stale"; });
+  mutate((fixture) => { (fixture.pr.head as WorkflowRecord).sha = "b".repeat(40); });
   mutate((fixture) => { ((fixture.pr.head as WorkflowRecord).repo as WorkflowRecord).full_name = "fork/repo"; });
   mutate((fixture) => { fixture.pr.body = "Maintainer changes:\nChanged by maintainer"; });
   mutate((fixture) => { fixture.pr.commits = 2; fixture.commits.push(structuredClone(fixture.commits[0])); });
@@ -1545,10 +1597,11 @@ test("Dependabot trusted policy rejects stale or unverified PR state", () => {
   mutate((fixture) => { ((fixture.commits[0].commit as WorkflowRecord).verification as WorkflowRecord).verified = false; });
   mutate((fixture) => { fixture.commits[0].sha = "b".repeat(40); });
 
-  for (const fixture of invalid) {
-    const result = runDependabotPolicy(yaml, fixture);
-    assert.notEqual(result.status, 0);
-    assert.equal(result.values.eligible, undefined);
+  for (const [index, fixture] of invalid.entries()) {
+    assertPolicyFailedWithoutOutputs(
+      runDependabotPolicy(yaml, fixture),
+      `exact-policy provenance mutation ${index}`,
+    );
   }
 });
 
