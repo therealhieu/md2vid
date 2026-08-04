@@ -163,7 +163,7 @@ jobs:
           const eventHeadRef = process.env.EVENT_HEAD_REF ?? "";
           const eventHeadSha = process.env.EVENT_HEAD_SHA ?? "";
           if (!Number.isSafeInteger(eventPrNumber) || eventPrNumber < 1 ||
-              !/^dependabot\/(?:npm_and_yarn|github_actions)\/[a-z0-9-]+$/.test(eventHeadRef) ||
+              !/^dependabot\/(?:npm_and_yarn|github_actions)\/[^\s]+$/.test(eventHeadRef) ||
               !/^[a-f0-9]{40}$/.test(eventHeadSha)) {
             fail("workflow_run PR identity is invalid");
           }
@@ -214,15 +214,24 @@ jobs:
           }
 
           const policy = policies.find(({ branch }) => branch.test(pr.head.ref));
+
+          if (policy === undefined) {
+            appendFileSync(output, "eligible=false\n");
+            appendFileSync(output, "group=none\n");
+            appendFileSync(output, `pr_number=${pr.number}\n`);
+            appendFileSync(output, `expected_head_sha=${expectedHeadSha}\n`);
+            process.exit(0);
+          }
+
           const entries = parseDependencies(commit.commit.message);
           const names = entries.map((entry) => entry["dependency-name"]);
           if (new Set(names).size !== names.length) fail("dependency metadata contains duplicates");
-          const eligible = policy !== undefined && entries.every((entry) => entry["dependency-group"] === policy.group) &&
+          const eligible = entries.every((entry) => entry["dependency-group"] === policy.group) &&
             entries.every((entry) => entry["update-type"] === patchUpdateType) &&
             (policy.allowed === null || names.every((name) => policy.allowed.has(name)));
 
           appendFileSync(output, `eligible=${eligible}\n`);
-          appendFileSync(output, `group=${policy?.group ?? "none"}\n`);
+          appendFileSync(output, `group=${policy.group}\n`);
           appendFileSync(output, `pr_number=${pr.number}\n`);
           appendFileSync(output, `expected_head_sha=${expectedHeadSha}\n`);
           NODE
