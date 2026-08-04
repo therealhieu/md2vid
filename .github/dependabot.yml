@@ -24,6 +24,28 @@ updates:
         dependency-type: "development"
         update-types:
           - "patch"
+      react-family:
+        patterns:
+          - "react"
+          - "react-dom"
+        update-types:
+          - "minor"
+          - "major"
+      react-types-family:
+        patterns:
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - "minor"
+          - "major"
+      remotion-family:
+        patterns:
+          - "remotion"
+          - "@remotion/google-fonts"
+          - "@remotion/media"
+        update-types:
+          - "minor"
+          - "major"
 
   - package-ecosystem: "github-actions"
     directory: "/"

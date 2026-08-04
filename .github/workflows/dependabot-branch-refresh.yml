@@ -1,0 +1,579 @@
+name: Dependabot branch refresh
+
+"on":
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: dependabot-branch-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh-one:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Initialize refresh summary
+        shell: bash
+        run: |-
+          set -euo pipefail
+          printf '%s\n' \
+            '{"outcome":"failed","reason":"app-token-unavailable","pr":"none","group":"none","expected_head":"none"}' \
+            > "$RUNNER_TEMP/dependabot-branch-refresh-summary.json"
+
+      - name: Create repository-scoped App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.DEPENDABOT_REFRESH_APP_ID }}
+          private-key: ${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}
+          owner: therealhieu
+          repositories: md2vid
+          permission-contents: write
+          permission-pull-requests: write
+          permission-metadata: read
+
+      - name: Inventory open pull requests
+        id: inventory
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: therealhieu/md2vid
+        run: |-
+          set -euo pipefail
+          INVENTORY_FILE="$RUNNER_TEMP/dependabot-refresh-inventory.json"
+          gh api \
+            --method GET \
+            --paginate \
+            --slurp \
+            "repos/$REPOSITORY/pulls?state=open&per_page=100&sort=created&direction=asc" \
+            > "$INVENTORY_FILE"
+          printf 'inventory_file=%s\n' "$INVENTORY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Select patch-group queue head
+        id: queue
+        shell: bash
+        env:
+          INVENTORY_FILE: ${{ steps.inventory.outputs.inventory_file }}
+          SUMMARY_FILE: ${{ runner.temp }}/dependabot-branch-refresh-summary.json
+        run: |-
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+          const policies = [
+            {
+              group: "runtime-patches",
+              branch: /^dependabot\/npm_and_yarn\/runtime-patches(?:-[a-z0-9]+)?$/,
+            },
+            {
+              group: "dev-patches",
+              branch: /^dependabot\/npm_and_yarn\/dev-patches(?:-[a-z0-9]+)?$/,
+            },
+            {
+              group: "actions-patches",
+              branch: /^dependabot\/github_actions\/actions-patches(?:-[a-z0-9]+)?$/,
+            },
+          ];
+
+          function output(name, value) {
+            appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+          }
+
+          function writeSummary(state) {
+            writeFileSync(process.env.SUMMARY_FILE, `${JSON.stringify(state)}\n`);
+          }
+
+          function blocked(pr = "none", group = "none") {
+            writeSummary({
+              outcome: "blocked",
+              reason: "queue-head-invalid",
+              pr,
+              group,
+              expected_head: "none",
+            });
+            process.exit(1);
+          }
+
+          const pages = JSON.parse(readFileSync(process.env.INVENTORY_FILE, "utf8"));
+          if (!Array.isArray(pages)) blocked();
+          const candidates = [];
+          for (const page of pages) {
+            if (!Array.isArray(page)) blocked();
+            for (const pr of page) {
+              if (!pr || pr.state !== "open") continue;
+              const ref = pr.head?.ref;
+              if (typeof ref !== "string") continue;
+              const policy = policies.find((candidate) => candidate.branch.test(ref));
+              if (!policy) continue;
+              if (!Number.isInteger(pr.number) || pr.number < 1) blocked("none", policy.group);
+              const createdAt = Date.parse(String(pr.created_at ?? ""));
+              if (!Number.isFinite(createdAt)) blocked(`#${pr.number}`, policy.group);
+              candidates.push({ number: pr.number, createdAt, group: policy.group });
+            }
+          }
+          candidates.sort((left, right) => left.createdAt - right.createdAt || left.number - right.number);
+          const [queueHead] = candidates;
+          if (!queueHead) {
+            writeSummary({
+              outcome: "no-candidates",
+              reason: "no-candidates",
+              pr: "none",
+              group: "none",
+              expected_head: "none",
+            });
+            appendFileSync(process.env.GITHUB_OUTPUT, "candidate=false\n");
+            process.exit(0);
+          }
+          output("candidate", "true");
+          output("pr_number", String(queueHead.number));
+          output("group", queueHead.group);
+          NODE
+
+      - name: Fetch queue-head state
+        id: state
+        if: steps.queue.outputs.candidate == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: therealhieu/md2vid
+          PR_NUMBER: ${{ steps.queue.outputs.pr_number }}
+        run: |-
+          set -euo pipefail
+          PR_FILE="$RUNNER_TEMP/dependabot-refresh-pr.json"
+          COMMITS_FILE="$RUNNER_TEMP/dependabot-refresh-commits.json"
+          GRAPHQL_FILE="$RUNNER_TEMP/dependabot-refresh-graphql.json"
+          gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER" > "$PR_FILE"
+          gh api --method GET "repos/$REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100" > "$COMMITS_FILE"
+          # shellcheck disable=SC2016
+          gh api graphql \
+            -F owner=therealhieu \
+            -F name=md2vid \
+            -F number="$PR_NUMBER" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  id
+                  nameWithOwner
+                  url
+                  pullRequest(number: $number) {
+                    id
+                    number
+                    state
+                    baseRefName
+                    baseRepository { id nameWithOwner url }
+                    headRefName
+                    headRefOid
+                    headRepository { id nameWithOwner url }
+                    mergeStateStatus
+                    autoMergeRequest {
+                      mergeMethod
+                      enabledBy { __typename login url }
+                    }
+                  }
+                }
+              }' \
+            > "$GRAPHQL_FILE"
+          {
+            printf 'pr_file=%s\n' "$PR_FILE"
+            printf 'commits_file=%s\n' "$COMMITS_FILE"
+            printf 'graphql_file=%s\n' "$GRAPHQL_FILE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate queue-head policy
+        id: policy
+        if: steps.queue.outputs.candidate == 'true'
+        shell: bash
+        env:
+          PR_FILE: ${{ steps.state.outputs.pr_file }}
+          COMMITS_FILE: ${{ steps.state.outputs.commits_file }}
+          GRAPHQL_FILE: ${{ steps.state.outputs.graphql_file }}
+          SUMMARY_FILE: ${{ runner.temp }}/dependabot-branch-refresh-summary.json
+          PR_NUMBER: ${{ steps.queue.outputs.pr_number }}
+          GROUP: ${{ steps.queue.outputs.group }}
+        run: |-
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+          const expectedRestRepository = {
+            id: 1309960592,
+            fullName: "therealhieu/md2vid",
+            apiUrl: "https://api.github.com/repos/therealhieu/md2vid",
+          };
+          const expectedGraphqlRepository = {
+            id: "R_kgDOThQpsA",
+            nameWithOwner: "therealhieu/md2vid",
+            url: "https://github.com/therealhieu/md2vid",
+          };
+          const patchUpdateType = "version-update:semver-patch";
+          const runtimeDependencies = new Set(["@remotion/google-fonts", "@remotion/media", "hyperframes", "react", "react-dom", "remotion"]);
+          const developmentDependencies = new Set(["@types/node", "@types/react", "@types/react-dom", "gsap", "typescript", "yaml"]);
+          const policies = [
+            {
+              group: "runtime-patches",
+              branch: /^dependabot\/npm_and_yarn\/runtime-patches(?:-[a-z0-9]+)?$/,
+              allowed: runtimeDependencies,
+            },
+            {
+              group: "dev-patches",
+              branch: /^dependabot\/npm_and_yarn\/dev-patches(?:-[a-z0-9]+)?$/,
+              allowed: developmentDependencies,
+            },
+            {
+              group: "actions-patches",
+              branch: /^dependabot\/github_actions\/actions-patches(?:-[a-z0-9]+)?$/,
+              allowed: null,
+            },
+          ];
+
+          function output(name, value) {
+            appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
+          }
+
+          function writeSummary(state) {
+            writeFileSync(process.env.SUMMARY_FILE, `${JSON.stringify(state)}\n`);
+          }
+
+          function blocked(reason, pr = "none", group = "none", expectedHead = "none") {
+            writeSummary({ outcome: "blocked", reason, pr, group, expected_head: expectedHead });
+            process.exit(1);
+          }
+
+          function invalid(pr = "none", group = "none", expectedHead = "none") {
+            blocked("queue-head-invalid", pr, group, expectedHead);
+          }
+
+          function readJson(path) {
+            return JSON.parse(readFileSync(path, "utf8"));
+          }
+
+          function positiveInteger(value) {
+            return Number.isInteger(value) && value >= 1;
+          }
+
+          function restRepositoryMatches(repo) {
+            return repo?.id === expectedRestRepository.id
+              && repo?.full_name === expectedRestRepository.fullName
+              && repo?.url === expectedRestRepository.apiUrl;
+          }
+
+          function graphqlRepositoryMatches(repo) {
+            return repo?.id === expectedGraphqlRepository.id
+              && repo?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
+              && repo?.url === expectedGraphqlRepository.url;
+          }
+
+          function scalar(value) {
+            if (typeof value !== "string") throw new Error("metadata value must be scalar");
+            const trimmed = value.trim();
+            let parsed;
+            if (trimmed.startsWith('"')) {
+              parsed = JSON.parse(trimmed);
+              if (typeof parsed !== "string") throw new Error("metadata value must be string");
+            } else if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+              parsed = trimmed.slice(1, -1).replaceAll("''", "'");
+            } else {
+              if (!/^[A-Za-z0-9@/_.:+-]+$/.test(trimmed)) throw new Error("metadata value has invalid characters");
+              parsed = trimmed;
+            }
+            if (parsed.trim().length === 0) throw new Error("metadata value must be nonempty");
+            return parsed;
+          }
+
+          function parseMetadata(message) {
+            const fragment = String(message).match(/(?:^|\n)---\n([\s\S]*?)\n\.\.\.(?:\n|$)/)?.[1];
+            if (!fragment) throw new Error("missing dependency metadata");
+            const lines = fragment.split("\n");
+            if (lines.shift() !== "updated-dependencies:") throw new Error("missing updated-dependencies metadata");
+            const dependencies = [];
+            let current = null;
+            const seenNames = new Set();
+            for (const rawLine of lines) {
+              const first = rawLine.match(/^- dependency-name: (.+)$/);
+              if (first) {
+                current = { values: { "dependency-name": scalar(first[1]) }, keys: new Set(["dependency-name"]) };
+                dependencies.push(current);
+                continue;
+              }
+              const next = rawLine.match(/^  (dependency-version|dependency-type|update-type|dependency-group): (.+)$/);
+              if (!next || !current || current.keys.has(next[1])) throw new Error("malformed metadata");
+              current.keys.add(next[1]);
+              current.values[next[1]] = scalar(next[2]);
+            }
+            if (dependencies.length === 0) throw new Error("empty dependency metadata");
+            return dependencies.map((entry) => {
+              const expected = ["dependency-group", "dependency-name", "dependency-type", "dependency-version", "update-type"];
+              if (JSON.stringify([...entry.keys].sort()) !== JSON.stringify(expected)) throw new Error("dependency metadata is incomplete");
+              const name = entry.values["dependency-name"];
+              if (seenNames.has(name)) throw new Error("dependency metadata contains duplicates");
+              seenNames.add(name);
+              return entry.values;
+            });
+          }
+
+          const pr = readJson(process.env.PR_FILE);
+          const commits = readJson(process.env.COMMITS_FILE);
+          const graphql = readJson(process.env.GRAPHQL_FILE);
+          const queueNumber = Number(process.env.PR_NUMBER);
+          const queueGroup = process.env.GROUP;
+          if (!positiveInteger(queueNumber)) invalid();
+          const policy = policies.find((candidate) => candidate.group === queueGroup);
+          if (!policy) invalid();
+          const summaryPr = `#${queueNumber}`;
+          if (!positiveInteger(pr.number) || pr.number !== queueNumber) invalid(summaryPr, queueGroup);
+          if (pr.state !== "open") invalid(summaryPr, queueGroup);
+          if (pr.user?.login !== "dependabot[bot]") invalid(summaryPr, queueGroup);
+          if (pr.base?.ref !== "main") invalid(summaryPr, queueGroup);
+          if (!restRepositoryMatches(pr.base?.repo) || !restRepositoryMatches(pr.head?.repo)) invalid(summaryPr, queueGroup);
+          if (typeof pr.head?.ref !== "string" || !policy.branch.test(pr.head.ref)) invalid(summaryPr, queueGroup);
+          if (typeof pr.head?.sha !== "string" || !/^[a-f0-9]{40}$/.test(pr.head.sha)) invalid(summaryPr, queueGroup);
+          const expectedHead = pr.head.sha;
+          if (/Maintainer changes:/i.test(String(pr.body ?? ""))) invalid(summaryPr, queueGroup, expectedHead);
+          if (pr.commits !== 1 || !Array.isArray(commits) || commits.length !== 1) invalid(summaryPr, queueGroup, expectedHead);
+          const [commit] = commits;
+          if (commit.sha !== expectedHead) invalid(summaryPr, queueGroup, expectedHead);
+          if (commit.author?.login !== "dependabot[bot]") invalid(summaryPr, queueGroup, expectedHead);
+          if (commit.commit?.verification?.verified !== true) invalid(summaryPr, queueGroup, expectedHead);
+
+          let metadata;
+          try {
+            metadata = parseMetadata(commit.commit?.message ?? "");
+          } catch {
+            invalid(summaryPr, queueGroup, expectedHead);
+          }
+          const names = metadata.map((entry) => entry["dependency-name"]);
+          if (!metadata.every((entry) => entry["dependency-group"] === queueGroup)) invalid(summaryPr, queueGroup, expectedHead);
+          if (!metadata.every((entry) => entry["update-type"] === patchUpdateType)) invalid(summaryPr, queueGroup, expectedHead);
+          if (policy.allowed === null) {
+            if (!names.every((name) => /^[^\s/]+\/[^\s/]+$/.test(name))) invalid(summaryPr, queueGroup, expectedHead);
+          } else if (!names.every((name) => policy.allowed.has(name))) {
+            invalid(summaryPr, queueGroup, expectedHead);
+          }
+
+          const repository = graphql?.data?.repository;
+          const pullRequest = repository?.pullRequest;
+          if (!graphqlRepositoryMatches(repository) || !pullRequest) invalid(summaryPr, queueGroup, expectedHead);
+          if (pullRequest.number !== queueNumber || pullRequest.state !== "OPEN") invalid(summaryPr, queueGroup, expectedHead);
+          if (pullRequest.baseRefName !== "main") invalid(summaryPr, queueGroup, expectedHead);
+          if (!graphqlRepositoryMatches(pullRequest.baseRepository) || !graphqlRepositoryMatches(pullRequest.headRepository)) invalid(summaryPr, queueGroup, expectedHead);
+          if (pullRequest.headRefName !== pr.head.ref || pullRequest.headRefOid !== expectedHead) invalid(summaryPr, queueGroup, expectedHead);
+          if (typeof pullRequest.id !== "string" || !pullRequest.id) invalid(summaryPr, queueGroup, expectedHead);
+
+          const autoMergeRequest = pullRequest.autoMergeRequest;
+          if (!autoMergeRequest) blocked("queue-head-missing-auto-merge", summaryPr, queueGroup, expectedHead);
+          const enabledBy = autoMergeRequest.enabledBy;
+          if (autoMergeRequest.mergeMethod !== "SQUASH"
+            || enabledBy?.__typename !== "Bot"
+            || enabledBy?.login !== "github-actions"
+            || enabledBy?.url !== "https://github.com/apps/github-actions") {
+            invalid(summaryPr, queueGroup, expectedHead);
+          }
+
+          if (pullRequest.mergeStateStatus !== "BEHIND") {
+            writeSummary({
+              outcome: "waiting",
+              reason: "queue-head-not-behind",
+              pr: summaryPr,
+              group: queueGroup,
+              expected_head: expectedHead,
+            });
+            output("selected", "false");
+            process.exit(0);
+          }
+
+          writeSummary({
+            outcome: "selected",
+            reason: "selected-for-rebase",
+            pr: summaryPr,
+            group: queueGroup,
+            expected_head: expectedHead,
+          });
+          output("selected", "true");
+          output("pull_request_id", pullRequest.id);
+          output("pr_number", String(queueNumber));
+          output("group", queueGroup);
+          output("expected_head_oid", expectedHead);
+          NODE
+
+      - name: Refresh queue-head branch
+        if: steps.policy.outputs.selected == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SUMMARY_FILE: ${{ runner.temp }}/dependabot-branch-refresh-summary.json
+          PULL_REQUEST_ID: ${{ steps.policy.outputs.pull_request_id }}
+          PR_NUMBER: ${{ steps.policy.outputs.pr_number }}
+          GROUP: ${{ steps.policy.outputs.group }}
+          EXPECTED_HEAD_OID: ${{ steps.policy.outputs.expected_head_oid }}
+        run: |-
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { spawnSync } from "node:child_process";
+          import { writeFileSync } from "node:fs";
+
+          const expectedGraphqlRepository = {
+            id: "R_kgDOThQpsA",
+            nameWithOwner: "therealhieu/md2vid",
+            url: "https://github.com/therealhieu/md2vid",
+          };
+          const pullRequestId = process.env.PULL_REQUEST_ID;
+          const expectedHeadOid = process.env.EXPECTED_HEAD_OID;
+          const pr = `#${process.env.PR_NUMBER}`;
+          const group = process.env.GROUP;
+          const liveQuery = `
+            query($owner: String!, $name: String!, $pullRequestId: ID!) {
+              repository(owner: $owner, name: $name) {
+                id
+                nameWithOwner
+                url
+                pullRequest: node(id: $pullRequestId) {
+                  ... on PullRequest {
+                    id
+                    headRefOid
+                  }
+                }
+              }
+            }`;
+          const disableMutation = `
+            mutation($pullRequestId: ID!) {
+              disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
+                pullRequest { id }
+              }
+            }`;
+          const rebaseMutation = `
+            mutation($pullRequestId: ID!, $expectedHeadOid: GitObjectID!) {
+              updatePullRequestBranch(
+                input: {
+                  pullRequestId: $pullRequestId
+                  updateMethod: REBASE
+                  expectedHeadOid: $expectedHeadOid
+                }
+              ) {
+                pullRequest {
+                  id
+                  headRefOid
+                }
+              }
+            }`;
+
+          function writeSummary(outcome, reason) {
+            writeFileSync(process.env.SUMMARY_FILE, `${JSON.stringify({ outcome, reason, pr, group, expected_head: expectedHeadOid })}\n`);
+          }
+
+          function callGraphql(query, extraFields = {}) {
+            const fields = {
+              owner: "therealhieu",
+              name: "md2vid",
+              pullRequestId,
+              ...extraFields,
+            };
+            const args = ["api", "graphql"];
+            for (const [key, value] of Object.entries(fields)) args.push("-F", `${key}=${value}`);
+            args.push("-f", `query=${query}`);
+            const result = spawnSync("gh", args, { encoding: "utf8" });
+            if (result.status !== 0) return { ok: false };
+            try {
+              const value = JSON.parse(result.stdout);
+              if (Array.isArray(value.errors) && value.errors.length > 0) return { ok: false };
+              return { ok: true, value };
+            } catch {
+              return { ok: false };
+            }
+          }
+
+          function disableMatches(response) {
+            return response?.data?.disablePullRequestAutoMerge?.pullRequest?.id === pullRequestId;
+          }
+
+          function rebaseMatches(response) {
+            const pullRequest = response?.data?.updatePullRequestBranch?.pullRequest;
+            return pullRequest?.id === pullRequestId
+              && typeof pullRequest?.headRefOid === "string"
+              && /^[a-f0-9]{40}$/.test(pullRequest.headRefOid);
+          }
+
+          function liveMatches(response) {
+            const repository = response?.data?.repository;
+            const pullRequest = repository?.pullRequest;
+            return repository?.id === expectedGraphqlRepository.id
+              && repository?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
+              && repository?.url === expectedGraphqlRepository.url
+              && pullRequest?.id === pullRequestId
+              && pullRequest?.headRefOid === expectedHeadOid;
+          }
+
+          if (!/^[A-Za-z0-9_:-]+$/.test(String(pullRequestId)) || !/^[a-f0-9]{40}$/.test(String(expectedHeadOid))) {
+            writeSummary("failed", "head-changed");
+            process.exit(1);
+          }
+          const firstLive = callGraphql(liveQuery);
+          if (!firstLive.ok || !liveMatches(firstLive.value)) {
+            writeSummary("failed", "head-changed");
+            process.exit(1);
+          }
+          const disabled = callGraphql(disableMutation);
+          if (!disabled.ok || !disableMatches(disabled.value)) {
+            writeSummary("failed", "auto-merge-disable-failed");
+            process.exit(1);
+          }
+          const secondLive = callGraphql(liveQuery);
+          if (!secondLive.ok || !liveMatches(secondLive.value)) {
+            writeSummary("failed", "head-changed");
+            process.exit(1);
+          }
+          const rebased = callGraphql(rebaseMutation, { expectedHeadOid });
+          if (!rebased.ok || !rebaseMatches(rebased.value)) {
+            writeSummary("failed", "rebase-failed");
+            process.exit(1);
+          }
+          writeSummary("selected", "selected-for-rebase");
+          NODE
+
+      - name: Summarize branch refresh
+        if: always()
+        shell: bash
+        env:
+          SUMMARY_FILE: ${{ runner.temp }}/dependabot-branch-refresh-summary.json
+        run: |-
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const state = JSON.parse(readFileSync(process.env.SUMMARY_FILE, "utf8"));
+          const outcomes = new Set(["no-candidates", "waiting", "blocked", "selected", "failed"]);
+          const reasons = new Set([
+            "no-candidates",
+            "queue-head-not-behind",
+            "queue-head-missing-auto-merge",
+            "queue-head-invalid",
+            "selected-for-rebase",
+            "auto-merge-disable-failed",
+            "head-changed",
+            "rebase-failed",
+            "app-token-unavailable",
+          ]);
+          const groups = new Set(["none", "runtime-patches", "dev-patches", "actions-patches"]);
+          function fail() {
+            process.exit(1);
+          }
+          if (!outcomes.has(state.outcome)) fail();
+          if (!reasons.has(state.reason)) fail();
+          if (!(state.pr === "none" || /^#[1-9][0-9]*$/.test(state.pr))) fail();
+          if (!groups.has(state.group)) fail();
+          if (!(state.expected_head === "none" || /^[a-f0-9]{40}$/.test(state.expected_head))) fail();
+          const lines = [
+            "### Dependabot branch refresh",
+            `- Outcome: ${state.outcome}`,
+            `- Reason: ${state.reason}`,
+            `- PR: ${state.pr}`,
+            `- Group: ${state.group}`,
+            `- Expected head: ${state.expected_head}`,
+          ];
+          const summary = `${lines.join("\n")}\n`;
+          process.stdout.write(summary);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          NODE
