@@ -55,7 +55,7 @@ Make Dependabot automation reliable without weakening the existing trust boundar
 - `.github/dependabot.yml:12-26` defines the npm patch groups.
 - `scripts/dependency_versions.ts:45-67` requires exact synchronization for Remotion, React/React DOM, and React type packages.
 - `test/ci/workflows.test.ts` executes workflow policy scripts with controlled fixtures and mutation-tests the privileged boundary.
-- `public-snapshot.json` hashes the affected workflows and workflow tests.
+- `corepack npm run public:snapshot:check` dynamically validates affected workflows and workflow tests from committed `HEAD`; generated snapshots retain their internal manifest.
 - `main` currently requires five strict checks: `pr-title`, `dependency-review`, `public-snapshot / validate`, `pr-minimum / validate`, and `pr-latest / validate`.
 - Repository-native auto-merge is enabled; GitHub Actions default permissions remain read-only; Actions-created PR approvals are disabled.
 
@@ -298,7 +298,19 @@ PR `#49` remains manual. It must not block processing #47 or #48.
 - The canary evidence is recorded in the defined evidence files and either preserves one verified Dependabot commit, starts required workflows without approval, and proceeds through five checks to native squash merge, or fails closed without weakening guards.
 - `node --test test/ci/workflows.test.ts` passes.
 - `node --test test/cli/dependency-versions.test.ts` passes.
-- `corepack npm run public:snapshot:check`, `corepack npm run check`, and `corepack npm run release:check` pass after snapshot regeneration.
+> **Dynamic snapshot supersession:** The repository-root
+> `public-snapshot.json` contract was removed by the dependency PR CI
+> remediation design. `corepack npm run public:snapshot` is now a non-mutating
+> committed-HEAD report, and `corepack npm run public:snapshot:check` performs
+> the required committed-tree scan, generated-manifest verification, isolated
+> repository construction, package validation, and release smoke. Do not
+> regenerate or commit a repository-root snapshot mirror.
+>
+> Run `corepack npm run public:snapshot` only when a deterministic count/hash
+> report is useful. It must not change `git status`. The required correctness
+> gate is `corepack npm run public:snapshot:check`.
+
+- `corepack npm run public:snapshot:check`, `corepack npm run check`, and `corepack npm run release:check` pass.
 - `git diff --check` passes.
 
 ## Risks and Assumptions

@@ -128,7 +128,7 @@ Trusted branch refresh (daily/manual)
 | `.github/dependabot.yml` | Add three minor/major family groups after patch groups | New groups remain absent from auto-merge policies |
 | `.github/workflows/dependabot-branch-refresh.yml` | Mint a repository-scoped GitHub App token, serialize, and rebase one stale eligible patch PR through trusted APIs | Checkout-free, expected-head-bound, disables old authorization first, and relies on App-caused normal workflow triggering |
 | `test/ci/workflows.test.ts` | Add positive, negative, structural, and mutation coverage for every new contract | Prevents authority broadening and title-policy drift |
-| `public-snapshot.json` | Refresh hashes for changed public files | Keeps public artifact contract current |
+| `publicSnapshotReport()` and generated snapshot manifest | Validate changed public files from committed `HEAD` | Keeps committed-tree scanning, generated-manifest verification, package validation, and release smoke current |
 
 ## Title Validation Design
 
@@ -624,12 +624,21 @@ Extract the inline selection/validation policy similarly to the existing auto-me
 
 ### Snapshot and full verification
 
-After implementation:
+> **Dynamic snapshot supersession:** The repository-root
+> `public-snapshot.json` contract was removed by the dependency PR CI
+> remediation design. `corepack npm run public:snapshot` is now a non-mutating
+> committed-HEAD report, and `corepack npm run public:snapshot:check` performs
+> the required committed-tree scan, generated-manifest verification, isolated
+> repository construction, package validation, and release smoke. Do not
+> regenerate or commit a repository-root snapshot mirror.
+
+After implementation, run `corepack npm run public:snapshot` only when a
+deterministic count/hash report is useful. It must not change `git status`.
+The required correctness gate is `corepack npm run public:snapshot:check`.
 
 ```bash
 node --test test/ci/workflows.test.ts
 node --test test/cli/dependency-versions.test.ts
-corepack npm run public:snapshot
 corepack npm run public:snapshot:check
 corepack npm run check
 corepack npm run release:check
@@ -648,7 +657,7 @@ Run Actionlint with `.github/actionlint.yaml` if available.
 4. Implement no-op classification and prove policy tests pass.
 5. Add family-group configuration tests, then configuration.
 6. Add refresh workflow structural and policy tests, then the workflow.
-7. Regenerate `public-snapshot.json`.
+7. Run `corepack npm run public:snapshot:check` against the committed tree; do not regenerate a root mirror.
 8. Run focused and full verification.
 
 ### Remote canary
