@@ -24,6 +24,7 @@ import {
   type PublicSnapshotReport,
 } from "../../scripts/public_snapshot.ts";
 import { isolatedGitEnvironment } from "../../scripts/git_environment.ts";
+import { isAuthenticPublicSnapshotCheckout } from "../../scripts/public_snapshot_checkout.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 const SNAPSHOT_CLI = join(ROOT, "scripts", "public_snapshot.ts");
@@ -865,8 +866,17 @@ test("package scripts split focused snapshot tests from the fresh-repository int
 });
 
 test("actual repository root excludes the obsolete snapshot mirror", () => {
+  const manifestPath = join(ROOT, PUBLIC_SNAPSHOT_MANIFEST);
+  if (isAuthenticPublicSnapshotCheckout(ROOT)) {
+    assert.equal(
+      existsSync(manifestPath),
+      true,
+      `generated snapshot must retain ${PUBLIC_SNAPSHOT_MANIFEST}`,
+    );
+    return;
+  }
   assert.equal(
-    existsSync(join(ROOT, PUBLIC_SNAPSHOT_MANIFEST)),
+    existsSync(manifestPath),
     false,
     `obsolete repository-root ${PUBLIC_SNAPSHOT_MANIFEST} must be absent`,
   );
