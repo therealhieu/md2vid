@@ -430,11 +430,14 @@ jobs:
                 id
                 nameWithOwner
                 url
-                pullRequest: node(id: $pullRequestId) {
-                  ... on PullRequest {
-                    id
-                    headRefOid
-                  }
+              }
+              pullRequest: node(id: $pullRequestId) {
+                ... on PullRequest {
+                  id
+                  headRefOid
+                  repository { id nameWithOwner url }
+                  baseRepository { id nameWithOwner url }
+                  headRepository { id nameWithOwner url }
                 }
               }
             }`;
@@ -498,12 +501,21 @@ jobs:
 
           function liveMatches(response) {
             const repository = response?.data?.repository;
-            const pullRequest = repository?.pullRequest;
+            const pullRequest = response?.data?.pullRequest;
             return repository?.id === expectedGraphqlRepository.id
               && repository?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
               && repository?.url === expectedGraphqlRepository.url
               && pullRequest?.id === pullRequestId
-              && pullRequest?.headRefOid === expectedHeadOid;
+              && pullRequest?.headRefOid === expectedHeadOid
+              && pullRequest?.repository?.id === expectedGraphqlRepository.id
+              && pullRequest?.repository?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
+              && pullRequest?.repository?.url === expectedGraphqlRepository.url
+              && pullRequest?.baseRepository?.id === expectedGraphqlRepository.id
+              && pullRequest?.baseRepository?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
+              && pullRequest?.baseRepository?.url === expectedGraphqlRepository.url
+              && pullRequest?.headRepository?.id === expectedGraphqlRepository.id
+              && pullRequest?.headRepository?.nameWithOwner === expectedGraphqlRepository.nameWithOwner
+              && pullRequest?.headRepository?.url === expectedGraphqlRepository.url;
           }
 
           if (!/^[A-Za-z0-9_:-]+$/.test(String(pullRequestId)) || !/^[a-f0-9]{40}$/.test(String(expectedHeadOid))) {
