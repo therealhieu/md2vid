@@ -3118,8 +3118,8 @@ test("Dependabot branch refresh structural policy rejects security mutations", (
     yaml.replace("owner: therealhieu", "owner: ${{ github.repository_owner }}"),
     yaml.replace("repositories: md2vid", "repositories: md2vid,other"),
     yaml.replace(
-      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
-      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n        skip-token-revoke: true\n",
+      "        with:\n          app-id: ${{ vars.DEPENDABOT_REFRESH_APP_ID }}\n",
+      "        with:\n          skip-token-revoke: true\n          app-id: ${{ vars.DEPENDABOT_REFRESH_APP_ID }}\n",
     ),
     yaml.replace(
       "    permissions: {}\n    steps:\n",
