@@ -2201,7 +2201,7 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
   assert.match(policy, /id: 1309960592/);
   assert.match(policy, /fullName: "therealhieu\/md2vid"/);
   assert.match(policy, /apiUrl: "https:\/\/api\.github\.com\/repos\/therealhieu\/md2vid"/);
-  assert.match(policy, /id: "R_kgDOThQpsA"/);
+  assert.match(policy, /id: "R_kgDOThRpkA"/);
   assert.match(policy, /nameWithOwner: "therealhieu\/md2vid"/);
   assert.match(policy, /url: "https:\/\/github\.com\/therealhieu\/md2vid"/);
   assert.match(policy, /version-update:semver-patch/);
@@ -2279,7 +2279,7 @@ const restRepository = {
   url: "https://api.github.com/repos/therealhieu/md2vid",
 };
 const graphqlRepository = {
-  id: "R_kgDOThQpsA",
+  id: "R_kgDOThRpkA",
   nameWithOwner: "therealhieu/md2vid",
   url: "https://github.com/therealhieu/md2vid",
 };
