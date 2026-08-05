@@ -109,3 +109,7 @@ The planned `0.7.87` target advanced to published `0.7.88` during native recreat
 | Dependency versions | **PASS** — recreated head resolves HyperFrames `0.7.88` and the Remotion family `4.0.503` |
 | HyperFrames compatibility | **PASS** — #57 documents that the published `0.7.88` bytes match the reviewed `0.7.87` patch variant |
 | v2 App-rebase mutation canary | **FAIL / ABANDONED** — do not use this mutation path for #48 |
+
+## Evidence-branch disposition
+
+This evidence branch remains local-only and unre-based until Task 20. Do not push or rebase it before the final audit.
