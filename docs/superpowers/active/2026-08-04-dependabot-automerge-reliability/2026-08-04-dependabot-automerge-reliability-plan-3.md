@@ -8,6 +8,8 @@
 
 **Tech Stack:** GitHub Actions, `actions/create-github-app-token` v2.2.2, Bash, jq, inline Node.js ESM, GitHub REST and GraphQL APIs.
 
+> **Active App-token v3 supersession (future-facing):** The v2.2.2 values below are completed Task 5–6 history. Future branch-refresh executions use only `actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0`, `DEPENDABOT_REFRESH_APP_ID`, `DEPENDABOT_REFRESH_APP_PRIVATE_KEY`, owner `therealhieu`, repository `md2vid`, and `contents: write`, `pull-requests: write`, and `metadata: read` inputs. Default revocation remains enabled (`skip-token-revoke` absent); the job and App-token step omit `NODE_USE_ENV_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. This pin demonstrates token-creation policy and no-candidate runtime readiness only: Task 9's live App-rebase mutation canary remains abandoned and is not reauthorized.
+
 ---
 
 ## Group: `branch-refresh`

@@ -43,6 +43,12 @@ Secret:   DEPENDABOT_REFRESH_APP_PRIVATE_KEY
 
 The refresh workflow mints a short-lived installation token through official `actions/create-github-app-token` pinned to a full commit SHA. The App token is used only to query and mutate the selected Dependabot PR. The built-in `GITHUB_TOKEN` is never a fallback mutation credential.
 
+### Active App-token v3 Supersession
+
+> **Supersedes v2.2.2 for future branch-refresh executions.** Completed v2 implementation and canary history remains historical evidence.
+
+The sole approved pin is `actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0`, retaining `DEPENDABOT_REFRESH_APP_ID`, `DEPENDABOT_REFRESH_APP_PRIVATE_KEY`, owner `therealhieu`, repository `md2vid`, and explicit `contents: write`, `pull-requests: write`, and `metadata: read` inputs. Default revocation remains enabled (`skip-token-revoke` absent), and the job and token step omit `NODE_USE_ENV_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. This pin validates token creation policy and no-candidate runtime readiness only; Task 9's live App-rebase mutation canary remains abandoned and is not reauthorized.
+
 ## Goals
 
 - Unblock current eligible patch PRs #47 and #48 without modifying their branches manually or bypassing checks.
