@@ -37,4 +37,11 @@ The one matching published bundle has the exact already-reviewed `0.7.87` `rr` /
 - `corepack npm --version`: `11.15.0`.
 - `node --test frameworks/hyperframes/__tests__/patch-studio.test.ts`: pass, `13/13`.
 - `node --test test/cli/hyperframes-self-heal.test.ts`: pass, `14/14`.
+- `node --test test/cli/hyperframes-cli.test.ts`: pass, `13/13`.
+- `node --test test/cli/hyperframes-render-policy.test.ts`: pass, `15/15`.
+- `corepack npm run public:snapshot:check`: pass.
+- `corepack npm run check`: pass, `1,283/1,283`; `0` failures.
+- `corepack npm run release:check`: pass, including `OK [all]` after package, install, CLI, isolated skill, HyperFrames smoke/render, Remotion smoke/still, and narration stages.
+- `git diff --check origin/main...HEAD`: pass.
+- Final `git status --short`: empty.
 - `package.json` and `package-lock.json`: unchanged from `origin/main`; root HyperFrames dependency remains `0.7.80`.
