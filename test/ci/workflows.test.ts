@@ -2922,6 +2922,41 @@ test("Dependabot branch refresh live query uses a root PR node and exact reposit
   assert.match(mutation, /const secondLive = callGraphql\(liveQuery\);/);
 });
 
+test("Dependabot branch refresh mutation fails closed on root repository owner and URL changes before either mutation", () => {
+  const yaml = workflow("dependabot-branch-refresh.yml");
+  const selected = { pullRequestId: "PR_kwDOThQpsM6example47", expectedHeadOid: expectedHead };
+
+  for (const [field, value] of [
+    ["nameWithOwner", "therealhieu/other"],
+    ["url", "https://github.com/therealhieu/other"],
+  ] as const) {
+    const firstLive = liveRefreshResponse();
+    ((firstLive.data as WorkflowRecord).repository as WorkflowRecord)[field] = value;
+    const first = runRefreshMutation(yaml, { selected, responses: [firstLive] });
+    assert.notEqual(first.status, 0, `first live ${field}`);
+    assert.deepEqual(first.trace.map((call) => call.operation), ["query"], `first live ${field}`);
+    assert.equal(first.summary.reason, "head-changed", `first live ${field}`);
+
+    const secondLive = liveRefreshResponse();
+    ((secondLive.data as WorkflowRecord).repository as WorkflowRecord)[field] = value;
+    const second = runRefreshMutation(yaml, {
+      selected,
+      responses: [
+        liveRefreshResponse(),
+        { data: { disablePullRequestAutoMerge: { pullRequest: { id: selected.pullRequestId } } } },
+        secondLive,
+      ],
+    });
+    assert.notEqual(second.status, 0, `second live ${field}`);
+    assert.deepEqual(
+      second.trace.map((call) => call.operation),
+      ["query", "disablePullRequestAutoMerge", "query"],
+      `second live ${field}`,
+    );
+    assert.equal(second.summary.reason, "head-changed", `second live ${field}`);
+  }
+});
+
 test("Dependabot branch refresh mutation revalidates heads, disables, then rebases", () => {
   const yaml = workflow("dependabot-branch-refresh.yml");
   const selected = { pullRequestId: "PR_kwDOThQpsM6example47", expectedHeadOid: expectedHead };
