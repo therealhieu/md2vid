@@ -50,21 +50,21 @@ Read-only GitHub API assertion passed with `strict=true`; contexts exactly `depe
 
 ## Final local verification
 
-All final commands used Corepack `npm@11.15.0` and exited `0` in a controlled serial run. A temporary untracked Node interposer added `--test-concurrency=1` only when a command already contained `--test`; this preserved the `<900ms` narration test and its coverage while avoiding full-suite file-process contention.
+All final commands ran under Node v26.4.0; npm commands used Corepack npm@11.15.0 and exited 0 in a controlled serial run.
 
 | Command / assertion | Result |
 |---|---|
-| `corepack npm ci` | PASS |
-| `node --test test/ci/public-snapshot-check.test.ts` | PASS, 10/10 |
-| `node --test frameworks/hyperframes/__tests__/patch-studio.test.ts` | PASS, 13/13 |
-| `node --test test/cli/hyperframes-self-heal.test.ts` | PASS, 14/14 |
-| `node --test test/cli/dependency-versions.test.ts` | PASS, 9/9 |
-| `node --test test/ci/workflows.test.ts` | PASS, 83/83 |
-| `corepack npm run public:snapshot` | PASS, 334 files, SHA-256 `852d0d1f44eeae53fad9f97a527555a566f1b4e67440bb5ce52fbeb8d7c6ad3b`; status unchanged; root `public-snapshot.json` absent. |
-| serialized `corepack npm run public:snapshot:check` | PASS; source and isolated generated-snapshot full gates each 1,283/1,283; internal manifest verified; threshold case 117.2ms and 352.2ms. |
-| serialized `corepack npm run check` | PASS, 1,283/1,283; 0 failed/cancelled/skipped/todo; 245,045.1ms; threshold case 308.6ms. |
-| serialized `corepack npm run release:check` | PASS, nested full gate 1,283/1,283; package, install, CLI, isolated skill config/home, HyperFrames browser/short-render, Remotion still-render, narration, and aggregate stages passed; threshold case 119.2ms. |
-| `git diff --check` | PASS; final worktree clean before archive edits. |
+| `corepack npm ci` | PASS, exit 0 |
+| `node --test test/ci/public-snapshot-check.test.ts` | PASS, exit 0, 10/10 |
+| `node --test frameworks/hyperframes/__tests__/patch-studio.test.ts` | PASS, exit 0, 13/13 |
+| `node --test test/cli/hyperframes-self-heal.test.ts` | PASS, exit 0, 14/14 |
+| `node --test test/cli/dependency-versions.test.ts` | PASS, exit 0, 9/9 |
+| `node --test test/ci/workflows.test.ts` | PASS, exit 0, 83/83 |
+| `corepack npm run public:snapshot` | PASS, exit 0, 334 files, SHA-256 `852d0d1f44eeae53fad9f97a527555a566f1b4e67440bb5ce52fbeb8d7c6ad3b`; status unchanged; root `public-snapshot.json` absent. |
+| `corepack npm run public:snapshot:check` | PASS, exit 0; source and isolated generated-snapshot full gates each 1,283/1,283; 0 failed/cancelled/skipped/todo; 83,253.4ms and 80,231.7ms; internal manifest verified; threshold cases 453.2ms and 619.8ms. |
+| `corepack npm run check` | PASS, exit 0, 1,283/1,283; 0 failed/cancelled/skipped/todo; 80,077.9ms; threshold case 536.5ms. |
+| `corepack npm run release:check` | PASS, exit 0, nested full gate 1,283/1,283; 0 failed/cancelled/skipped/todo; 81,994.3ms; package, install, CLI, isolated skill config/home, HyperFrames browser/short-render, Remotion still-render, narration, and aggregate stages passed; threshold case 467.9ms. |
+| `git diff --check` | PASS, exit 0; final worktree clean before archive edits. |
 
 ## Deviations
 

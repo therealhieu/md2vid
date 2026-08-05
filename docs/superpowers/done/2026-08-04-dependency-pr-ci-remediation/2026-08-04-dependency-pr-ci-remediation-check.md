@@ -41,9 +41,27 @@
 
 ## Decisions
 
-- [x] Final serial command record (Corepack `npm@11.15.0`, Node `v26.4.0`): `corepack npm ci` — PASS; `node --test test/ci/public-snapshot-check.test.ts` — PASS 10/10; `node --test frameworks/hyperframes/__tests__/patch-studio.test.ts` — PASS 13/13; `node --test test/cli/hyperframes-self-heal.test.ts` — PASS 14/14; `node --test test/cli/dependency-versions.test.ts` — PASS 9/9; `node --test test/ci/workflows.test.ts` — PASS 83/83.
-- [x] Snapshot commands: `corepack npm run public:snapshot` — PASS, 334 files and SHA-256 `852d0d1f44eeae53fad9f97a527555a566f1b4e67440bb5ce52fbeb8d7c6ad3b`, no status mutation, and root `public-snapshot.json` absent; serialized `corepack npm run public:snapshot:check` — PASS with source and isolated generated-snapshot full stages 1,283/1,283 each, each with 0 failed/cancelled/skipped/todo, and generated internal manifest verification; serialized `corepack npm run check` — PASS 1,283/1,283, 0 failed/cancelled/skipped/todo in 245,045.1ms; serialized `corepack npm run release:check` — PASS with nested full stage 1,283/1,283, 0 failed/cancelled/skipped/todo in 163,760.2ms, plus package/install/CLI/isolated-skill/HyperFrames/Remotion/narration/aggregate release stages; `git diff --check` — PASS.
-- [x] The controlled serial runner was a temporary untracked `PATH` interposer that passed `--test-concurrency=1` only to existing `node --test` commands. It changed neither source nor the `<900ms` narration threshold/coverage. The final threshold case measured 117.2ms and 352.2ms in snapshot checks, 308.6ms in `check`, and 119.2ms in `release:check`; three direct serialized controls were 159.8ms, 165.6ms, and 160.2ms.
+- [x] Task 20 Step 4 final command record — all commands ran under Node `v26.4.0`; npm commands used Corepack `npm@11.15.0`; every entry below exited `0` in the controlled serial run.
+
+  | Command / assertion (verbatim) | Numeric result |
+  |---|---|
+  | `corepack npm ci` | exit 0 |
+  | `node --test test/ci/public-snapshot-check.test.ts` | exit 0; 10/10; 0 failed/cancelled/skipped/todo |
+  | `node --test frameworks/hyperframes/__tests__/patch-studio.test.ts` | exit 0; 13/13; 0 failed/cancelled/skipped/todo |
+  | `node --test test/cli/hyperframes-self-heal.test.ts` | exit 0; 14/14; 0 failed/cancelled/skipped/todo |
+  | `node --test test/cli/dependency-versions.test.ts` | exit 0; 9/9; 0 failed/cancelled/skipped/todo |
+  | `node --test test/ci/workflows.test.ts` | exit 0; 83/83; 0 failed/cancelled/skipped/todo |
+  | `BEFORE=$(git status --short)` | exit 0; captured pre-snapshot status |
+  | `corepack npm run public:snapshot` | exit 0; 334 files; SHA-256 `852d0d1f44eeae53fad9f97a527555a566f1b4e67440bb5ce52fbeb8d7c6ad3b` |
+  | `AFTER=$(git status --short)` | exit 0; captured post-snapshot status |
+  | `test "$AFTER" = "$BEFORE"` | exit 0; status unchanged |
+  | `test ! -e public-snapshot.json` | exit 0; repository-root manifest absent |
+  | `corepack npm run public:snapshot:check` | exit 0; source and isolated generated-snapshot gates each 1,283/1,283; 0 failed/cancelled/skipped/todo; 83,253.4ms and 80,231.7ms; internal manifest verified; threshold cases 453.2ms and 619.8ms |
+  | `corepack npm run check` | exit 0; 1,283/1,283; 0 failed/cancelled/skipped/todo; 80,077.9ms; threshold case 536.5ms |
+  | `corepack npm run release:check` | exit 0; nested full gate 1,283/1,283; 0 failed/cancelled/skipped/todo; 81,994.3ms; package/install/CLI/isolated-skill/HyperFrames/Remotion/narration/aggregate stages passed; threshold case 467.9ms |
+  | `git diff --check` | exit 0 |
+
+- [x] Controlled-environment diagnosis and confirmation: `NODE_OPTIONS` was unset, commands ran one at a time, and the Node test runner retained its default file-concurrency behavior. The direct narration request suite passed 28/28 with the protected-domain case at 114.8ms. The earlier `public:snapshot:check` exit 1 is consistent with its observed full-suite timing contention, not a behavior defect: this clean rerun passed every gate below the unchanged `<900ms` policy without source, threshold, concurrency, or coverage changes.
 - [x] Implementation and rollout tasks are complete 19/19. Task 20 final audit/check/archive has been committed. Task 21 protected publication remains the only planned outward action. Unit A, Unit B, TypeScript 6, and Action v3 each have the direct confirmations above; no unfinished implementation or rollout work remains.
 
 ## Risks / Follow-ups
