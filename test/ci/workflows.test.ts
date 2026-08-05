@@ -2113,11 +2113,11 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
   assert.equal(token.id, "app-token");
   assert.equal(
     String(token.uses),
-    "actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349",
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1",
   );
   assert.match(
     yaml,
-    /uses:\s+actions\/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349\s+# v2\.2\.2/,
+    /uses:\s+actions\/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1\s+# v3\.2\.0/,
   );
   assert.deepEqual(token.with, {
     "app-id": "${{ vars.DEPENDABOT_REFRESH_APP_ID }}",
@@ -2129,6 +2129,15 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
     "permission-metadata": "read",
   });
   assert.equal(Object.hasOwn(token, "continue-on-error"), false);
+  assert.equal(Object.hasOwn(token, "skip-token-revoke"), false);
+  for (const [label, record] of [["job", job], ["App-token step", token]] as const) {
+    const environment = Object.hasOwn(record, "env")
+      ? asRecord(record.env, `${label} env`)
+      : {};
+    for (const name of ["NODE_USE_ENV_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"]) {
+      assert.equal(Object.hasOwn(environment, name), false, `${label} must not configure ${name}`);
+    }
+  }
 
   for (const [index, step] of steps.entries()) {
     const run = String(step.run ?? "");
@@ -2143,7 +2152,7 @@ function assertDependabotBranchRefreshPolicy(yaml: string): void {
 
   const uses = [...yaml.matchAll(/^\s+uses:\s+(.+)$/gm)].map((match) => match[1].trim());
   assert.deepEqual(uses, [
-    "actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2",
+    "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
   ]);
 
   const forbidden = /\$\{\{\s*github\.token\s*\}\}|\$\{\{\s*secrets\.(?:GITHUB|GH|PAT|PERSONAL_ACCESS|DEPENDABOT_REFRESH_TOKEN)[A-Z0-9_]*\s*\}\}|actions\/checkout@|uses:\s+\.\/|actions\/(?:upload-artifact|download-artifact|cache)@|\bnpm\s+|\bcorepack\b|node_modules|dist\/bin|node\s+scripts\/|gh\s+pr\s+review|event=APPROVE|reviews\b|gh\s+pr\s+merge|\/merge\b|--admin|enablePullRequestAutoMerge/i;
@@ -3108,8 +3117,26 @@ test("Dependabot branch refresh structural policy rejects security mutations", (
     yaml.replace("permission-metadata: read", "permission-metadata: write"),
     yaml.replace("owner: therealhieu", "owner: ${{ github.repository_owner }}"),
     yaml.replace("repositories: md2vid", "repositories: md2vid,other"),
-    yaml.replace("fee1f7d63c2ff003460e3d139729b119787bc349", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-    yaml.replace(" # v2.2.2", ""),
+    yaml.replace(
+      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n        skip-token-revoke: true\n",
+    ),
+    yaml.replace(
+      "    permissions: {}\n    steps:\n",
+      "    permissions: {}\n    env:\n      NODE_USE_ENV_PROXY: true\n    steps:\n",
+    ),
+    yaml.replace(
+      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n",
+      "        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0\n        env:\n          HTTP_PROXY: http://proxy.invalid\n",
+    ),
+    yaml.replace(
+      "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+      "actions/create-github-app-token@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # v3.2.0",
+    ),
+    yaml.replace(
+      "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0",
+      "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.1",
+    ),
     yaml.replace("${{ steps.app-token.outputs.token }}", "${{ github.token }}"),
     yaml.replace("          GH_TOKEN: ${{ steps.app-token.outputs.token }}\n          SUMMARY_FILE", "          SUMMARY_FILE"),
     yaml.replace("${{ secrets.DEPENDABOT_REFRESH_APP_PRIVATE_KEY }}", "${{ secrets.PAT_TOKEN }}"),
