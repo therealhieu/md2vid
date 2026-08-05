@@ -44,4 +44,5 @@ The one matching published bundle has the exact already-reviewed `0.7.87` `rr` /
 - `corepack npm run release:check`: pass, including `OK [all]` after package, install, CLI, isolated skill, HyperFrames smoke/render, Remotion smoke/still, and narration stages.
 - `git diff --check origin/main...HEAD`: pass.
 - Final `git status --short`: empty.
-- `package.json` and `package-lock.json`: unchanged from `origin/main`; root HyperFrames dependency remains `0.7.80`.
+- Historical reviewed scope: at scope origin `82a4044d04e495d9883ccb79302e4d2f3f2c7cf0`, `package.json` and `package-lock.json` remained `hyperframes: 0.7.80`; this evidence-only proof made no dependency change.
+- Publication context: after native #47 merged and this branch rebased onto publication base `2f358bbb195d53b6ff4da80e14c66e167e2fe1d5`, `origin/main` already contains `hyperframes: 0.7.88`; this documentation-only PR changes neither package manifest.
