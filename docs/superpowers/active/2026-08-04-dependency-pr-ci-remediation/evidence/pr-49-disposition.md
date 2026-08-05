@@ -6,11 +6,11 @@
 - State at closure: `CLOSED` / **UNMERGED** at `2026-08-05T06:42:36Z`.
 - Branch and head at closure: `dependabot/npm_and_yarn/typescript-7.0.2` / `6125c0e3d76242b8d7544677d95c512dfc7021b6`.
 - PR author: `app/dependabot`.
-- `mergedAt`: `null`; no merge commit exists.
+- `mergedAt` and GraphQL `mergeCommit` are `null`; #49 was closed without merging. GitHub REST reports synthetic merge-test object `5d36d264eae13a66506e7ca08cfe0fd045e4f9ef` in `merge_commit_sha`; it is not a PR merge.
 - Current provenance remains exactly one commit, `6125c0e3d76242b8d7544677d95c512dfc7021b6`: author `dependabot[bot]`, GitHub/web-flow committer identity, and no maintainer commit. No commits were added to #49.
-- Public closure comment: [#issuecomment-5188463742](https://github.com/therealhieu/md2vid/pull/49#issuecomment-5188463742), posted at `2026-08-05T06:42:38Z` by `dependabot`.
+- Human closure rationale: [#issuecomment-5188463407](https://github.com/therealhieu/md2vid/pull/49#issuecomment-5188463407), posted at `2026-08-05T06:42:35Z` by `therealhieu`.
 
-The concise closure reason was that the merged human-owned TypeScript 6.0.3 successor superseded the incompatible TypeScript 7.0.2 proposal.
+The recorded closure rationale was that merged human-owned TypeScript 6.0.3 successor #58 superseded #49: TypeScript 7.0.2 is incompatible with the `@remotion/bundler` JavaScript compiler API (`readConfigFile` and `typescript.sys.readFile`), while #58 preserved root-to-scaffold version authority, passed the typecheck, dynamic snapshot, full-check, and generated Remotion smoke gates, and added no compatibility shim or unstable internal entry.
 
 ## Verified release-smoke root cause
 
@@ -54,7 +54,7 @@ The TypeScript 6 successor verification retained this conclusion without a worka
 | Assertion | Conclusion |
 |---|---|
 | Successor and dependency authority | **PASS** — #58 merged with root-authoritative TypeScript 6.0.3 and all required checks `SUCCESS` |
-| PR #49 | **CLOSED UNMERGED** — `mergedAt` is `null`, no merge commit exists, and its sole Dependabot commit is unchanged |
+| PR #49 | **CLOSED UNMERGED** — `mergedAt` and GraphQL `mergeCommit` are `null`; #49 was closed without merging, and its sole Dependabot commit is unchanged. The REST synthetic merge-test object is not a PR merge. |
 | #49 closure rationale | **PASS** — #58 replaced the incompatible TypeScript 7.0.2 proposal without an unsupported compatibility path |
 
 ## Evidence-branch disposition
