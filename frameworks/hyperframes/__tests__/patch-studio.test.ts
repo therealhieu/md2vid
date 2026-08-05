@@ -10,6 +10,13 @@ const LEGACY_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMode||l)re
 const LEGACY_ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
 const CURRENT_ANCHOR_1 = "let l=!1;const c=()=>{if(tr.getState().isEditMode||l)return;";
 const CURRENT_ANCHOR_2 = "if(!p)return;l=!0;const A=p;fetch(";
+const V087_ANCHOR_1 =
+  "let l=!1;const c=()=>{if(rr.getState().isEditMode||l)return;";
+const V087_ANCHOR_2 = "if(!p)return;l=!0;const v=p;fetch(";
+const V087_PATCH_1 =
+  "let l=!1,hfLast=null;const c=()=>{if(rr.getState().isEditMode||l)return;";
+const V087_PATCH_2 =
+  "if(!p)return;if(hfLast===p)return;hfLast=p;l=!0;const v=p;fetch(";
 
 test("Studio asset resolution has no injected Windows path API", () => {
   const source = readFileSync(
@@ -162,6 +169,89 @@ test("bundle with multiple known anchor variants fails closed", () => {
     assert.equal(run([bundle]), 1);
     assert.match(errors.join("\n"), /anchor variant matched 2 variant\(s\), expected 1/);
     assert.equal(readFileSync(bundle, "utf8"), `${LEGACY_ANCHOR_1}\n${LEGACY_ANCHOR_2}\n${CURRENT_ANCHOR_1}\n${CURRENT_ANCHOR_2}\n`);
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("valid 0.7.87 bundle patches exactly once and remains idempotent", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-0-7-87-"));
+  const bundle = join(root, "index-test.js");
+  try {
+    writeFileSync(bundle, `${V087_ANCHOR_1}\n${V087_ANCHOR_2}\n`);
+    assert.equal(run([bundle]), 0);
+
+    const once = readFileSync(bundle, "utf8");
+    assert.equal(once.includes(V087_ANCHOR_1), false);
+    assert.equal(once.includes(V087_ANCHOR_2), false);
+    assert.equal(once.split(V087_PATCH_1).length - 1, 1);
+    assert.equal(once.split(V087_PATCH_2).length - 1, 1);
+
+    assert.equal(run([bundle]), 0);
+    assert.equal(readFileSync(bundle, "utf8"), once);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("0.7.87 bundle with a missing second anchor fails without writing", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-0-7-87-missing-"));
+  const bundle = join(root, "index-test.js");
+  const source = `${V087_ANCHOR_1}\n`;
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    writeFileSync(bundle, source);
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    assert.match(errors.join("\n"), /anchor-2.*matched 0/);
+    assert.equal(readFileSync(bundle, "utf8"), source);
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("0.7.87 bundle with a duplicate second anchor fails without writing", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-0-7-87-duplicate-"));
+  const bundle = join(root, "index-test.js");
+  const source = `${V087_ANCHOR_1}\n${V087_ANCHOR_2}\n${V087_ANCHOR_2}\n`;
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    writeFileSync(bundle, source);
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    assert.match(errors.join("\n"), /anchor-2.*matched 2/);
+    assert.equal(readFileSync(bundle, "utf8"), source);
+  } finally {
+    console.error = original;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("current and 0.7.87 layouts together fail as ambiguous without writing", () => {
+  const root = mkdtempSync(join(tmpdir(), "patch-studio-current-0-7-87-"));
+  const bundle = join(root, "index-test.js");
+  const source = [
+    CURRENT_ANCHOR_1,
+    CURRENT_ANCHOR_2,
+    V087_ANCHOR_1,
+    V087_ANCHOR_2,
+    "",
+  ].join("\n");
+  const errors: string[] = [];
+  const original = console.error;
+  try {
+    writeFileSync(bundle, source);
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    assert.equal(run([bundle]), 1);
+    assert.match(
+      errors.join("\n"),
+      /anchor variant matched 2 variant\(s\), expected 1/,
+    );
+    assert.equal(readFileSync(bundle, "utf8"), source);
   } finally {
     console.error = original;
     rmSync(root, { recursive: true, force: true });

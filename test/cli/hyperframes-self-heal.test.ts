@@ -26,6 +26,8 @@ const LEGACY_STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(Qn.getState().isEditMod
 const LEGACY_STUDIO_ANCHOR_2 = "if(!g)return;l=!0;const A=g;fetch(";
 const CURRENT_STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(tr.getState().isEditMode||l)return;";
 const CURRENT_STUDIO_ANCHOR_2 = "if(!p)return;l=!0;const A=p;fetch(";
+const V087_STUDIO_ANCHOR_1 = "let l=!1;const c=()=>{if(rr.getState().isEditMode||l)return;";
+const V087_STUDIO_ANCHOR_2 = "if(!p)return;l=!0;const v=p;fetch(";
 const STUDIO_MARKER = "let l=!1,hfLast=null;const c=()=>{if(Qn.getState().isEditMode||l)return;";
 const CLI_ANCHOR = 'const subCompositionHosts = trackedCompositionHosts.filter((host) => host.hasAttribute("data-composition-src"));';
 const CLI_MARKER = 'host.removeAttribute("data-composition-src")';
@@ -41,7 +43,7 @@ interface FakeInstallation {
 function fakeInstallation(options: {
   malformedStudio?: boolean;
   layout?: "dist" | "bin";
-  anchorVariant?: "legacy" | "current";
+  anchorVariant?: "legacy" | "current" | "0.7.87";
   extraStudioFiles?: number;
 } = {}): FakeInstallation {
   const root = mkdtempSync(join(tmpdir(), "md2vid-hyperframes-self-heal-"));
@@ -69,7 +71,9 @@ function fakeInstallation(options: {
   );
   const anchors = options.anchorVariant === "current"
     ? [CURRENT_STUDIO_ANCHOR_1, CURRENT_STUDIO_ANCHOR_2]
-    : [LEGACY_STUDIO_ANCHOR_1, LEGACY_STUDIO_ANCHOR_2];
+    : options.anchorVariant === "0.7.87"
+      ? [V087_STUDIO_ANCHOR_1, V087_STUDIO_ANCHOR_2]
+      : [LEGACY_STUDIO_ANCHOR_1, LEGACY_STUDIO_ANCHOR_2];
   writeFileSync(studio, options.malformedStudio
     ? `${anchors[0]}\n`
     : `${anchors[0]}\n${anchors[1]}\n`);
@@ -175,6 +179,28 @@ test("HyperFrames proxy patches current dist/studio/assets layout with current a
       spawn() {
         spawned = true;
         assert.match(readFileSync(fixture.studio, "utf8"), /hfLast/);
+        return successResult();
+      },
+    });
+    assert.equal(code, 0);
+    assert.equal(spawned, true);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("HyperFrames proxy patches the reviewed 0.7.87 Studio layout", () => {
+  const fixture = fakeInstallation({ anchorVariant: "0.7.87" });
+  let spawned = false;
+  try {
+    const code = runHyperframes(["lint"], {
+      metaUrl: fixture.metaUrl,
+      spawn() {
+        spawned = true;
+        const source = readFileSync(fixture.studio, "utf8");
+        assert.match(source, /hfLast/);
+        assert.equal(source.includes(V087_STUDIO_ANCHOR_1), false);
+        assert.equal(source.includes(V087_STUDIO_ANCHOR_2), false);
         return successResult();
       },
     });

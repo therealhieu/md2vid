@@ -31,6 +31,13 @@ const STUDIO_PATCH_VARIANTS = [
     anchor2: "if(!p)return;l=!0;const A=p;fetch(",
     patch2: "if(!p)return;if(hfLast===p)return;hfLast=p;l=!0;const A=p;fetch(",
   },
+  {
+    name: "0.7.87",
+    anchor1: "let l=!1;const c=()=>{if(rr.getState().isEditMode||l)return;",
+    patch1: "let l=!1,hfLast=null;const c=()=>{if(rr.getState().isEditMode||l)return;",
+    anchor2: "if(!p)return;l=!0;const v=p;fetch(",
+    patch2: "if(!p)return;if(hfLast===p)return;hfLast=p;l=!0;const v=p;fetch(",
+  },
 ] as const;
 
 export interface PinnedHyperframesInstallation {
