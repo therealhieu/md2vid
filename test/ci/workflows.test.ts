@@ -2599,9 +2599,13 @@ process.stdout.write(JSON.stringify(response));
 function liveRefreshResponse(sha = expectedHead, id = "PR_kwDOThQpsM6example47"): WorkflowRecord {
   return {
     data: {
-      repository: {
-        ...graphqlRepository,
-        pullRequest: { id, headRefOid: sha },
+      repository: { ...graphqlRepository },
+      pullRequest: {
+        id,
+        headRefOid: sha,
+        repository: { ...graphqlRepository },
+        baseRepository: { ...graphqlRepository },
+        headRepository: { ...graphqlRepository },
       },
     },
   };
@@ -2901,6 +2905,21 @@ test("Dependabot branch refresh renders exactly five trusted summary fields", ()
   ]) {
     assert.notEqual(runRefreshSummary(yaml, unsafe).status, 0);
   }
+});
+
+test("Dependabot branch refresh live query uses a root PR node and exact repository identities", () => {
+  const mutation = refreshMutationRun(workflow("dependabot-branch-refresh.yml"));
+  const liveQuery = mutation.match(/const liveQuery = `([\s\S]*?)`;/)?.[1];
+  assert.ok(liveQuery, "missing live GraphQL query");
+  assert.match(liveQuery, /repository\(owner: \$owner, name: \$name\) \{\n\s+id\n\s+nameWithOwner\n\s+url\n\s+\}\n\s+pullRequest: node\(id: \$pullRequestId\) \{/);
+  for (const field of ["repository", "baseRepository", "headRepository"]) {
+    assert.match(liveQuery, new RegExp(`${field} \\{ id nameWithOwner url \\}`));
+    assert.match(mutation, new RegExp(`pullRequest\\?\\.${field}\\?\\.id === expectedGraphqlRepository\\.id`));
+    assert.match(mutation, new RegExp(`pullRequest\\?\\.${field}\\?\\.nameWithOwner === expectedGraphqlRepository\\.nameWithOwner`));
+    assert.match(mutation, new RegExp(`pullRequest\\?\\.${field}\\?\\.url === expectedGraphqlRepository\\.url`));
+  }
+  assert.match(mutation, /const firstLive = callGraphql\(liveQuery\);/);
+  assert.match(mutation, /const secondLive = callGraphql\(liveQuery\);/);
 });
 
 test("Dependabot branch refresh mutation revalidates heads, disables, then rebases", () => {
