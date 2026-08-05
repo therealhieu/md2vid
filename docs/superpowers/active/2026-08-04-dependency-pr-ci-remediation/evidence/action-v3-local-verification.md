@@ -28,7 +28,7 @@
 | Public snapshot gate | `corepack npm@11.15.0 run public:snapshot:check` | PASS: isolated full and release-derived stages each passed 1,283/1,283; final report passed |
 | Direct full gate | `corepack npm@11.15.0 run check` | PASS: 1,283/1,283 in 90,340.8 ms |
 | Release gate | `corepack npm@11.15.0 run release:check` | PASS: nested full stage 1,283/1,283 in 105,807.2 ms; pack, install, CLI, skill isolation, HyperFrames, Remotion, narration, and release-all stages passed |
-| Diff hygiene | `git diff --check` | PASS before post-review evidence commit; rerun after staging |
+| Diff hygiene | `git diff --check origin/main...HEAD` | PASS after all post-review commits |
 
 The earlier 900 ms narration timing failures did not recur in this controlled serial run. No narration implementation, threshold, concurrency, or coverage change was made.
 
