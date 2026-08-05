@@ -21,6 +21,8 @@ At `2026-08-05T03:30:55Z`, the PR timeline records a Dependabot force push:
 
 Native Dependabot automatically rebased #48 onto #47’s merge without user action. No user comment, workflow dispatch, rerun, branch mutation, or manual merge was issued for #48. Therefore the planned v2 dispatch was not performed and no unsafe App-authored head was created.
 
+**Deviation decision:** The planned explicit v2 dispatch was not performed because native Dependabot automatic refresh produced the safer signed Dependabot-owned final head. Its automatic sequence completed every planned success criterion: exact-head observer, CI, policy authorization, all five required checks, and native squash merge.
+
 The v2 App-rebase mutation canary was formally abandoned in Task 9 and was not used for #48.
 
 ## Final pristine head and exact-head workflows
@@ -65,6 +67,7 @@ The successful dynamic `public-snapshot / validate` check proves that this depen
 - Merge timestamp: `2026-08-05T03:36:56Z`.
 - Merge timeline actor: `github-actions`.
 - Final-head lockfile versions: `@types/react` `19.2.18`; `@types/react-dom` `19.2.4`.
+- React type-family validation: **PASS** — the final exact head resolves `@types/react` `19.2.18` and `@types/react-dom` `19.2.4`, and exact-head CI succeeded.
 
 ## Final conclusions
 
