@@ -154,6 +154,8 @@ Use repository-configured identity. Do not pass `--author`, override identity va
 
 ## Fixed Security Values
 
+> **Active App-token v3 supersession:** These values supersede v2.2.2 for future branch-refresh executions; completed v2 history remains intact.
+
 ```text
 Repository: therealhieu/md2vid
 Base branch: main
@@ -165,8 +167,10 @@ App secret: DEPENDABOT_REFRESH_APP_PRIVATE_KEY
 App installation scope: therealhieu/md2vid only
 App permissions: contents write, pull requests write, metadata read
 Action: actions/create-github-app-token
-Action version: v2.2.2
-Action SHA: fee1f7d63c2ff003460e3d139729b119787bc349
+Action version: v3.2.0
+Action SHA: bcd2ba49218906704ab6c1aa796996da409d3eb1
+Token revocation: default enabled; skip-token-revoke absent
+Proxy environment: NODE_USE_ENV_PROXY, HTTP_PROXY, HTTPS_PROXY, NO_PROXY absent from job and App-token step
 Refresh method: REBASE
 Required checks:
   pr-title
