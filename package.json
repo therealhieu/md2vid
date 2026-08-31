@@ -80,11 +80,11 @@
     "hyperframes": "0.7.88"
   },
   "optionalDependencies": {
-    "@remotion/google-fonts": "4.0.514",
-    "@remotion/media": "4.0.514",
+    "@remotion/google-fonts": "4.0.518",
+    "@remotion/media": "4.0.518",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "remotion": "4.0.514"
+    "remotion": "4.0.518"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
