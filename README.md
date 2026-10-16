@@ -1,5 +1,8 @@
 # md2vid
 
+> [!WARNING]
+> **Deprecated.** md2vid is deprecated and no longer maintained. The repository is archived and the npm package is deprecated.
+
 Turn Markdown documents into narrated HyperFrames or Remotion explainer videos with a global CLI and the `/md2vid` Claude Code skill.
 
 ## Requirements
